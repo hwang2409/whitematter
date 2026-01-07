@@ -12,8 +12,8 @@ endif
 
 CXXFLAGS = -std=c++17 -O3 -Wall -Wextra $(SIMD_FLAGS) -ffast-math -funroll-loops
 
-SOURCES = ml.cpp tensor.cpp layer.cpp loss.cpp optimizer.cpp mnist.cpp
-HEADERS = tensor.h layer.h loss.h optimizer.h mnist.h
+SOURCES = ml.cpp tensor.cpp layer.cpp loss.cpp optimizer.cpp mnist.cpp serialize.cpp
+HEADERS = tensor.h layer.h loss.h optimizer.h mnist.h serialize.h
 OBJECTS = $(SOURCES:.cpp=.o)
 TARGET = ml
 

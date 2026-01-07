@@ -6,6 +6,7 @@
 #include "loss.h"
 #include "optimizer.h"
 #include "mnist.h"
+#include "serialize.h"
 
 float compute_accuracy(Sequential& model, DataLoader& loader) {
     NoGradGuard no_grad;  // Disable gradient tracking for inference
@@ -124,7 +125,31 @@ int main(int argc, char* argv[]) {
     }
 
     printf("---------------------------------------------------------------\n");
-    printf("Training complete!\n");
+    printf("Training complete!\n\n");
+
+    // Save the trained model
+    printf("Saving model...\n");
+    save_model(&model, "model.bin");
+
+    // Save checkpoint (model + optimizer state)
+    float final_test_acc = compute_accuracy(model, test_loader) / 100.0f;
+    save_checkpoint("checkpoint.bin", &model, &optimizer, num_epochs, 0.0f, final_test_acc);
+
+    // Demonstrate loading: create a new model and load weights
+    printf("\nDemonstrating model loading...\n");
+    Sequential loaded_model({
+        new Linear(784, 256),
+        new ReLU(),
+        new Linear(256, 128),
+        new ReLU(),
+        new Linear(128, 10)
+    });
+
+    load_model(&loaded_model, "model.bin");
+
+    // Verify loaded model works
+    float loaded_acc = compute_accuracy(loaded_model, test_loader);
+    printf("Loaded model test accuracy: %.2f%%\n", loaded_acc);
 
     return 0;
 }
