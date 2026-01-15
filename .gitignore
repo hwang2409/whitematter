@@ -1,4 +1,5 @@
 *.o
 ml
+cnn_mnist
 *.bin
 data/
