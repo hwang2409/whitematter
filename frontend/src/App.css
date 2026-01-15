@@ -1,0 +1,1052 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  background: #000;
+  color: #e0e0e0;
+  min-height: 100vh;
+}
+
+.app {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+/* Header */
+.header {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.header h1 {
+  margin: 0;
+  font-size: 2.5rem;
+  color: #fff;
+  font-weight: 300;
+  letter-spacing: 0.1em;
+}
+
+.subtitle {
+  margin: 0.5rem 0 0;
+  color: #666;
+  font-size: 1rem;
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 2rem;
+  border-bottom: 1px solid #333;
+  padding-bottom: 0.5rem;
+}
+
+.tab {
+  background: transparent;
+  border: none;
+  color: #666;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  cursor: pointer;
+  border-radius: 8px 8px 0 0;
+  transition: all 0.2s;
+}
+
+.tab:hover {
+  color: #fff;
+  background: #111;
+}
+
+.tab.active {
+  color: #fff;
+  background: #111;
+  font-weight: 500;
+}
+
+/* Content */
+.content {
+  background: #111;
+  border-radius: 12px;
+  padding: 2rem;
+}
+
+/* Form elements */
+.form-group {
+  margin-bottom: 1.5rem;
+  text-align: left;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+  color: #aaa;
+}
+
+.form-group select,
+.form-group input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  color: #e0e0e0;
+  font-size: 1rem;
+}
+
+.form-group select:focus,
+.form-group input:focus {
+  outline: none;
+  border-color: #fff;
+}
+
+.form-group select:disabled,
+.form-group input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.help-text {
+  margin: 0.5rem 0 0;
+  font-size: 0.875rem;
+  color: #666;
+}
+
+/* Buttons */
+.btn {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn.primary {
+  background: #fff;
+  color: #000;
+}
+
+.btn.primary:hover:not(:disabled) {
+  background: #ccc;
+}
+
+.btn.danger {
+  background: #333;
+  color: #fff;
+  border: 1px solid #666;
+}
+
+.btn.danger:hover:not(:disabled) {
+  background: #444;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Error */
+.error {
+  background: #1a1a1a;
+  border: 1px solid #666;
+  color: #ccc;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
+/* Status badges */
+.status-completed { color: #fff; }
+.status-running { color: #aaa; }
+.status-pending { color: #666; }
+.status-failed { color: #888; }
+.status-cancelled { color: #555; }
+
+.status-badge {
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.status-badge.status-completed { background: rgba(255, 255, 255, 0.1); }
+.status-badge.status-running { background: rgba(255, 255, 255, 0.05); }
+.status-badge.status-pending { background: rgba(255, 255, 255, 0.03); }
+.status-badge.status-failed { background: rgba(255, 255, 255, 0.03); }
+.status-badge.status-cancelled { background: rgba(255, 255, 255, 0.02); }
+
+/* Train Tab */
+.train-tab h2,
+.models-tab h2,
+.predict-tab h2 {
+  margin-top: 0;
+  margin-bottom: 1.5rem;
+}
+
+.training-status {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background: #1a1a1a;
+  border-radius: 8px;
+}
+
+.training-status h3 {
+  margin: 0 0 1rem;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.status-item {
+  text-align: center;
+}
+
+.status-item .label {
+  display: block;
+  font-size: 0.75rem;
+  color: #666;
+  text-transform: uppercase;
+  margin-bottom: 0.25rem;
+}
+
+.status-item .value {
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.message {
+  color: #666;
+  font-style: italic;
+}
+
+.progress-bar {
+  height: 8px;
+  background: #222;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-top: 1rem;
+}
+
+.progress {
+  height: 100%;
+  background: #fff;
+  transition: width 0.3s ease;
+}
+
+/* Form Layout */
+.form-row {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.form-group.half {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+/* Advanced Settings */
+.btn-link {
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+  padding: 0.5rem 0;
+  font-size: 0.875rem;
+  margin-bottom: 2rem;
+  display: block;
+}
+
+.btn-link:hover {
+  color: #fff;
+  text-decoration: underline;
+}
+
+.btn-link:disabled {
+  color: #444;
+  cursor: not-allowed;
+}
+
+.advanced-settings {
+  background: #1a1a1a;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.settings-section {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid #333;
+}
+
+.settings-section:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.settings-section h4 {
+  margin: 0 0 1rem;
+  font-size: 0.875rem;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.aug-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+.aug-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  padding: 0.5rem;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.aug-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.aug-item input[type="checkbox"] {
+  width: auto;
+  accent-color: #fff;
+}
+
+.aug-item span {
+  font-size: 0.875rem;
+}
+
+/* Models Tab */
+.models-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.models-header h2 {
+  margin: 0;
+}
+
+.empty-state {
+  color: #666;
+  text-align: center;
+  padding: 3rem;
+}
+
+.models-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+
+.models-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.model-card {
+  background: #1a1a1a;
+  padding: 1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+}
+
+.model-card:hover {
+  border-color: #333;
+}
+
+.model-card.selected {
+  border-color: #fff;
+}
+
+.model-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.model-card-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.model-card-info {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  color: #666;
+  margin-bottom: 0.5rem;
+}
+
+.model-card-stats {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.875rem;
+  color: #aaa;
+}
+
+.model-details {
+  background: #1a1a1a;
+  padding: 1.5rem;
+  border-radius: 8px;
+}
+
+.model-details h3 {
+  margin: 0 0 1rem;
+}
+
+.details-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.detail-item .label {
+  display: block;
+  font-size: 0.75rem;
+  color: #666;
+  text-transform: uppercase;
+  margin-bottom: 0.25rem;
+}
+
+.detail-item .value {
+  font-weight: 500;
+}
+
+.training-history {
+  margin-bottom: 1.5rem;
+}
+
+.training-history h4 {
+  margin: 0 0 0.75rem;
+  font-size: 0.875rem;
+  color: #666;
+}
+
+.training-history table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+.training-history th,
+.training-history td {
+  padding: 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid #222;
+}
+
+.training-history th {
+  color: #666;
+  font-weight: 500;
+}
+
+.model-actions {
+  padding-top: 1rem;
+  border-top: 1px solid #222;
+}
+
+/* Predict Tab */
+.drop-zone {
+  border: 1px dashed #333;
+  border-radius: 12px;
+  padding: 3rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 1.5rem;
+}
+
+.drop-zone:hover {
+  border-color: #666;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.drop-zone.has-image {
+  padding: 1rem;
+  cursor: default;
+}
+
+.drop-zone-content p {
+  margin: 0;
+  color: #666;
+}
+
+.drop-zone-content .hint {
+  font-size: 0.875rem;
+  margin-top: 0.5rem;
+}
+
+.preview-container {
+  position: relative;
+  display: inline-block;
+}
+
+.preview-image {
+  max-width: 100%;
+  max-height: 300px;
+  border-radius: 8px;
+}
+
+.clear-btn {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #333;
+  color: #fff;
+  border: 1px solid #666;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.clear-btn:hover {
+  background: #444;
+}
+
+.prediction-result {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background: #1a1a1a;
+  border-radius: 8px;
+}
+
+.prediction-result h3 {
+  margin: 0 0 1rem;
+}
+
+.main-prediction {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+}
+
+.class-name {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.confidence {
+  color: #aaa;
+  font-weight: 500;
+}
+
+.probabilities h4 {
+  margin: 0 0 1rem;
+  font-size: 0.875rem;
+  color: #666;
+}
+
+.prob-bar {
+  display: grid;
+  grid-template-columns: 100px 1fr 60px;
+  gap: 0.75rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.prob-label {
+  font-size: 0.875rem;
+  text-align: right;
+}
+
+.prob-track {
+  height: 8px;
+  background: #222;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.prob-fill {
+  height: 100%;
+  background: #fff;
+  transition: width 0.3s ease;
+}
+
+.prob-value {
+  font-size: 0.875rem;
+  color: #666;
+}
+
+/* Datasets Tab */
+.datasets-tab h2 {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+}
+
+.datasets-tab .subtitle {
+  margin-bottom: 1.5rem;
+}
+
+.upload-section {
+  background: #1a1a1a;
+  padding: 1.5rem;
+  border-radius: 8px;
+  margin-bottom: 2rem;
+}
+
+.upload-section h3 {
+  margin: 0 0 0.5rem;
+}
+
+.datasets-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.datasets-header h3 {
+  margin: 0;
+}
+
+.datasets-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+}
+
+.datasets-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.dataset-card {
+  background: #1a1a1a;
+  padding: 1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+}
+
+.dataset-card:hover {
+  border-color: #333;
+}
+
+.dataset-card.selected {
+  border-color: #fff;
+}
+
+.dataset-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.dataset-card-header h4 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.dataset-card-info {
+  display: flex;
+  gap: 1rem;
+  font-size: 0.875rem;
+  color: #666;
+}
+
+.dataset-details {
+  background: #1a1a1a;
+  padding: 1.5rem;
+  border-radius: 8px;
+}
+
+.dataset-details h3 {
+  margin: 0 0 1rem;
+}
+
+.class-list {
+  margin-bottom: 1.5rem;
+}
+
+.class-list h4 {
+  margin: 0 0 0.75rem;
+  font-size: 0.875rem;
+  color: #666;
+}
+
+.class-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.class-chip {
+  background: #222;
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.875rem;
+}
+
+.dataset-actions {
+  padding-top: 1rem;
+  border-top: 1px solid #222;
+}
+
+.drop-zone.has-file {
+  padding: 1.5rem;
+  cursor: default;
+}
+
+.file-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.file-name {
+  font-weight: 500;
+  color: #fff;
+}
+
+.file-size {
+  color: #666;
+}
+
+/* Design Tab */
+.design-tab h2 {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+}
+
+.design-tab > .subtitle {
+  color: #666;
+  margin-bottom: 1.5rem;
+}
+
+.design-tab textarea {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  color: #e0e0e0;
+  font-size: 1rem;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.design-tab textarea:focus {
+  outline: none;
+  border-color: #fff;
+}
+
+.design-tab textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Architecture Section */
+.architecture-section {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background: #1a1a1a;
+  border-radius: 8px;
+}
+
+.architecture-section h3 {
+  margin: 0 0 1rem;
+  color: #fff;
+}
+
+.explanation {
+  background: #222;
+  padding: 1rem;
+  border-radius: 6px;
+  margin-bottom: 1.5rem;
+}
+
+.explanation p {
+  margin: 0;
+  color: #aaa;
+  line-height: 1.6;
+}
+
+/* Validation */
+.validation {
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  margin-bottom: 1.5rem;
+}
+
+.validation.valid {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid #333;
+}
+
+.validation.invalid {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid #444;
+}
+
+.validation-status {
+  font-weight: 500;
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.validation.valid .validation-status {
+  color: #fff;
+}
+
+.validation.invalid .validation-status {
+  color: #aaa;
+}
+
+.validation-error {
+  margin: 0.25rem 0;
+  color: #888;
+  font-size: 0.875rem;
+}
+
+.validation-warning {
+  margin: 0.25rem 0;
+  color: #666;
+  font-size: 0.875rem;
+}
+
+/* Layers Section */
+.layers-section {
+  margin-bottom: 1.5rem;
+}
+
+.layers-section h4 {
+  margin: 0 0 0.75rem;
+  font-size: 0.875rem;
+  color: #666;
+  text-transform: uppercase;
+}
+
+.layers-list {
+  background: #222;
+  border-radius: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.layer-item {
+  display: grid;
+  grid-template-columns: 32px 100px 1fr;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid #333;
+  align-items: center;
+}
+
+.layer-item:last-child {
+  border-bottom: none;
+}
+
+.layer-index {
+  color: #444;
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+.layer-type {
+  font-weight: 500;
+  color: #fff;
+  font-size: 0.875rem;
+}
+
+.layer-params {
+  font-size: 0.75rem;
+  color: #666;
+  font-family: monospace;
+}
+
+/* Training Config */
+.training-config {
+  margin-bottom: 1.5rem;
+}
+
+.training-config h4 {
+  margin: 0 0 0.75rem;
+  font-size: 0.875rem;
+  color: #666;
+  text-transform: uppercase;
+}
+
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+}
+
+.config-item {
+  background: #222;
+  padding: 0.75rem;
+  border-radius: 6px;
+}
+
+.config-item .label {
+  display: block;
+  font-size: 0.75rem;
+  color: #666;
+  margin-bottom: 0.25rem;
+}
+
+.config-item .value {
+  color: #fff;
+  font-size: 0.875rem;
+}
+
+/* JSON View */
+.json-details {
+  margin-bottom: 1.5rem;
+}
+
+.json-details summary {
+  cursor: pointer;
+  color: #666;
+  font-size: 0.875rem;
+  padding: 0.5rem 0;
+}
+
+.json-details summary:hover {
+  color: #aaa;
+}
+
+.json-view {
+  background: #222;
+  padding: 1rem;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 0.75rem;
+  color: #aaa;
+  margin-top: 0.5rem;
+}
+
+/* Refinement Section */
+.refinement-section {
+  padding-top: 1.5rem;
+  border-top: 1px solid #333;
+  margin-bottom: 1.5rem;
+}
+
+.refinement-section h4 {
+  margin: 0 0 0.75rem;
+  font-size: 0.875rem;
+  color: #666;
+}
+
+.refinement-section .form-group {
+  margin-bottom: 0.75rem;
+}
+
+/* Train Section */
+.train-section {
+  padding-top: 1.5rem;
+  border-top: 1px solid #333;
+}
+
+.btn.large {
+  width: 100%;
+  padding: 1rem;
+  font-size: 1.1rem;
+}
+
+/* Success Message */
+.success-message {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+}
+
+.success-message p {
+  margin: 0 0 0.5rem;
+}
+
+.success-message code {
+  background: #333;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.875rem;
+}
+
+.api-hint {
+  font-size: 0.875rem;
+  color: #666;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .app {
+    padding: 1rem;
+  }
+
+  .content {
+    padding: 1rem;
+  }
+
+  .models-layout,
+  .datasets-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .status-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .details-grid,
+  .config-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .layer-item {
+    grid-template-columns: 24px 80px 1fr;
+  }
+
+  .tabs {
+    flex-wrap: wrap;
+  }
+
+  .tab {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+  }
+}

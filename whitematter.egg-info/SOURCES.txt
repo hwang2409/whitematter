@@ -1,0 +1,14 @@
+README.md
+layer.cpp
+loss.cpp
+optimizer.cpp
+pyproject.toml
+serialize.cpp
+setup.py
+tensor.cpp
+whitematter_py.cpp
+whitematter.egg-info/PKG-INFO
+whitematter.egg-info/SOURCES.txt
+whitematter.egg-info/dependency_links.txt
+whitematter.egg-info/requires.txt
+whitematter.egg-info/top_level.txt

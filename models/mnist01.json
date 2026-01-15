@@ -1,0 +1,24 @@
+{
+  "id": "mnist01",
+  "name": "MNIST CNN",
+  "dataset": "mnist",
+  "architecture": "preset:simple_cnn_mnist",
+  "created_at": "2025-01-13T22:58:00",
+  "epochs_trained": 5,
+  "best_accuracy": 99.03,
+  "status": "completed",
+  "training_history": [
+    {"epoch": 1, "loss": 0.14, "accuracy": 97.38},
+    {"epoch": 2, "loss": 0.0502, "accuracy": 98.61},
+    {"epoch": 3, "loss": 0.0369, "accuracy": 98.91},
+    {"epoch": 4, "loss": 0.0293, "accuracy": 99.01},
+    {"epoch": 5, "loss": 0.0248, "accuracy": 99.03}
+  ],
+  "config": {
+    "dataset": "mnist",
+    "architecture": "preset:simple_cnn_mnist",
+    "epochs": 5,
+    "batch_size": 64,
+    "optimizer": {"type": "sgd", "params": {"learning_rate": 0.01, "momentum": 0.9}}
+  }
+}

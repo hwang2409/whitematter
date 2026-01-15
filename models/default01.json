@@ -1,0 +1,11 @@
+{
+  "id": "default01",
+  "name": "simple_cnn_cifar10_default",
+  "dataset": "cifar10",
+  "architecture": "simple_cnn",
+  "created_at": "2026-01-13T22:02:05.019576",
+  "epochs_trained": 10,
+  "best_accuracy": 65.53,
+  "status": "completed",
+  "training_history": []
+}

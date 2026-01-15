@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: whitematter
+Version: 0.1.0
+Summary: Whitematter ML inference module
+Author: Henry
+Requires-Python: >=3.8
+Requires-Dist: pybind11>=2.10
+Dynamic: author
+Dynamic: requires-python
