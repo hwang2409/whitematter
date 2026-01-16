@@ -11,6 +11,19 @@ public:
     virtual TensorPtr forward(const TensorPtr& input) = 0;
     virtual std::vector<TensorPtr> parameters() { return {}; }
 
+    // Parameter counting
+    virtual size_t num_parameters() const;
+    virtual size_t num_trainable_parameters() const;
+
+    // Layer info for summary
+    virtual std::string name() const { return "Module"; }
+    virtual std::string extra_repr() const { return ""; }
+
+    // Output shape computation for summary (default: pass-through)
+    virtual std::vector<size_t> compute_output_shape(const std::vector<size_t>& input_shape) const {
+        return input_shape;
+    }
+
     TensorPtr operator()(const TensorPtr& input) {
         return forward(input);
     }
@@ -26,21 +39,27 @@ public:
 
     TensorPtr forward(const TensorPtr& input) override;
     std::vector<TensorPtr> parameters() override;
+    std::string name() const override { return "Linear"; }
+    std::string extra_repr() const override;
+    std::vector<size_t> compute_output_shape(const std::vector<size_t>& input_shape) const override;
 };
 
 class ReLU : public Module {
 public:
     TensorPtr forward(const TensorPtr& input) override;
+    std::string name() const override { return "ReLU"; }
 };
 
 class Sigmoid : public Module {
 public:
     TensorPtr forward(const TensorPtr& input) override;
+    std::string name() const override { return "Sigmoid"; }
 };
 
 class Tanh : public Module {
 public:
     TensorPtr forward(const TensorPtr& input) override;
+    std::string name() const override { return "Tanh"; }
 };
 
 class Softmax : public Module {
@@ -48,6 +67,8 @@ public:
     int dim;
     Softmax(int dim = -1);
     TensorPtr forward(const TensorPtr& input) override;
+    std::string name() const override { return "Softmax"; }
+    std::string extra_repr() const override;
 };
 
 class LogSoftmax : public Module {
@@ -55,6 +76,8 @@ public:
     int dim;
     LogSoftmax(int dim = -1);
     TensorPtr forward(const TensorPtr& input) override;
+    std::string name() const override { return "LogSoftmax"; }
+    std::string extra_repr() const override;
 };
 
 class Dropout : public Module {
@@ -66,6 +89,8 @@ public:
     TensorPtr forward(const TensorPtr& input) override;
     void train() { training = true; }
     void eval() { training = false; }
+    std::string name() const override { return "Dropout"; }
+    std::string extra_repr() const override;
 };
 
 class Conv2d : public Module {
@@ -82,6 +107,9 @@ public:
 
     TensorPtr forward(const TensorPtr& input) override;
     std::vector<TensorPtr> parameters() override;
+    std::string name() const override { return "Conv2d"; }
+    std::string extra_repr() const override;
+    std::vector<size_t> compute_output_shape(const std::vector<size_t>& input_shape) const override;
 };
 
 class MaxPool2d : public Module {
@@ -91,6 +119,9 @@ public:
 
     MaxPool2d(size_t kernel_size, size_t stride = 0);
     TensorPtr forward(const TensorPtr& input) override;
+    std::string name() const override { return "MaxPool2d"; }
+    std::string extra_repr() const override;
+    std::vector<size_t> compute_output_shape(const std::vector<size_t>& input_shape) const override;
 };
 
 class AvgPool2d : public Module {
@@ -100,6 +131,9 @@ public:
 
     AvgPool2d(size_t kernel_size, size_t stride = 0);
     TensorPtr forward(const TensorPtr& input) override;
+    std::string name() const override { return "AvgPool2d"; }
+    std::string extra_repr() const override;
+    std::vector<size_t> compute_output_shape(const std::vector<size_t>& input_shape) const override;
 };
 
 class BatchNorm2d : public Module {
@@ -120,6 +154,8 @@ public:
     std::vector<TensorPtr> parameters() override;
     void train() { training = true; }
     void eval() { training = false; }
+    std::string name() const override { return "BatchNorm2d"; }
+    std::string extra_repr() const override;
 };
 
 class LayerNorm : public Module {
@@ -135,11 +171,15 @@ public:
 
     TensorPtr forward(const TensorPtr& input) override;
     std::vector<TensorPtr> parameters() override;
+    std::string name() const override { return "LayerNorm"; }
+    std::string extra_repr() const override;
 };
 
 class Flatten : public Module {
 public:
     TensorPtr forward(const TensorPtr& input) override;
+    std::string name() const override { return "Flatten"; }
+    std::vector<size_t> compute_output_shape(const std::vector<size_t>& input_shape) const override;
 };
 
 class Embedding : public Module {
@@ -152,6 +192,9 @@ public:
 
     TensorPtr forward(const TensorPtr& indices) override;
     std::vector<TensorPtr> parameters() override;
+    std::string name() const override { return "Embedding"; }
+    std::string extra_repr() const override;
+    std::vector<size_t> compute_output_shape(const std::vector<size_t>& input_shape) const override;
 };
 
 class LSTM : public Module {
@@ -181,6 +224,9 @@ public:
     TensorPtr forward(const TensorPtr& input, const TensorPtr& h0, const TensorPtr& c0);
 
     std::vector<TensorPtr> parameters() override;
+    std::string name() const override { return "LSTM"; }
+    std::string extra_repr() const override;
+    std::vector<size_t> compute_output_shape(const std::vector<size_t>& input_shape) const override;
 };
 
 class GRU : public Module {
@@ -209,6 +255,9 @@ public:
     TensorPtr forward(const TensorPtr& input, const TensorPtr& h0);
 
     std::vector<TensorPtr> parameters() override;
+    std::string name() const override { return "GRU"; }
+    std::string extra_repr() const override;
+    std::vector<size_t> compute_output_shape(const std::vector<size_t>& input_shape) const override;
 };
 
 class MultiHeadAttention : public Module {
@@ -238,6 +287,8 @@ public:
                       const TensorPtr& mask = nullptr);
 
     std::vector<TensorPtr> parameters() override;
+    std::string name() const override { return "MultiHeadAttention"; }
+    std::string extra_repr() const override;
 
     // Helper to create causal mask for autoregressive models
     static TensorPtr causal_mask(size_t seq_len);
@@ -254,9 +305,14 @@ public:
     void add(Module* module);
     TensorPtr forward(const TensorPtr& input) override;
     std::vector<TensorPtr> parameters() override;
+    std::string name() const override { return "Sequential"; }
 
     void train();
     void eval();
+
+    // Model summary (PyTorch-style)
+    // Pass input_shape to enable output shape tracking (e.g., {1, 1, 28, 28} for MNIST)
+    void summary(const std::vector<size_t>& input_shape = {}) const;
 };
 
 #endif

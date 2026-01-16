@@ -17,24 +17,40 @@ curl -LO https://storage.googleapis.com/cvdf-datasets/mnist/t10k-labels-idx1-uby
 gunzip *.gz && cd ..
 
 # Run training
-./ml
+./build/ml
 ```
 
 ## Framework Structure
 
 ```
-├── tensor.h/cpp      # Core tensor with autograd
-├── layer.h/cpp       # Neural network layers
-├── loss.h/cpp        # Loss functions
-├── optimizer.h/cpp   # Parameter optimizers
-├── serialize.h/cpp   # Model save/load functionality
-├── mnist.h/cpp             # MNIST data loader
-├── cifar10.h/cpp           # CIFAR-10 data loader
-├── ml.cpp                  # MLP training example
-├── cnn_mnist.cpp           # CNN training example (MNIST)
-├── cnn_cifar10.cpp         # CNN training example (CIFAR-10)
-├── transformer_example.cpp # Transformer language model example
-└── Makefile                # Build configuration
+├── core/                       # C++ core framework
+│   ├── tensor.h/cpp            # Core tensor with autograd
+│   ├── layer.h/cpp             # Neural network layers
+│   ├── loss.h/cpp              # Loss functions
+│   ├── optimizer.h/cpp         # Parameter optimizers
+│   ├── serialize.h/cpp         # Model save/load
+│   └── dataloader.h/cpp        # Multi-threaded data loading
+├── datasets/                   # Dataset loaders
+│   ├── mnist.h/cpp             # MNIST data loader
+│   └── cifar10.h/cpp           # CIFAR-10 data loader
+├── examples/                   # Training examples
+│   ├── ml.cpp                  # MLP training
+│   ├── cnn_mnist.cpp           # CNN (MNIST)
+│   ├── cnn_cifar10.cpp         # CNN (CIFAR-10)
+│   └── transformer_example.cpp # Transformer LM
+├── bindings/                   # Language bindings
+│   └── whitematter_py.cpp      # Python bindings (pybind11)
+├── platform/                   # ML platform server
+│   ├── server.py               # FastAPI server
+│   ├── dataset_manager.py      # Dataset upload/processing
+│   ├── codegen/                # C++ code generation
+│   ├── llm/                    # Claude API integration
+│   └── preprocessing/          # Data preprocessors
+├── frontend/                   # React web UI
+├── build/                      # Build artifacts (*.o, binaries)
+├── models/                     # Trained model files
+├── data/                       # Training datasets
+└── Makefile                    # Build configuration
 ```
 
 ## Usage Guide
@@ -350,7 +366,7 @@ Use `NoGradGuard` for inference to improve performance:
 
 ### Data Loading
 
-**MNIST:**
+**Basic DataLoader (MNIST):**
 ```cpp
 #include "mnist.h"
 
@@ -370,6 +386,30 @@ while (train_loader.has_next()) {
 
 train_loader.reset();  // Reset for next epoch
 ```
+
+**ThreadedDataLoader (Multi-threaded with Prefetching):**
+```cpp
+#include "dataloader.h"
+
+// Convert dataset to generic Dataset struct
+Dataset train_dataset{train_data.images, train_data.labels, train_data.num_samples};
+
+// Create threaded data loader
+// Args: dataset, batch_size, shuffle, num_workers, prefetch_factor
+ThreadedDataLoader train_loader(train_dataset, 64, true, 2, 2);  // 2 workers, prefetch 2 batches each
+ThreadedDataLoader test_loader(test_dataset, 64, false, 0);       // 0 workers = synchronous
+
+// Training loop
+for (int epoch = 0; epoch < num_epochs; epoch++) {
+    train_loader.reset();  // Shuffles data, starts worker threads
+    while (train_loader.has_next()) {
+        auto [images, labels] = train_loader.next_batch_pair();
+        // Workers prefetch next batches while you train
+    }
+}
+```
+
+The `ThreadedDataLoader` uses background threads to prefetch batches while the main thread processes the current batch, improving training throughput on CPU-bound workloads.
 
 **CIFAR-10:**
 ```cpp
@@ -548,6 +588,7 @@ The framework includes several optimizations:
 - **Blocked Matrix Multiplication**: Cache-friendly 32x32 block tiling
 - **im2col + GEMM Convolution**: Converts conv2d to optimized matrix multiplication
 - **OpenMP Parallelization**: Multi-threaded convolution and GEMM operations
+- **Threaded Data Loading**: Background workers prefetch batches during training
 - **NoGradGuard**: Skip computation graph building during inference
 - **O3 Optimization**: Aggressive compiler optimizations enabled
 
@@ -666,13 +707,14 @@ whitematter includes a self-service ML training platform where users can upload 
 
 | Component | Location | Purpose |
 |-----------|----------|---------|
-| C++ Engine | `tensor.cpp`, `layer.cpp`, `optimizer.cpp`, `loss.cpp` | Core autograd & NN ops |
-| Python Bindings | `whitematter_py.cpp` | pybind11 inference wrapper |
-| Server | `server.py` | FastAPI REST endpoints |
-| Dataset Manager | `dataset_manager.py` | Upload, extract, preprocess |
-| Image Processor | `preprocessing/image_processor.py` | Resize, normalize, binarize |
-| Code Generator | `codegen/generator.py` | Architecture JSON to C++ |
-| LLM Service | `llm/service.py` | Claude API for design |
+| C++ Engine | `core/tensor.cpp`, `core/layer.cpp`, etc. | Core autograd & NN ops |
+| Data Loader | `core/dataloader.cpp` | Multi-threaded batch prefetching |
+| Python Bindings | `bindings/whitematter_py.cpp` | pybind11 inference wrapper |
+| Server | `platform/server.py` | FastAPI REST endpoints |
+| Dataset Manager | `platform/dataset_manager.py` | Upload, extract, preprocess |
+| Image Processor | `platform/preprocessing/image_processor.py` | Resize, normalize, binarize |
+| Code Generator | `platform/codegen/generator.py` | Architecture JSON to C++ |
+| LLM Service | `platform/llm/service.py` | Claude API for design |
 | Frontend | `frontend/src/` | React UI |
 
 ### API Endpoints
@@ -710,8 +752,11 @@ whitematter includes a self-service ML training platform where users can upload 
 ### Running the Platform
 
 ```bash
+# Build the C++ framework first
+make
+
 # Start the backend server
-python server.py
+cd platform && python server.py
 
 # In another terminal, start the frontend
 cd frontend && npm run dev
@@ -794,7 +839,7 @@ Future improvements to make this framework more extensive:
 ### Data & Training
 - [x] CIFAR-10 data loader with normalization
 - [x] Data augmentation (random flip, crop, padding)
-- [ ] Multi-threaded data loading
+- [x] Multi-threaded data loading with prefetching
 - [ ] Mixed precision training (fp16)
 - [ ] Gradient accumulation
 - [ ] Early stopping

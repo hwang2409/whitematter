@@ -1435,3 +1435,269 @@ TensorPtr MultiHeadAttention::causal_mask(size_t seq_len) {
 
     return mask;
 }
+
+// ============================================================================
+// Parameter counting implementations
+// ============================================================================
+
+size_t Module::num_parameters() const {
+    size_t total = 0;
+    // Need to cast away const to call parameters() which isn't const
+    auto* self = const_cast<Module*>(this);
+    for (const auto& p : self->parameters()) {
+        total += p->size();
+    }
+    return total;
+}
+
+size_t Module::num_trainable_parameters() const {
+    size_t total = 0;
+    auto* self = const_cast<Module*>(this);
+    for (const auto& p : self->parameters()) {
+        if (p->requires_grad) {
+            total += p->size();
+        }
+    }
+    return total;
+}
+
+// ============================================================================
+// extra_repr() implementations
+// ============================================================================
+
+std::string Linear::extra_repr() const {
+    return "in_features=" + std::to_string(in_features) +
+           ", out_features=" + std::to_string(out_features);
+}
+
+std::string Softmax::extra_repr() const {
+    return "dim=" + std::to_string(dim);
+}
+
+std::string LogSoftmax::extra_repr() const {
+    return "dim=" + std::to_string(dim);
+}
+
+std::string Dropout::extra_repr() const {
+    return "p=" + std::to_string(p);
+}
+
+std::string Conv2d::extra_repr() const {
+    return std::to_string(in_channels) + ", " + std::to_string(out_channels) +
+           ", kernel_size=" + std::to_string(kernel_size) +
+           ", stride=" + std::to_string(stride) +
+           ", padding=" + std::to_string(padding);
+}
+
+std::string MaxPool2d::extra_repr() const {
+    return "kernel_size=" + std::to_string(kernel_size) +
+           ", stride=" + std::to_string(stride);
+}
+
+std::string AvgPool2d::extra_repr() const {
+    return "kernel_size=" + std::to_string(kernel_size) +
+           ", stride=" + std::to_string(stride);
+}
+
+std::string BatchNorm2d::extra_repr() const {
+    return std::to_string(num_features) +
+           ", eps=" + std::to_string(eps) +
+           ", momentum=" + std::to_string(momentum);
+}
+
+std::string LayerNorm::extra_repr() const {
+    std::string shape_str = "[";
+    for (size_t i = 0; i < normalized_shape.size(); i++) {
+        if (i > 0) shape_str += ", ";
+        shape_str += std::to_string(normalized_shape[i]);
+    }
+    shape_str += "]";
+    return shape_str + ", eps=" + std::to_string(eps);
+}
+
+std::string Embedding::extra_repr() const {
+    return std::to_string(num_embeddings) + ", " + std::to_string(embedding_dim);
+}
+
+std::string LSTM::extra_repr() const {
+    return std::to_string(input_size) + ", " + std::to_string(hidden_size) +
+           ", batch_first=" + (batch_first ? "true" : "false");
+}
+
+std::string GRU::extra_repr() const {
+    return std::to_string(input_size) + ", " + std::to_string(hidden_size) +
+           ", batch_first=" + (batch_first ? "true" : "false");
+}
+
+std::string MultiHeadAttention::extra_repr() const {
+    return "embed_dim=" + std::to_string(embed_dim) +
+           ", num_heads=" + std::to_string(num_heads);
+}
+
+// ============================================================================
+// compute_output_shape implementations
+// ============================================================================
+
+std::vector<size_t> Linear::compute_output_shape(const std::vector<size_t>& input_shape) const {
+    // [..., in_features] -> [..., out_features]
+    if (input_shape.empty()) return {};
+    std::vector<size_t> output_shape = input_shape;
+    output_shape.back() = out_features;
+    return output_shape;
+}
+
+std::vector<size_t> Conv2d::compute_output_shape(const std::vector<size_t>& input_shape) const {
+    // [N, C_in, H, W] -> [N, C_out, H', W']
+    if (input_shape.size() != 4) return input_shape;
+    size_t N = input_shape[0];
+    size_t H = input_shape[2];
+    size_t W = input_shape[3];
+    size_t H_out = (H + 2 * padding - kernel_size) / stride + 1;
+    size_t W_out = (W + 2 * padding - kernel_size) / stride + 1;
+    return {N, out_channels, H_out, W_out};
+}
+
+std::vector<size_t> MaxPool2d::compute_output_shape(const std::vector<size_t>& input_shape) const {
+    // [N, C, H, W] -> [N, C, H', W']
+    if (input_shape.size() != 4) return input_shape;
+    size_t N = input_shape[0];
+    size_t C = input_shape[1];
+    size_t H = input_shape[2];
+    size_t W = input_shape[3];
+    size_t H_out = (H - kernel_size) / stride + 1;
+    size_t W_out = (W - kernel_size) / stride + 1;
+    return {N, C, H_out, W_out};
+}
+
+std::vector<size_t> AvgPool2d::compute_output_shape(const std::vector<size_t>& input_shape) const {
+    // [N, C, H, W] -> [N, C, H', W']
+    if (input_shape.size() != 4) return input_shape;
+    size_t N = input_shape[0];
+    size_t C = input_shape[1];
+    size_t H = input_shape[2];
+    size_t W = input_shape[3];
+    size_t H_out = (H - kernel_size) / stride + 1;
+    size_t W_out = (W - kernel_size) / stride + 1;
+    return {N, C, H_out, W_out};
+}
+
+std::vector<size_t> Flatten::compute_output_shape(const std::vector<size_t>& input_shape) const {
+    // [N, ...] -> [N, product of rest]
+    if (input_shape.size() < 2) return input_shape;
+    size_t N = input_shape[0];
+    size_t flat_size = 1;
+    for (size_t i = 1; i < input_shape.size(); i++) {
+        flat_size *= input_shape[i];
+    }
+    return {N, flat_size};
+}
+
+std::vector<size_t> Embedding::compute_output_shape(const std::vector<size_t>& input_shape) const {
+    // [...] -> [..., embedding_dim]
+    std::vector<size_t> output_shape = input_shape;
+    output_shape.push_back(embedding_dim);
+    return output_shape;
+}
+
+std::vector<size_t> LSTM::compute_output_shape(const std::vector<size_t>& input_shape) const {
+    // [N, seq, input_size] -> [N, seq, hidden_size] (batch_first)
+    // [seq, N, input_size] -> [seq, N, hidden_size] (!batch_first)
+    if (input_shape.size() != 3) return input_shape;
+    std::vector<size_t> output_shape = input_shape;
+    output_shape[2] = hidden_size;  // last dim becomes hidden_size
+    return output_shape;
+}
+
+std::vector<size_t> GRU::compute_output_shape(const std::vector<size_t>& input_shape) const {
+    // [N, seq, input_size] -> [N, seq, hidden_size] (batch_first)
+    if (input_shape.size() != 3) return input_shape;
+    std::vector<size_t> output_shape = input_shape;
+    output_shape[2] = hidden_size;
+    return output_shape;
+}
+
+// ============================================================================
+// Sequential summary implementation
+// ============================================================================
+
+// Helper to format shape as string
+static std::string format_shape(const std::vector<size_t>& shape) {
+    if (shape.empty()) return "-";
+    std::string s = "[";
+    for (size_t i = 0; i < shape.size(); i++) {
+        if (i > 0) s += ", ";
+        s += std::to_string(shape[i]);
+    }
+    s += "]";
+    return s;
+}
+
+void Sequential::summary(const std::vector<size_t>& input_shape) const {
+    printf("==============================================================================\n");
+    printf("Layer (type)                    Output Shape              Param #\n");
+    printf("==============================================================================\n");
+
+    size_t total_params = 0;
+    size_t trainable_params = 0;
+
+    // Track current shape through network
+    std::vector<size_t> current_shape = input_shape;
+    bool tracking_shapes = !input_shape.empty();
+
+    for (size_t i = 0; i < layers.size(); i++) {
+        Module* layer = layers[i];
+        size_t layer_params = layer->num_parameters();
+        size_t layer_trainable = layer->num_trainable_parameters();
+
+        total_params += layer_params;
+        trainable_params += layer_trainable;
+
+        // Compute output shape if tracking
+        std::string shape_str = "-";
+        if (tracking_shapes) {
+            current_shape = layer->compute_output_shape(current_shape);
+            shape_str = format_shape(current_shape);
+        }
+
+        // Format layer name with extra_repr
+        std::string layer_name = layer->name();
+        std::string extra = layer->extra_repr();
+        std::string full_name = layer_name;
+        if (!extra.empty()) {
+            full_name += "(" + extra + ")";
+        }
+
+        // Truncate if too long
+        if (full_name.length() > 32) {
+            full_name = full_name.substr(0, 29) + "...";
+        }
+
+        // Format parameter count with commas
+        std::string param_str = std::to_string(layer_params);
+        int insert_pos = static_cast<int>(param_str.length()) - 3;
+        while (insert_pos > 0) {
+            param_str.insert(insert_pos, ",");
+            insert_pos -= 3;
+        }
+
+        printf("%-32s %-25s %s\n", full_name.c_str(), shape_str.c_str(), param_str.c_str());
+    }
+
+    printf("==============================================================================\n");
+
+    // Format totals with commas
+    auto format_with_commas = [](size_t n) -> std::string {
+        std::string s = std::to_string(n);
+        int pos = static_cast<int>(s.length()) - 3;
+        while (pos > 0) {
+            s.insert(pos, ",");
+            pos -= 3;
+        }
+        return s;
+    };
+
+    printf("Total params: %s\n", format_with_commas(total_params).c_str());
+    printf("Trainable params: %s\n", format_with_commas(trainable_params).c_str());
+    printf("Non-trainable params: %s\n", format_with_commas(total_params - trainable_params).c_str());
+    printf("==============================================================================\n");
+}

@@ -450,13 +450,15 @@ ifeq ($(UNAME_S),Darwin)
     LDFLAGS += -L/opt/homebrew/opt/libomp/lib -lomp
 endif
 
-# Path to whitematter source
-WM_DIR = ../..
+# Path to whitematter source (project root is two levels up from generated/{job_id}/)
+PROJECT_ROOT = ../..
+CORE_DIR = $(PROJECT_ROOT)/core
+BUILD_DIR = $(PROJECT_ROOT)/build
 
-OBJS = $(WM_DIR)/tensor.o $(WM_DIR)/layer.o $(WM_DIR)/loss.o $(WM_DIR)/optimizer.o $(WM_DIR)/serialize.o
+OBJS = $(BUILD_DIR)/tensor.o $(BUILD_DIR)/layer.o $(BUILD_DIR)/loss.o $(BUILD_DIR)/optimizer.o $(BUILD_DIR)/serialize.o
 
 train: train.cpp $(OBJS)
-\t$(CXX) $(CXXFLAGS) -I$(WM_DIR) -o $@ $^ $(LDFLAGS)
+\t$(CXX) $(CXXFLAGS) -I$(CORE_DIR) -o $@ $^ $(LDFLAGS)
 
 clean:
 \trm -f train

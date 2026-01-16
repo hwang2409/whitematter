@@ -4,6 +4,7 @@
 #include "loss.h"
 #include "optimizer.h"
 #include "mnist.h"
+#include "dataloader.h"
 #include "serialize.h"
 
 // Reshape flat MNIST images to 4D tensor (batch, 1, 28, 28)
@@ -14,7 +15,7 @@ TensorPtr reshape_images(const TensorPtr& flat_images) {
     return reshaped;
 }
 
-float compute_accuracy(Sequential& model, DataLoader& loader) {
+float compute_accuracy(Sequential& model, ThreadedDataLoader& loader) {
     NoGradGuard no_grad;
     model.eval();
 
@@ -23,7 +24,7 @@ float compute_accuracy(Sequential& model, DataLoader& loader) {
 
     loader.reset();
     while (loader.has_next()) {
-        auto [images, labels] = loader.next_batch();
+        auto [images, labels] = loader.next_batch_pair();
         auto images_4d = reshape_images(images);
         auto output = model.forward(images_4d);
 
@@ -114,20 +115,18 @@ int main(int argc, char* argv[]) {
     CrossEntropyLoss criterion;
     SGD optimizer(model.parameters(), learning_rate, 0.9f);
 
-    DataLoader train_loader(train_data, batch_size, true);
-    DataLoader test_loader(test_data, batch_size, false);
+    // Convert MNISTDataset to generic Dataset for ThreadedDataLoader
+    Dataset train_dataset{train_data.images, train_data.labels, train_data.num_samples};
+    Dataset test_dataset{test_data.images, test_data.labels, test_data.num_samples};
 
-    // Count parameters
-    size_t total_params = 0;
-    for (const auto& p : model.parameters()) {
-        total_params += p->size();
-    }
+    // Use ThreadedDataLoader with 2 worker threads for prefetching
+    ThreadedDataLoader train_loader(train_dataset, batch_size, true, 2);
+    ThreadedDataLoader test_loader(test_dataset, batch_size, false, 0);  // No threading for eval
 
-    printf("Model Architecture:\n");
-    printf("  Conv2d(1, 16, 3) -> BN -> ReLU -> MaxPool(2)\n");
-    printf("  Conv2d(16, 32, 3) -> BN -> ReLU -> MaxPool(2)\n");
-    printf("  Flatten -> Linear(1568, 128) -> ReLU -> Linear(128, 10)\n");
-    printf("  Total parameters: %zu\n\n", total_params);
+    // Print model summary with output shapes
+    printf("Model Summary:\n");
+    model.summary({1, 1, 28, 28});  // MNIST: batch=1, channels=1, 28x28
+    printf("\n");
 
     printf("Optimizer: SGD (lr=%.3f, momentum=0.9)\n", learning_rate);
     printf("Batch size: %zu\n\n", batch_size);
@@ -142,7 +141,7 @@ int main(int argc, char* argv[]) {
         size_t num_batches = 0;
 
         while (train_loader.has_next()) {
-            auto [images, labels] = train_loader.next_batch();
+            auto [images, labels] = train_loader.next_batch_pair();
             auto images_4d = reshape_images(images);
 
             optimizer.zero_grad();

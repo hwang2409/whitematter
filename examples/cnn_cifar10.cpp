@@ -4,9 +4,10 @@
 #include "loss.h"
 #include "optimizer.h"
 #include "cifar10.h"
+#include "dataloader.h"
 #include "serialize.h"
 
-float compute_accuracy(Sequential& model, CIFAR10DataLoader& loader) {
+float compute_accuracy(Sequential& model, ThreadedDataLoader& loader) {
     NoGradGuard no_grad;
     model.eval();
 
@@ -15,7 +16,7 @@ float compute_accuracy(Sequential& model, CIFAR10DataLoader& loader) {
 
     loader.reset();
     while (loader.has_next()) {
-        auto [images, labels] = loader.next_batch();
+        auto [images, labels] = loader.next_batch_pair();
         auto output = model.forward(images);
 
         size_t batch_size = output->shape[0];
@@ -125,9 +126,13 @@ int main(int argc, char* argv[]) {
     Adam optimizer(model.parameters(), learning_rate);
     CosineAnnealingLR scheduler(&optimizer, num_epochs, 1e-6f);
 
-    // Data loaders with augmentation for training
-    CIFAR10DataLoader train_loader(train_data, batch_size, true, true);   // shuffle=true, augment=true
-    CIFAR10DataLoader test_loader(test_data, batch_size, false, false);   // no shuffle, no augment
+    // Convert to generic Dataset for ThreadedDataLoader
+    Dataset train_dataset{train_data.images, train_data.labels, train_data.num_samples};
+    Dataset test_dataset{test_data.images, test_data.labels, test_data.num_samples};
+
+    // Use ThreadedDataLoader with 2 workers for prefetching
+    ThreadedDataLoader train_loader(train_dataset, batch_size, true, 2);   // shuffle=true, 2 workers
+    ThreadedDataLoader test_loader(test_dataset, batch_size, false, 0);    // no shuffle, sync for eval
 
     // Count parameters
     size_t total_params = 0;
@@ -161,11 +166,14 @@ int main(int argc, char* argv[]) {
         size_t num_batches = 0;
 
         while (train_loader.has_next()) {
-            auto [images, labels] = train_loader.next_batch();
+            auto [images, labels] = train_loader.next_batch_pair();
+
+            // Apply data augmentation: pad(4) -> random_crop(32,32) -> random_flip
+            auto augmented = images->pad2d(4)->random_crop(32, 32)->random_flip_horizontal(0.5f);
 
             optimizer.zero_grad();
 
-            auto output = model.forward(images);
+            auto output = model.forward(augmented);
             auto loss = criterion(output, labels);
 
             loss->backward();
@@ -208,7 +216,7 @@ int main(int argc, char* argv[]) {
         NoGradGuard no_grad;
         model.eval();
         test_loader.reset();
-        auto [images, labels] = test_loader.next_batch();
+        auto [images, labels] = test_loader.next_batch_pair();
         auto output = model.forward(images);
 
         for (int i = 0; i < 10; i++) {

@@ -1,5 +1,23 @@
+# Build artifacts
+build/
 *.o
-ml
-cnn_mnist
-*.bin
+
+# Data
 data/
+
+# Python
+__pycache__/
+*.pyc
+*.egg-info/
+*.so
+
+# Uploads and generated code
+uploads/
+generated/
+
+# IDE
+.vscode/
+.idea/
+
+# Node
+node_modules/

@@ -34,8 +34,10 @@ except ImportError:
     print("Error: whitematter module not found. Build with: pip install -e .")
     exit(1)
 
-MODELS_DIR = Path("models")
-DATA_DIR = Path("data")
+# Paths relative to project root (parent of platform/)
+PROJECT_ROOT = Path(__file__).parent.parent
+MODELS_DIR = PROJECT_ROOT / "models"
+DATA_DIR = PROJECT_ROOT / "data"
 
 DATASETS = {
     "cifar10": {
@@ -190,18 +192,19 @@ class ModelMetadata(BaseModel):
 
 loaded_models: dict = {}
 training_jobs: dict = {}
-dataset_manager = DatasetManager()
+UPLOADS_DIR = PROJECT_ROOT / "uploads"
+GENERATED_DIR = PROJECT_ROOT / "generated"
+
+dataset_manager = DatasetManager(uploads_dir=UPLOADS_DIR)
 code_generator = CodeGenerator()
 llm_service = get_llm_service()
-
-GENERATED_DIR = Path("generated")
 
 app = FastAPI(title="Whitematter Model Server", version="0.4.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 def ensure_dirs():
     MODELS_DIR.mkdir(exist_ok=True)
-    Path("uploads").mkdir(exist_ok=True)
+    UPLOADS_DIR.mkdir(exist_ok=True)
     GENERATED_DIR.mkdir(exist_ok=True)
 
 def get_model_path(model_id: str) -> Path:
@@ -272,10 +275,11 @@ def run_training(job_id: str, request: TrainRequest, metadata: ModelMetadata):
         metadata.status = TrainStatus.RUNNING
         save_model_metadata(metadata)
 
+        BUILD_DIR = PROJECT_ROOT / "build"
         if request.dataset == "cifar10":
-            cmd, src = ["./cnn_cifar10", str(DATA_DIR)], Path("cnn_cifar10.bin")
+            cmd, src = [str(BUILD_DIR / "cnn_cifar10"), str(DATA_DIR)], BUILD_DIR / "cnn_cifar10.bin"
         elif request.dataset == "mnist":
-            cmd, src = ["./cnn_mnist", str(DATA_DIR)], Path("cnn_mnist.bin")
+            cmd, src = [str(BUILD_DIR / "cnn_mnist"), str(DATA_DIR)], BUILD_DIR / "cnn_mnist.bin"
         else:
             raise ValueError(f"Unsupported dataset: {request.dataset}")
 
