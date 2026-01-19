@@ -2546,6 +2546,210 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
     return result;
 }
 
+TensorPtr Tensor::conv_transpose2d(const TensorPtr& weight, const TensorPtr& bias,
+                                    size_t stride, size_t padding,
+                                    size_t output_padding) const {
+    // Transposed convolution (deconvolution) for upsampling
+    // Input shape: (batch, in_channels, height, width)
+    // Weight shape: (in_channels, out_channels, kernel_h, kernel_w)
+    // Note: weight shape is transposed compared to Conv2d
+    // Bias shape: (out_channels) or nullptr
+    // Output shape: (batch, out_channels, out_h, out_w)
+    // where out_h = (in_h - 1) * stride - 2 * padding + kernel_h + output_padding
+
+    assert(shape.size() == 4);
+    assert(weight->shape.size() == 4);
+    assert(shape[1] == weight->shape[0]); // in_channels match
+    assert(output_padding < stride); // output_padding must be smaller than stride
+
+    size_t batch = shape[0];
+    size_t in_channels = shape[1];
+    size_t in_h = shape[2];
+    size_t in_w = shape[3];
+
+    size_t out_channels = weight->shape[1];
+    size_t kernel_h = weight->shape[2];
+    size_t kernel_w = weight->shape[3];
+
+    // Output size formula for transposed convolution
+    size_t out_h = (in_h - 1) * stride - 2 * padding + kernel_h + output_padding;
+    size_t out_w = (in_w - 1) * stride - 2 * padding + kernel_w + output_padding;
+
+    bool track = (requires_grad || weight->requires_grad || (bias && bias->requires_grad))
+                 && GradMode::is_enabled();
+    auto result = create({batch, out_channels, out_h, out_w}, track);
+
+    // Initialize output to zeros
+    std::fill(result->data.begin(), result->data.end(), 0.0f);
+
+    // Forward pass: for each input position, scatter the kernel values to output
+    // This is equivalent to the backward pass of a regular convolution w.r.t. input
+    for (size_t b = 0; b < batch; b++) {
+        for (size_t ic = 0; ic < in_channels; ic++) {
+            for (size_t ih = 0; ih < in_h; ih++) {
+                for (size_t iw = 0; iw < in_w; iw++) {
+                    // Get input value
+                    size_t in_idx = b * in_channels * in_h * in_w +
+                                    ic * in_h * in_w +
+                                    ih * in_w + iw;
+                    float in_val = data[in_idx];
+
+                    // Scatter to output for each output channel and kernel position
+                    for (size_t oc = 0; oc < out_channels; oc++) {
+                        for (size_t kh = 0; kh < kernel_h; kh++) {
+                            for (size_t kw = 0; kw < kernel_w; kw++) {
+                                // Calculate output position
+                                int oh = static_cast<int>(ih * stride + kh) - static_cast<int>(padding);
+                                int ow = static_cast<int>(iw * stride + kw) - static_cast<int>(padding);
+
+                                // Check bounds
+                                if (oh >= 0 && oh < static_cast<int>(out_h) &&
+                                    ow >= 0 && ow < static_cast<int>(out_w)) {
+                                    // Weight index: [in_channels, out_channels, kernel_h, kernel_w]
+                                    size_t w_idx = ic * out_channels * kernel_h * kernel_w +
+                                                   oc * kernel_h * kernel_w +
+                                                   kh * kernel_w + kw;
+                                    size_t out_idx = b * out_channels * out_h * out_w +
+                                                     oc * out_h * out_w +
+                                                     static_cast<size_t>(oh) * out_w +
+                                                     static_cast<size_t>(ow);
+                                    result->data[out_idx] += in_val * weight->data[w_idx];
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Add bias
+    if (bias) {
+        for (size_t b = 0; b < batch; b++) {
+            for (size_t oc = 0; oc < out_channels; oc++) {
+                for (size_t oh = 0; oh < out_h; oh++) {
+                    for (size_t ow = 0; ow < out_w; ow++) {
+                        size_t idx = b * out_channels * out_h * out_w +
+                                     oc * out_h * out_w +
+                                     oh * out_w + ow;
+                        result->data[idx] += bias->data[oc];
+                    }
+                }
+            }
+        }
+    }
+
+    if (track) {
+        auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
+        auto weight_ptr = weight;
+        auto bias_ptr = bias;
+        result->parents = {self_ptr, weight_ptr};
+        if (bias_ptr) result->parents.push_back(bias_ptr);
+
+        result->grad_fn = [self_ptr, weight_ptr, bias_ptr, result,
+                           batch, in_channels, in_h, in_w,
+                           out_channels, out_h, out_w,
+                           kernel_h, kernel_w, stride, padding]() {
+
+            // Gradient w.r.t. input: conv2d of grad_output with weight
+            if (self_ptr->requires_grad) {
+                for (size_t b = 0; b < batch; b++) {
+                    for (size_t ic = 0; ic < in_channels; ic++) {
+                        for (size_t ih = 0; ih < in_h; ih++) {
+                            for (size_t iw = 0; iw < in_w; iw++) {
+                                float grad_sum = 0.0f;
+
+                                for (size_t oc = 0; oc < out_channels; oc++) {
+                                    for (size_t kh = 0; kh < kernel_h; kh++) {
+                                        for (size_t kw = 0; kw < kernel_w; kw++) {
+                                            int oh = static_cast<int>(ih * stride + kh) - static_cast<int>(padding);
+                                            int ow = static_cast<int>(iw * stride + kw) - static_cast<int>(padding);
+
+                                            if (oh >= 0 && oh < static_cast<int>(out_h) &&
+                                                ow >= 0 && ow < static_cast<int>(out_w)) {
+                                                size_t w_idx = ic * out_channels * kernel_h * kernel_w +
+                                                               oc * kernel_h * kernel_w +
+                                                               kh * kernel_w + kw;
+                                                size_t out_idx = b * out_channels * out_h * out_w +
+                                                                 oc * out_h * out_w +
+                                                                 static_cast<size_t>(oh) * out_w +
+                                                                 static_cast<size_t>(ow);
+                                                grad_sum += result->grad[out_idx] * weight_ptr->data[w_idx];
+                                            }
+                                        }
+                                    }
+                                }
+
+                                size_t in_idx = b * in_channels * in_h * in_w +
+                                                ic * in_h * in_w +
+                                                ih * in_w + iw;
+                                self_ptr->grad[in_idx] += grad_sum;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Gradient w.r.t. weight
+            if (weight_ptr->requires_grad) {
+                for (size_t b = 0; b < batch; b++) {
+                    for (size_t ic = 0; ic < in_channels; ic++) {
+                        for (size_t ih = 0; ih < in_h; ih++) {
+                            for (size_t iw = 0; iw < in_w; iw++) {
+                                size_t in_idx = b * in_channels * in_h * in_w +
+                                                ic * in_h * in_w +
+                                                ih * in_w + iw;
+                                float in_val = self_ptr->data[in_idx];
+
+                                for (size_t oc = 0; oc < out_channels; oc++) {
+                                    for (size_t kh = 0; kh < kernel_h; kh++) {
+                                        for (size_t kw = 0; kw < kernel_w; kw++) {
+                                            int oh = static_cast<int>(ih * stride + kh) - static_cast<int>(padding);
+                                            int ow = static_cast<int>(iw * stride + kw) - static_cast<int>(padding);
+
+                                            if (oh >= 0 && oh < static_cast<int>(out_h) &&
+                                                ow >= 0 && ow < static_cast<int>(out_w)) {
+                                                size_t w_idx = ic * out_channels * kernel_h * kernel_w +
+                                                               oc * kernel_h * kernel_w +
+                                                               kh * kernel_w + kw;
+                                                size_t out_idx = b * out_channels * out_h * out_w +
+                                                                 oc * out_h * out_w +
+                                                                 static_cast<size_t>(oh) * out_w +
+                                                                 static_cast<size_t>(ow);
+                                                weight_ptr->grad[w_idx] += in_val * result->grad[out_idx];
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Gradient w.r.t. bias
+            if (bias_ptr && bias_ptr->requires_grad) {
+                for (size_t oc = 0; oc < out_channels; oc++) {
+                    float grad_sum = 0.0f;
+                    for (size_t b = 0; b < batch; b++) {
+                        for (size_t oh = 0; oh < out_h; oh++) {
+                            for (size_t ow = 0; ow < out_w; ow++) {
+                                size_t idx = b * out_channels * out_h * out_w +
+                                             oc * out_h * out_w +
+                                             oh * out_w + ow;
+                                grad_sum += result->grad[idx];
+                            }
+                        }
+                    }
+                    bias_ptr->grad[oc] += grad_sum;
+                }
+            }
+        };
+    }
+
+    return result;
+}
+
 TensorPtr Tensor::maxpool2d(size_t kernel_size, size_t stride) const {
     // Input shape: (batch, channels, height, width)
     assert(shape.size() == 4);

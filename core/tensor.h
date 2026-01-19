@@ -102,6 +102,9 @@ public:
     TensorPtr slice(size_t start, size_t end, int dim = 0) const;
     TensorPtr conv2d(const TensorPtr& weight, const TensorPtr& bias,
                      size_t stride = 1, size_t padding = 0) const;
+    TensorPtr conv_transpose2d(const TensorPtr& weight, const TensorPtr& bias,
+                               size_t stride = 1, size_t padding = 0,
+                               size_t output_padding = 0) const;
     TensorPtr maxpool2d(size_t kernel_size, size_t stride = 0) const;
     TensorPtr avgpool2d(size_t kernel_size, size_t stride = 0) const;
     TensorPtr flatten(size_t start_dim = 1) const;

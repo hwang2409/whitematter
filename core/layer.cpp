@@ -148,6 +148,32 @@ std::vector<TensorPtr> Conv2d::parameters() {
     return {weight, bias};
 }
 
+// ConvTranspose2d implementation
+ConvTranspose2d::ConvTranspose2d(size_t in_channels, size_t out_channels, size_t kernel_size,
+                                   size_t stride, size_t padding, size_t output_padding)
+    : in_channels(in_channels), out_channels(out_channels),
+      kernel_size(kernel_size), stride(stride), padding(padding),
+      output_padding(output_padding) {
+    // Kaiming/He initialization
+    float std = std::sqrt(2.0f / (in_channels * kernel_size * kernel_size));
+    std::normal_distribution<float> dist(0.0f, std);
+
+    // Weight shape: [in_channels, out_channels, kernel_size, kernel_size]
+    // Note: transposed compared to Conv2d
+    weight = Tensor::create({in_channels, out_channels, kernel_size, kernel_size}, true);
+    for (auto& v : weight->data) v = dist(layer_rng);
+
+    bias = Tensor::zeros({out_channels}, true);
+}
+
+TensorPtr ConvTranspose2d::forward(const TensorPtr& input) {
+    return input->conv_transpose2d(weight, bias, stride, padding, output_padding);
+}
+
+std::vector<TensorPtr> ConvTranspose2d::parameters() {
+    return {weight, bias};
+}
+
 // MaxPool2d implementation
 MaxPool2d::MaxPool2d(size_t kernel_size, size_t stride)
     : kernel_size(kernel_size), stride(stride == 0 ? kernel_size : stride) {}
@@ -1489,6 +1515,14 @@ std::string Conv2d::extra_repr() const {
            ", padding=" + std::to_string(padding);
 }
 
+std::string ConvTranspose2d::extra_repr() const {
+    return std::to_string(in_channels) + ", " + std::to_string(out_channels) +
+           ", kernel_size=" + std::to_string(kernel_size) +
+           ", stride=" + std::to_string(stride) +
+           ", padding=" + std::to_string(padding) +
+           ", output_padding=" + std::to_string(output_padding);
+}
+
 std::string MaxPool2d::extra_repr() const {
     return "kernel_size=" + std::to_string(kernel_size) +
            ", stride=" + std::to_string(stride);
@@ -1554,6 +1588,18 @@ std::vector<size_t> Conv2d::compute_output_shape(const std::vector<size_t>& inpu
     size_t W = input_shape[3];
     size_t H_out = (H + 2 * padding - kernel_size) / stride + 1;
     size_t W_out = (W + 2 * padding - kernel_size) / stride + 1;
+    return {N, out_channels, H_out, W_out};
+}
+
+std::vector<size_t> ConvTranspose2d::compute_output_shape(const std::vector<size_t>& input_shape) const {
+    // [N, C_in, H, W] -> [N, C_out, H', W']
+    // H_out = (H - 1) * stride - 2 * padding + kernel_size + output_padding
+    if (input_shape.size() != 4) return input_shape;
+    size_t N = input_shape[0];
+    size_t H = input_shape[2];
+    size_t W = input_shape[3];
+    size_t H_out = (H - 1) * stride - 2 * padding + kernel_size + output_padding;
+    size_t W_out = (W - 1) * stride - 2 * padding + kernel_size + output_padding;
     return {N, out_channels, H_out, W_out};
 }
 
@@ -1699,5 +1745,82 @@ void Sequential::summary(const std::vector<size_t>& input_shape) const {
     printf("Total params: %s\n", format_with_commas(total_params).c_str());
     printf("Trainable params: %s\n", format_with_commas(trainable_params).c_str());
     printf("Non-trainable params: %s\n", format_with_commas(total_params - trainable_params).c_str());
+    printf("==============================================================================\n");
+}
+
+// ============================================================================
+// Model Summary Utilities
+// ============================================================================
+
+std::string format_number(size_t n) {
+    std::string s = std::to_string(n);
+    int pos = static_cast<int>(s.length()) - 3;
+    while (pos > 0) {
+        s.insert(pos, ",");
+        pos -= 3;
+    }
+    return s;
+}
+
+std::string format_memory(size_t bytes) {
+    const char* units[] = {"B", "KB", "MB", "GB", "TB"};
+    int unit_idx = 0;
+    double size = static_cast<double>(bytes);
+
+    while (size >= 1024.0 && unit_idx < 4) {
+        size /= 1024.0;
+        unit_idx++;
+    }
+
+    char buf[32];
+    if (unit_idx == 0) {
+        snprintf(buf, sizeof(buf), "%zu %s", bytes, units[unit_idx]);
+    } else {
+        snprintf(buf, sizeof(buf), "%.2f %s", size, units[unit_idx]);
+    }
+    return std::string(buf);
+}
+
+ModelSummary get_model_summary(Module* model) {
+    ModelSummary info;
+
+    info.total_params = model->num_parameters();
+    info.trainable_params = model->num_trainable_parameters();
+    info.non_trainable_params = info.total_params - info.trainable_params;
+
+    // Memory calculations (assuming fp32 = 4 bytes, fp16 = 2 bytes)
+    info.param_memory_bytes = info.total_params * sizeof(float);
+    info.param_memory_fp16_bytes = info.total_params * sizeof(uint16_t);
+    info.grad_memory_bytes = info.trainable_params * sizeof(float);
+    info.total_memory_bytes = info.param_memory_bytes + info.grad_memory_bytes;
+
+    // Count layers (for Sequential)
+    info.num_layers = 0;
+    Sequential* seq = dynamic_cast<Sequential*>(model);
+    if (seq) {
+        info.num_layers = seq->layers.size();
+    }
+
+    return info;
+}
+
+void print_model_info(Module* model, const std::string& name) {
+    ModelSummary info = get_model_summary(model);
+
+    printf("==============================================================================\n");
+    printf("%s Summary\n", name.c_str());
+    printf("==============================================================================\n");
+    printf("Total parameters:       %s\n", format_number(info.total_params).c_str());
+    printf("Trainable parameters:   %s\n", format_number(info.trainable_params).c_str());
+    printf("Non-trainable params:   %s\n", format_number(info.non_trainable_params).c_str());
+    printf("------------------------------------------------------------------------------\n");
+    printf("Parameter memory (fp32): %s\n", format_memory(info.param_memory_bytes).c_str());
+    printf("Parameter memory (fp16): %s\n", format_memory(info.param_memory_fp16_bytes).c_str());
+    printf("Gradient memory:         %s\n", format_memory(info.grad_memory_bytes).c_str());
+    printf("Total training memory:   %s\n", format_memory(info.total_memory_bytes).c_str());
+    if (info.num_layers > 0) {
+        printf("------------------------------------------------------------------------------\n");
+        printf("Number of layers:        %zu\n", info.num_layers);
+    }
     printf("==============================================================================\n");
 }

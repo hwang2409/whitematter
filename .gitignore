@@ -5,6 +5,9 @@ build/
 # Data
 data/
 
+# Pretrained model weights (keep directory with .gitkeep)
+pretrained/*.bin
+
 # Python
 __pycache__/
 *.pyc

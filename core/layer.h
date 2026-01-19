@@ -112,6 +112,26 @@ public:
     std::vector<size_t> compute_output_shape(const std::vector<size_t>& input_shape) const override;
 };
 
+class ConvTranspose2d : public Module {
+public:
+    TensorPtr weight;
+    TensorPtr bias;
+    size_t in_channels, out_channels;
+    size_t kernel_size;
+    size_t stride;
+    size_t padding;
+    size_t output_padding;
+
+    ConvTranspose2d(size_t in_channels, size_t out_channels, size_t kernel_size,
+                    size_t stride = 1, size_t padding = 0, size_t output_padding = 0);
+
+    TensorPtr forward(const TensorPtr& input) override;
+    std::vector<TensorPtr> parameters() override;
+    std::string name() const override { return "ConvTranspose2d"; }
+    std::string extra_repr() const override;
+    std::vector<size_t> compute_output_shape(const std::vector<size_t>& input_shape) const override;
+};
+
 class MaxPool2d : public Module {
 public:
     size_t kernel_size;
@@ -314,5 +334,42 @@ public:
     // Pass input_shape to enable output shape tracking (e.g., {1, 1, 28, 28} for MNIST)
     void summary(const std::vector<size_t>& input_shape = {}) const;
 };
+
+// =============================================================================
+// Model Summary Utilities
+// =============================================================================
+
+// Information about a model's parameters and memory usage
+struct ModelSummary {
+    size_t total_params;
+    size_t trainable_params;
+    size_t non_trainable_params;
+    size_t param_memory_bytes;      // Memory for parameters (fp32)
+    size_t param_memory_fp16_bytes; // Memory if using fp16
+    size_t grad_memory_bytes;       // Memory for gradients (fp32)
+    size_t total_memory_bytes;      // params + gradients
+    size_t num_layers;
+};
+
+// Get detailed model information
+ModelSummary get_model_summary(Module* model);
+
+// Convenience functions
+inline size_t count_parameters(Module* model) {
+    return model->num_parameters();
+}
+
+inline size_t count_trainable_parameters(Module* model) {
+    return model->num_trainable_parameters();
+}
+
+// Format bytes as human-readable string (e.g., "1.23 MB")
+std::string format_memory(size_t bytes);
+
+// Format number with commas (e.g., "1,234,567")
+std::string format_number(size_t n);
+
+// Print model summary for any Module (not just Sequential)
+void print_model_info(Module* model, const std::string& name = "Model");
 
 #endif

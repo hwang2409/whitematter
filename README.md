@@ -29,7 +29,11 @@ gunzip *.gz && cd ..
 │   ├── loss.h/cpp              # Loss functions
 │   ├── optimizer.h/cpp         # Parameter optimizers
 │   ├── serialize.h/cpp         # Model save/load
-│   └── dataloader.h/cpp        # Multi-threaded data loading
+│   ├── dataloader.h/cpp        # Multi-threaded data loading
+│   ├── model_zoo.h/cpp         # Pretrained model registry
+│   ├── onnx_export.h/cpp       # ONNX format export
+│   ├── amp.h                   # Mixed precision training (fp16)
+│   └── logging.h               # Training logger and metrics
 ├── datasets/                   # Dataset loaders
 │   ├── mnist.h/cpp             # MNIST data loader
 │   └── cifar10.h/cpp           # CIFAR-10 data loader
@@ -240,6 +244,7 @@ model.eval();
 - `LogSoftmax(dim)` - Log-softmax activation
 - `Dropout(p)` - Dropout regularization
 - `Conv2d(in_channels, out_channels, kernel_size, stride, padding)` - 2D convolution
+- `ConvTranspose2d(in_channels, out_channels, kernel_size, stride, padding, output_padding)` - 2D transposed convolution (upsampling)
 - `MaxPool2d(kernel_size, stride)` - 2D max pooling
 - `AvgPool2d(kernel_size, stride)` - 2D average pooling
 - `BatchNorm2d(num_features, eps, momentum)` - 2D batch normalization
@@ -250,6 +255,25 @@ model.eval();
 - `GRU(input_size, hidden_size, batch_first)` - GRU recurrent layer
 - `MultiHeadAttention(embed_dim, num_heads)` - Multi-head attention for transformers
 - `Sequential({...})` - Container for chaining layers
+
+**Transposed Convolution (Upsampling):**
+```cpp
+// ConvTranspose2d upsamples spatial dimensions (used in autoencoders, GANs, segmentation)
+// Output size: (H - 1) * stride - 2 * padding + kernel_size + output_padding
+
+// Double spatial dimensions with stride=2
+auto upsample = new ConvTranspose2d(64, 32, 4, 2, 1);  // [N, 64, 8, 8] -> [N, 32, 16, 16]
+
+// Decoder for autoencoder
+Sequential decoder({
+    new ConvTranspose2d(256, 128, 4, 2, 1),  // 4x4 -> 8x8
+    new ReLU(),
+    new ConvTranspose2d(128, 64, 4, 2, 1),   // 8x8 -> 16x16
+    new ReLU(),
+    new ConvTranspose2d(64, 3, 4, 2, 1),     // 16x16 -> 32x32
+    new Sigmoid()                             // Output in [0, 1]
+});
+```
 
 ### Loss Functions
 
@@ -351,6 +375,422 @@ optimizer.step();
 float grad_norm = get_grad_norm(params);
 ```
 
+### Mixed Precision Training
+
+Mixed precision training uses fp16 (half-precision) for faster computation while maintaining fp32 accuracy through loss scaling:
+
+```cpp
+#include "amp.h"
+
+Sequential model({
+    new Linear(784, 256),
+    new ReLU(),
+    new Linear(256, 10)
+});
+
+SGD optimizer(model.parameters(), 0.001f);
+GradScaler scaler;  // Default: init_scale=65536, growth_interval=2000
+CrossEntropyLoss criterion;
+
+for (int epoch = 0; epoch < epochs; epoch++) {
+    for (auto [x, y] : dataloader) {
+        optimizer.zero_grad();
+
+        // Forward pass (in real fp16, this would use half-precision)
+        auto output = model.forward(x);
+        auto loss = criterion(output, y);
+
+        // Scale loss for numerical stability
+        auto scaled_loss = scaler.scale(loss);
+        scaled_loss->backward();
+
+        // Unscale gradients and check for overflow
+        scaler.unscale(&optimizer);
+
+        // Gradient clipping (optional, works with scaled gradients)
+        clip_grad_norm_(model.parameters(), 1.0f);
+
+        // Step optimizer only if gradients are finite
+        scaler.step(&optimizer, true);  // true = already unscaled
+
+        // Update scale factor based on overflow history
+        scaler.update();
+    }
+}
+```
+
+**GradScaler API:**
+```cpp
+// Constructor with custom settings
+GradScaler scaler(
+    256.0f,    // init_scale: starting scale factor
+    2.0f,      // growth_factor: multiply scale by this after growth_interval good steps
+    0.5f,      // backoff_factor: multiply scale by this on overflow
+    2000,      // growth_interval: steps between scale increases
+    true       // enabled: set to false to disable scaling
+);
+
+// Core methods
+float scale = scaler.get_scale();           // Get current scale factor
+auto scaled = scaler.scale(loss);           // Scale a tensor
+bool finite = scaler.unscale(&optimizer);   // Unscale gradients, returns true if all finite
+scaler.step(&optimizer, already_unscaled);  // Step if gradients are finite
+scaler.update();                            // Adjust scale based on overflow history
+```
+
+**HalfTensor for memory optimization:**
+```cpp
+// Store weights in fp16 to save memory (50% reduction)
+auto weights = Tensor::randn({1000, 1000}, false);
+HalfTensor half_weights(weights);
+
+printf("Original: %zu bytes\n", weights->data.size() * 4);    // 4MB
+printf("Half: %zu bytes\n", half_weights.data.size() * 2);    // 2MB
+
+// Convert back to fp32 for computation
+auto restored = half_weights.to_float();
+```
+
+**FP16 conversion utilities:**
+```cpp
+// Convert single values
+uint16_t h = float_to_half(3.14159f);
+float f = half_to_float(h);
+
+// Convert vectors
+std::vector<uint16_t> half_data = to_half(float_data);
+std::vector<float> float_data = from_half(half_data);
+```
+
+### Gradient Accumulation
+
+Gradient accumulation enables training with effectively larger batch sizes when memory is limited. Instead of updating weights after every batch, accumulate gradients over multiple mini-batches:
+
+```cpp
+#include "optimizer.h"
+
+Sequential model({
+    new Linear(784, 256),
+    new ReLU(),
+    new Linear(256, 10)
+});
+
+SGD optimizer(model.parameters(), 0.01f);
+CrossEntropyLoss criterion;
+GradientAccumulator accumulator(4);  // Effective batch = mini_batch * 4
+
+for (auto [x, y] : dataloader) {
+    auto loss = criterion(model.forward(x), y);
+
+    // Scales loss by 1/4 and calls backward
+    accumulator.backward(loss);
+
+    // Step only when we've accumulated 4 batches
+    if (accumulator.should_step()) {
+        optimizer.step();
+        optimizer.zero_grad();
+        accumulator.reset();
+    }
+}
+```
+
+**GradientAccumulator API:**
+```cpp
+// Create accumulator (effective_batch = mini_batch * accumulation_steps)
+GradientAccumulator accumulator(4);
+
+// Option 1: Combined scale + backward
+accumulator.backward(loss);
+
+// Option 2: Manual control
+auto scaled_loss = accumulator.scale(loss);  // loss / accumulation_steps
+scaled_loss->backward();
+accumulator.increment();
+
+// Check state
+accumulator.should_step();              // True when ready for optimizer step
+accumulator.is_last_step();             // True on final accumulation step
+accumulator.current_step();             // Current step (0 to accumulation_steps-1)
+accumulator.get_accumulation_steps();   // Total steps
+accumulator.get_scale_factor();         // 1.0 / accumulation_steps
+
+// Reset after optimizer step
+accumulator.reset();
+```
+
+**Combined with mixed precision:**
+```cpp
+GradientAccumulator accumulator(4);
+GradScaler scaler(256.0f);
+
+for (auto [x, y] : dataloader) {
+    auto loss = criterion(model.forward(x), y);
+
+    // Scale for accumulation, then for mixed precision
+    auto scaled = scaler.scale(accumulator.scale(loss));
+    scaled->backward();
+    accumulator.increment();
+
+    if (accumulator.should_step()) {
+        scaler.unscale(&optimizer);
+        scaler.step(&optimizer, true);
+        scaler.update();
+        optimizer.zero_grad();
+        accumulator.reset();
+    }
+}
+```
+
+### Early Stopping
+
+Early stopping prevents overfitting by halting training when validation metrics stop improving:
+
+```cpp
+#include "optimizer.h"
+
+Sequential model({...});
+SGD optimizer(model.parameters(), 0.01f);
+CrossEntropyLoss criterion;
+
+EarlyStopping early_stopping(10);  // patience = 10 epochs
+
+for (int epoch = 0; epoch < max_epochs; epoch++) {
+    // Training
+    train_one_epoch(model, train_loader);
+
+    // Validation
+    float val_loss = evaluate(model, val_loader);
+
+    // Check if we should stop
+    if (early_stopping.step(val_loss)) {
+        printf("Early stopping at epoch %d\n", epoch);
+        printf("Best val loss: %.4f at epoch %d\n",
+               early_stopping.best_metric(), early_stopping.best_epoch());
+        break;
+    }
+}
+```
+
+**EarlyStopping API:**
+```cpp
+// Create early stopping monitor
+// patience: epochs to wait after last improvement
+// min_delta: minimum change to qualify as improvement
+// mode_min: true = lower is better (loss), false = higher is better (accuracy)
+EarlyStopping early_stopping(10, 0.001f, true);   // For loss
+EarlyStopping early_stopping(10, 0.0f, false);    // For accuracy
+
+// Step and check
+bool should_stop = early_stopping.step(metric);
+
+// Query state
+early_stopping.best_metric();                // Best value seen
+early_stopping.best_epoch();                 // Epoch of best value
+early_stopping.epochs_without_improvement(); // Current patience counter
+early_stopping.should_stop();                // Whether training should stop
+
+// Reset for new training run
+early_stopping.reset();
+```
+
+**ModelCheckpoint - Save best model automatically:**
+```cpp
+#include "optimizer.h"
+#include "serialize.h"
+
+EarlyStopping early_stopping(10);
+ModelCheckpoint checkpoint("best_model.bin", true);  // mode_min=true for loss
+
+for (int epoch = 0; epoch < max_epochs; epoch++) {
+    train_one_epoch();
+    float val_loss = evaluate();
+
+    // Save model if validation improved
+    if (checkpoint.step(val_loss, &model)) {
+        printf("Saved best model (val_loss=%.4f)\n", val_loss);
+    }
+
+    // Check early stopping
+    if (early_stopping.step(val_loss)) {
+        printf("Early stopping at epoch %d\n", epoch);
+        break;
+    }
+}
+
+// Restore best model for inference/testing
+checkpoint.restore(&model);
+```
+
+### Model Summary
+
+Inspect model architecture, parameter counts, and memory usage:
+
+```cpp
+#include "layer.h"
+
+Sequential model({
+    new Conv2d(1, 16, 3, 1, 1),
+    new BatchNorm2d(16),
+    new ReLU(),
+    new MaxPool2d(2, 2),
+    new Flatten(),
+    new Linear(3136, 128),
+    new ReLU(),
+    new Linear(128, 10)
+});
+
+// PyTorch-style layer-by-layer summary with output shapes
+model.summary({1, 1, 28, 28});  // Pass input shape for shape tracking
+```
+
+**Output:**
+```
+==============================================================================
+Layer (type)                    Output Shape              Param #
+==============================================================================
+Conv2d(1, 16, kernel_size=3)    [1, 16, 28, 28]           160
+BatchNorm2d(16)                  [1, 16, 28, 28]           32
+ReLU                             [1, 16, 28, 28]           0
+MaxPool2d(kernel_size=2)         [1, 16, 14, 14]           0
+Flatten                          [1, 3136]                 0
+Linear(3136, 128)                [1, 128]                  401,536
+ReLU                             [1, 128]                  0
+Linear(128, 10)                  [1, 10]                   1,290
+==============================================================================
+Total params: 403,018
+Trainable params: 403,018
+Non-trainable params: 0
+==============================================================================
+```
+
+**Utility functions:**
+```cpp
+// Get detailed model info
+ModelSummary info = get_model_summary(&model);
+printf("Total params: %zu\n", info.total_params);
+printf("Trainable: %zu\n", info.trainable_params);
+printf("Param memory (fp32): %zu bytes\n", info.param_memory_bytes);
+printf("Param memory (fp16): %zu bytes\n", info.param_memory_fp16_bytes);
+printf("Gradient memory: %zu bytes\n", info.grad_memory_bytes);
+printf("Total training memory: %zu bytes\n", info.total_memory_bytes);
+
+// Convenience functions
+size_t total = count_parameters(&model);
+size_t trainable = count_trainable_parameters(&model);
+
+// Human-readable formatting
+std::string params = format_number(1234567);     // "1,234,567"
+std::string memory = format_memory(1024*1024);   // "1.00 MB"
+
+// Simple summary printout
+print_model_info(&model, "My CNN");
+```
+
+### Training Logger
+
+Log metrics during training with TensorBoard-style tracking and export:
+
+```cpp
+#include "logging.h"
+
+TrainingLogger logger("logs", "my_experiment");
+logger.set_total_epochs(10);
+logger.set_total_steps(100);  // Steps per epoch (for progress bar)
+
+for (int epoch = 0; epoch < 10; epoch++) {
+    logger.new_epoch();
+
+    for (int batch = 0; batch < 100; batch++) {
+        // Train...
+        float loss = train_batch();
+        float acc = compute_accuracy();
+
+        // Log batch metrics (for epoch averaging)
+        logger.log_batch("loss", loss);
+        logger.log_batch("accuracy", acc);
+
+        // Show progress bar
+        logger.print_progress();
+    }
+
+    // Log epoch-level metrics
+    logger.log("train_loss", logger.epoch_mean("loss"));
+    logger.log("train_acc", logger.epoch_mean("accuracy"));
+    logger.log("lr", optimizer.lr);
+    logger.step();
+
+    logger.print_epoch_summary();
+}
+
+// Save logs and print summary
+logger.save_csv();   // logs/my_experiment_metrics.csv
+logger.save_json();  // logs/my_experiment_metrics.json
+logger.print_summary();
+```
+
+**Console output:**
+```
+Epoch 3/10 [============>       ] 60% loss: 0.4523 accuracy: 0.8721 (1m 23s)
+Epoch 3/10 - loss: 0.4512 accuracy: 0.8734 - 2m 18s
+
+==============================================================================
+Training Summary: my_experiment
+==============================================================================
+Total epochs:  10
+Total steps:   1000
+Elapsed time:  23m 45s
+------------------------------------------------------------------------------
+train_loss:     min:   0.1234  max:   1.2345  mean:   0.4567  std:   0.2345
+train_acc:      min:   0.7500  max:   0.9500  mean:   0.8750  std:   0.0500
+==============================================================================
+```
+
+**MetricTracker for statistics:**
+```cpp
+// Track running statistics for any metric
+MetricTracker tracker;
+for (float value : batch_losses) {
+    tracker.update(value);
+}
+printf("Mean: %.4f, Std: %.4f, Min: %.4f, Max: %.4f\n",
+       tracker.mean(), tracker.std(), tracker.min(), tracker.max());
+```
+
+**ProgressBar for loops:**
+```cpp
+ProgressBar bar(1000, 40, "Training: ");
+for (int i = 0; i < 1000; i++) {
+    // Do work...
+    bar.update();
+}
+bar.finish();
+// Output: Training: [=================>              ] 50% 500/1000 [1.2s < 1.2s]
+```
+
+**CSV export format:**
+```csv
+step,epoch,timestamp,train_loss,train_acc,lr
+0,1,12.34,0.9876,0.7500,0.001
+1,2,25.67,0.5432,0.8500,0.001
+...
+```
+
+**JSON export format:**
+```json
+{
+  "experiment": "my_experiment",
+  "total_steps": 10,
+  "total_epochs": 10,
+  "elapsed_seconds": 1234.56,
+  "summary": {
+    "train_loss": {"min": 0.12, "max": 1.23, "mean": 0.45, "std": 0.23, "last": 0.15}
+  },
+  "history": [
+    {"step": 0, "epoch": 1, "timestamp": 12.34, "train_loss": 0.9876}
+  ]
+}
+```
+
 ### Disabling Gradient Tracking
 
 Use `NoGradGuard` for inference to improve performance:
@@ -362,6 +802,100 @@ Use `NoGradGuard` for inference to improve performance:
     // ~3x faster inference
 }
 // Gradients automatically re-enabled when guard goes out of scope
+```
+
+### Model Zoo
+
+The model zoo provides pre-defined architectures and pretrained weights:
+
+```cpp
+#include "model_zoo.h"
+
+// List available models
+auto models = list_models();  // {"mnist_mlp", "mnist_cnn", "cifar10_simple", ...}
+
+// Get model info
+auto info = ModelZoo::instance().get_info("mnist_cnn");
+printf("Params: %zu, Expected accuracy: %.1f%%\n", info.num_params, info.accuracy);
+
+// Create model architecture (random weights)
+Sequential* model = create_model("mnist_cnn");
+
+// Load pretrained model (architecture + weights)
+Sequential* pretrained = load_pretrained("mnist_cnn");
+
+// Save a trained model to the zoo
+ModelZoo::instance().save_to_zoo("mnist_cnn", model);
+
+// Change weights directory (default: "pretrained/")
+ModelZoo::instance().set_weights_dir("my_models/");
+```
+
+**Available models:**
+
+| Model | Dataset | Input Shape | Params | Expected Accuracy |
+|-------|---------|-------------|--------|-------------------|
+| `mnist_mlp` | MNIST | [1, 784] | 203K | ~97.5% |
+| `mnist_cnn` | MNIST | [1, 1, 28, 28] | 207K | ~98.5% |
+| `cifar10_simple` | CIFAR-10 | [1, 3, 32, 32] | 310K | ~75% |
+| `cifar10_vgg` | CIFAR-10 | [1, 3, 32, 32] | 3.2M | ~85% |
+| `tiny_mlp` | synthetic | [1, 4] | 42 | 100% |
+
+**Training and saving to the zoo:**
+```cpp
+// Train a model
+Sequential* model = create_model("mnist_cnn");
+// ... training loop ...
+
+// Save to pretrained/mnist_cnn.bin
+ModelZoo::instance().save_to_zoo("mnist_cnn", model);
+
+// Later, load the pretrained model
+Sequential* loaded = load_pretrained("mnist_cnn");
+```
+
+### ONNX Export
+
+Export models to ONNX format for use with ONNX Runtime, TensorRT, or other frameworks:
+
+```cpp
+#include "onnx_export.h"
+
+// Simple export with input shape
+Sequential* model = load_pretrained("mnist_cnn");
+export_onnx(model, "model.onnx", {1, 1, 28, 28});
+
+// Export with options
+ONNXExportOptions options;
+options.model_name = "my_model";
+options.input_shape = {1, 1, 28, 28};
+options.verbose = true;
+export_onnx(model, "model.onnx", options);
+
+// Get export info (for debugging)
+std::string info = get_onnx_export_info(model, {1, 1, 28, 28});
+```
+
+**Supported layers for ONNX export:**
+- `Linear` → Gemm
+- `Conv2d` → Conv
+- `ReLU`, `Sigmoid`, `Tanh` → Relu, Sigmoid, Tanh
+- `Softmax` → Softmax
+- `Flatten` → Flatten
+- `MaxPool2d`, `AvgPool2d` → MaxPool, AveragePool
+- `BatchNorm2d` → BatchNormalization
+- `Dropout` → Identity (inference mode)
+
+**Using the exported model:**
+```python
+import onnxruntime as ort
+import numpy as np
+
+# Load and run inference
+sess = ort.InferenceSession("mnist_cnn.onnx")
+x = np.random.randn(1, 1, 28, 28).astype(np.float32)
+y = sess.run(None, {"input": x})[0]
+print(f"Predicted class: {np.argmax(y)}")
 ```
 
 ### Data Loading
@@ -580,6 +1114,138 @@ Prompt 'abc' -> abcdefabcdefabcdefabcdef...
 Prompt 'f'   -> fabcdefabcdefabcdefabcdef...
 ```
 
+## Autoencoder Example
+
+A convolutional autoencoder using ConvTranspose2d for image reconstruction on MNIST:
+
+```bash
+make autoencoder
+./build/autoencoder
+```
+
+Architecture:
+```
+Encoder: Conv2d(1,16,3,s=2) -> Conv2d(16,32,3,s=2) -> Conv2d(32,64,3,s=2) -> Linear(1024,32)
+         28x28 -> 14x14 -> 7x7 -> 4x4 -> 32-dim latent vector
+
+Decoder: Linear(32,1024) -> ConvTranspose2d(64,32) -> ConvTranspose2d(32,16) -> ConvTranspose2d(16,1)
+         32-dim latent -> 4x4 -> 7x7 -> 14x14 -> 28x28
+```
+
+Features:
+- **~85k parameters** with 32-dimensional latent space
+- Uses ConvTranspose2d for learned upsampling (decoder)
+- MSE loss for pixel-wise reconstruction
+- Demonstrates latent space interpolation between digits
+- ASCII art visualization of reconstructions
+
+Sample output:
+```
+Epoch 10/10  Train Loss: 0.012345  Test Loss: 0.012567
+
+Reconstruction Examples:
+Original:                    Reconstructed:
+    .::---==+++**##%@@           .::---==+++**##%@@
+    :::---==+++**##%%@           .::---==+++**##%%@
+    ...                          ...
+
+Latent Space Interpolation (digit 3 -> digit 7):
+[image 1]  [image 2]  [image 3]  [image 4]  [image 5]
+```
+
+## GAN Example
+
+A Deep Convolutional GAN (DCGAN) for generating handwritten digits:
+
+```bash
+make gan
+./build/gan
+```
+
+Architecture:
+```
+Generator (noise -> image):
+  Linear(100, 4096) -> Reshape(256,4,4) -> ConvTranspose2d -> 7x7 -> ConvTranspose2d -> 14x14 -> ConvTranspose2d -> 28x28
+
+Discriminator (image -> real/fake):
+  Conv2d(1,64) -> 14x14 -> Conv2d(64,128) -> 7x7 -> Conv2d(128,256) -> 4x4 -> Linear -> sigmoid
+```
+
+Features:
+- **~1.5M parameters** (Generator: ~1M, Discriminator: ~500K)
+- 100-dimensional latent space
+- Adam optimizer with beta1=0.5 (standard for GANs)
+- Label smoothing (real labels = 0.9) for training stability
+- Dropout in discriminator to prevent overfitting
+- Demonstrates latent space interpolation and diversity checking
+
+Training dynamics:
+- D(x): Discriminator output on real images (should stay ~0.5-0.8)
+- D(G(z)): Discriminator output on fake images (should rise from ~0 to ~0.5)
+- Balanced training when both losses are similar
+
+Sample output:
+```
+Epoch 20/20  D_loss: 0.8234  G_loss: 1.2345  D(x): 0.72  D(G(z)): 0.45
+
+Generated samples (epoch 20):
+    .::---==+++**##%@@  .::---==+++**##%@@  .::---==+++**##%@@
+    :::---==+++**##%%@  :::---==+++**##%%@  :::---==+++**##%%@
+
+Latent Space Interpolation:
+[z1] -> [interp1] -> [interp2] -> [interp3] -> [z2]
+```
+
+## RNN Text Generation Example
+
+A character-level RNN language model for generating Shakespeare-style text:
+
+```bash
+make rnn
+./build/rnn_text_gen
+```
+
+Architecture:
+```
+Embedding(vocab_size, 128) -> LSTM(128, 256) -> LSTM(256, 256) -> Dropout(0.3) -> Linear(256, vocab_size)
+```
+
+Features:
+- **~500K parameters** with 2-layer LSTM and 256 hidden units
+- Character-level language modeling (predicts next character)
+- Embedded Shakespeare corpus (~2KB) for training
+- Temperature-based sampling for text generation:
+  - Low temperature (0.5): More conservative, repetitive text
+  - Medium temperature (0.8): Balanced creativity and coherence
+  - High temperature (1.2): More random, creative text
+- Gradient clipping (max norm = 5.0) for stable RNN training
+- Custom sequence cross-entropy loss with proper gradient computation
+
+Training output:
+```
+Epoch 50/50  Loss: 1.2345  Perplexity: 3.44
+
+Generated text (temperature=0.8):
+----------------------------------------
+ROMEO:
+What light through yonder window breaks?
+It is the east, and Juliet is the sun.
+Arise, fair sun, and kill the envious moon...
+----------------------------------------
+```
+
+Sample generation at different temperatures:
+```
+Temperature 0.5 (conservative):
+  "the the the the and the..."
+
+Temperature 0.8 (balanced):
+  "What dreams may come when we have shuffled off..."
+
+Temperature 1.2 (creative):
+  "Twas brillig sloathy toves did gyre..."
+```
+
 ## Performance
 
 The framework includes several optimizations:
@@ -589,6 +1255,9 @@ The framework includes several optimizations:
 - **im2col + GEMM Convolution**: Converts conv2d to optimized matrix multiplication
 - **OpenMP Parallelization**: Multi-threaded convolution and GEMM operations
 - **Threaded Data Loading**: Background workers prefetch batches during training
+- **Mixed Precision (fp16)**: GradScaler for loss scaling, HalfTensor for memory optimization
+- **Gradient Accumulation**: Train with larger effective batch sizes on limited memory
+- **Early Stopping**: Prevent overfitting with automatic training termination
 - **NoGradGuard**: Skip computation graph building during inference
 - **O3 Optimization**: Aggressive compiler optimizations enabled
 
@@ -613,6 +1282,52 @@ make            # Build optimized release
 make debug      # Build with debug symbols
 make clean      # Remove build artifacts
 make run        # Build and run
+make test       # Run unit tests
+```
+
+## Unit Tests
+
+Comprehensive unit tests are provided in the `tests/` directory:
+
+```bash
+# Run all tests
+make test
+
+# Run specific test suites
+make test-tensor      # Tensor operations
+make test-autograd    # Automatic differentiation
+make test-layers      # Neural network layers
+make test-loss        # Loss functions
+make test-optimizer   # Optimizers and schedulers
+```
+
+**Test coverage:**
+- **Tensor Operations (39 tests)**: Creation, arithmetic, matrix ops, reductions, shape manipulation
+- **Autograd (23 tests)**: Gradient computation for all differentiable operations
+- **Layers (42 tests)**: Forward pass, parameters, gradients for all layer types
+- **Loss Functions (22 tests)**: Correctness and gradients for all losses
+- **Optimizers (26 tests)**: SGD, Adam, AdamW, RMSprop, schedulers, early stopping
+
+Sample output:
+```
+################################################################################
+#                         WHITEMATTER UNIT TESTS                               #
+################################################################################
+
+================================================================================
+Test Suite: Tensor Operations
+================================================================================
+  [PASS] zeros (0.01ms)
+  [PASS] ones (0.00ms)
+  [PASS] matmul_2d (0.52ms)
+  ...
+--------------------------------------------------------------------------------
+Results: 39 passed, 0 failed, 39 total (0.95ms)
+================================================================================
+
+################################################################################
+TOTAL: 152 passed, 0 failed (0.01s)
+################################################################################
 ```
 
 ## Requirements
@@ -709,6 +1424,10 @@ whitematter includes a self-service ML training platform where users can upload 
 |-----------|----------|---------|
 | C++ Engine | `core/tensor.cpp`, `core/layer.cpp`, etc. | Core autograd & NN ops |
 | Data Loader | `core/dataloader.cpp` | Multi-threaded batch prefetching |
+| Model Zoo | `core/model_zoo.cpp` | Pretrained model registry |
+| ONNX Export | `core/onnx_export.cpp` | Export to ONNX format |
+| Mixed Precision | `core/amp.h` | GradScaler, HalfTensor, fp16 utils |
+| Training Logger | `core/logging.h` | TrainingLogger, MetricTracker, CSV/JSON |
 | Python Bindings | `bindings/whitematter_py.cpp` | pybind11 inference wrapper |
 | Server | `platform/server.py` | FastAPI REST endpoints |
 | Dataset Manager | `platform/dataset_manager.py` | Upload, extract, preprocess |
@@ -802,6 +1521,7 @@ Future improvements to make this framework more extensive:
 
 ### Layers
 - [x] Conv2d - 2D convolutional layer
+- [x] ConvTranspose2d - 2D transposed convolution (upsampling for decoders/GANs)
 - [x] MaxPool2d - Max pooling layer
 - [x] AvgPool2d - Average pooling layer
 - [x] Flatten - Flatten spatial dimensions
@@ -840,22 +1560,22 @@ Future improvements to make this framework more extensive:
 - [x] CIFAR-10 data loader with normalization
 - [x] Data augmentation (random flip, crop, padding)
 - [x] Multi-threaded data loading with prefetching
-- [ ] Mixed precision training (fp16)
-- [ ] Gradient accumulation
-- [ ] Early stopping
+- [x] Mixed precision training (fp16, GradScaler, HalfTensor)
+- [x] Gradient accumulation (GradientAccumulator)
+- [x] Early stopping (EarlyStopping, ModelCheckpoint)
 
 ### Infrastructure
 - [ ] GPU support (CUDA/Metal)
-- [ ] Model summary / parameter count
-- [ ] TensorBoard-style logging
-- [ ] ONNX export
-- [ ] Pretrained model zoo
-- [ ] Unit tests
+- [x] Model summary / parameter count (summary(), ModelSummary, format utilities)
+- [x] TensorBoard-style logging (TrainingLogger, MetricTracker, CSV/JSON export)
+- [x] ONNX export
+- [x] Pretrained model zoo
+- [x] Unit tests (152 tests across tensor, autograd, layers, loss, optimizer)
 
 ### Examples
 - [x] CIFAR-10 image classification (cnn_cifar10.cpp)
 - [x] Simple CNN example (cnn_mnist.cpp)
 - [x] Transformer language model (transformer_example.cpp)
-- [ ] RNN text generation
-- [ ] Autoencoder
-- [ ] GAN
+- [x] RNN text generation (character-level Shakespeare)
+- [x] Autoencoder (convolutional, using ConvTranspose2d)
+- [x] GAN (DCGAN for MNIST digit generation)
