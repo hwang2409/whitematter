@@ -27,12 +27,13 @@ public:
 
     Generator(size_t latent_dim = 100) : latent_dim(latent_dim) {
         // latent -> 4x4 -> 7x7 -> 14x14 -> 28x28
+        // ConvTranspose2d output: (input - 1) * stride - 2 * padding + kernel_size + output_padding
         fc = new Linear(latent_dim, 256 * 4 * 4);
         bn1 = new BatchNorm2d(128);
         bn2 = new BatchNorm2d(64);
-        deconv1 = new ConvTranspose2d(256, 128, 3, 2, 1, 1);  // 4x4 -> 7x7
-        deconv2 = new ConvTranspose2d(128, 64, 4, 2, 1);       // 7x7 -> 14x14
-        deconv3 = new ConvTranspose2d(64, 1, 4, 2, 1);         // 14x14 -> 28x28
+        deconv1 = new ConvTranspose2d(256, 128, 3, 2, 1, 0);  // 4x4 -> 7x7: (4-1)*2 - 2 + 3 = 7
+        deconv2 = new ConvTranspose2d(128, 64, 4, 2, 1, 0);   // 7x7 -> 14x14: (7-1)*2 - 2 + 4 = 14
+        deconv3 = new ConvTranspose2d(64, 1, 4, 2, 1, 0);     // 14x14 -> 28x28: (14-1)*2 - 2 + 4 = 28
     }
 
     ~Generator() {
@@ -217,7 +218,7 @@ int main() {
     // Hyperparameters
     const size_t latent_dim = 100;
     const size_t batch_size = 64;
-    const size_t num_epochs = 20;
+    const size_t num_epochs = 3;  // Reduced for quick test
     const float lr_g = 0.0002f;
     const float lr_d = 0.0002f;
     const float beta1 = 0.5f;
