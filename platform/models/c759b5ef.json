@@ -1,0 +1,55 @@
+{
+  "id": "c759b5ef",
+  "name": "custom_mnist-dataset_c759b5ef",
+  "dataset": "custom:8919fbc8",
+  "architecture": "custom",
+  "created_at": "2026-01-28T14:52:32.492298",
+  "epochs_trained": 0,
+  "best_accuracy": 0.0,
+  "status": "failed",
+  "training_history": [],
+  "config": {
+    "dataset_id": "8919fbc8",
+    "architecture": {
+      "name": "multinomial_logistic_regression",
+      "description": "Simple logistic regression model: flatten 28x28 images to 784-dim vectors and apply single linear layer to 10 classes",
+      "data_type": "image",
+      "input_shape": [
+        1,
+        28,
+        28
+      ],
+      "num_classes": 10,
+      "layers": [
+        {
+          "type": "flatten",
+          "params": {}
+        },
+        {
+          "type": "linear",
+          "params": {
+            "in_features": 784,
+            "out_features": 10
+          }
+        }
+      ],
+      "training": {
+        "optimizer": {
+          "type": "adam",
+          "params": {
+            "learning_rate": 0.001
+          }
+        },
+        "scheduler": {
+          "type": "step",
+          "params": {
+            "step_size": 20,
+            "gamma": 0.5
+          }
+        },
+        "epochs": 30,
+        "batch_size": 128
+      }
+    }
+  }
+}

@@ -1,0 +1,303 @@
+{
+  "id": "5f8d1258",
+  "name": "custom_mnist-dataset_5f8d1258",
+  "dataset": "custom:8919fbc8",
+  "architecture": "custom",
+  "created_at": "2026-01-28T14:54:54.622358",
+  "epochs_trained": 50,
+  "best_accuracy": 92.66,
+  "status": "completed",
+  "training_history": [
+    {
+      "epoch": 1,
+      "loss": 0.5103,
+      "accuracy": 91.13
+    },
+    {
+      "epoch": 2,
+      "loss": 0.3086,
+      "accuracy": 91.41
+    },
+    {
+      "epoch": 3,
+      "loss": 0.2891,
+      "accuracy": 91.92
+    },
+    {
+      "epoch": 4,
+      "loss": 0.2791,
+      "accuracy": 91.93
+    },
+    {
+      "epoch": 5,
+      "loss": 0.2736,
+      "accuracy": 92.35
+    },
+    {
+      "epoch": 6,
+      "loss": 0.2696,
+      "accuracy": 92.34
+    },
+    {
+      "epoch": 7,
+      "loss": 0.2666,
+      "accuracy": 92.24
+    },
+    {
+      "epoch": 8,
+      "loss": 0.2627,
+      "accuracy": 92.22
+    },
+    {
+      "epoch": 9,
+      "loss": 0.2614,
+      "accuracy": 92.46
+    },
+    {
+      "epoch": 10,
+      "loss": 0.2594,
+      "accuracy": 92.53
+    },
+    {
+      "epoch": 11,
+      "loss": 0.2575,
+      "accuracy": 92.07
+    },
+    {
+      "epoch": 12,
+      "loss": 0.257,
+      "accuracy": 92.47
+    },
+    {
+      "epoch": 13,
+      "loss": 0.2538,
+      "accuracy": 92.25
+    },
+    {
+      "epoch": 14,
+      "loss": 0.2537,
+      "accuracy": 92.16
+    },
+    {
+      "epoch": 15,
+      "loss": 0.2526,
+      "accuracy": 92.52
+    },
+    {
+      "epoch": 16,
+      "loss": 0.251,
+      "accuracy": 92.27
+    },
+    {
+      "epoch": 17,
+      "loss": 0.2497,
+      "accuracy": 92.16
+    },
+    {
+      "epoch": 18,
+      "loss": 0.2501,
+      "accuracy": 92.47
+    },
+    {
+      "epoch": 19,
+      "loss": 0.2482,
+      "accuracy": 92.43
+    },
+    {
+      "epoch": 20,
+      "loss": 0.2491,
+      "accuracy": 92.22
+    },
+    {
+      "epoch": 21,
+      "loss": 0.2475,
+      "accuracy": 92.09
+    },
+    {
+      "epoch": 22,
+      "loss": 0.2468,
+      "accuracy": 92.51
+    },
+    {
+      "epoch": 23,
+      "loss": 0.2457,
+      "accuracy": 92.45
+    },
+    {
+      "epoch": 24,
+      "loss": 0.2456,
+      "accuracy": 92.59
+    },
+    {
+      "epoch": 25,
+      "loss": 0.2449,
+      "accuracy": 92.58
+    },
+    {
+      "epoch": 26,
+      "loss": 0.2447,
+      "accuracy": 92.62
+    },
+    {
+      "epoch": 27,
+      "loss": 0.2447,
+      "accuracy": 92.56
+    },
+    {
+      "epoch": 28,
+      "loss": 0.2436,
+      "accuracy": 92.66
+    },
+    {
+      "epoch": 29,
+      "loss": 0.2433,
+      "accuracy": 92.41
+    },
+    {
+      "epoch": 30,
+      "loss": 0.2435,
+      "accuracy": 92.6
+    },
+    {
+      "epoch": 31,
+      "loss": 0.2431,
+      "accuracy": 92.64
+    },
+    {
+      "epoch": 32,
+      "loss": 0.2421,
+      "accuracy": 92.49
+    },
+    {
+      "epoch": 33,
+      "loss": 0.2424,
+      "accuracy": 92.62
+    },
+    {
+      "epoch": 34,
+      "loss": 0.2414,
+      "accuracy": 92.59
+    },
+    {
+      "epoch": 35,
+      "loss": 0.2409,
+      "accuracy": 92.12
+    },
+    {
+      "epoch": 36,
+      "loss": 0.2405,
+      "accuracy": 92.36
+    },
+    {
+      "epoch": 37,
+      "loss": 0.2405,
+      "accuracy": 92.49
+    },
+    {
+      "epoch": 38,
+      "loss": 0.2399,
+      "accuracy": 92.55
+    },
+    {
+      "epoch": 39,
+      "loss": 0.2401,
+      "accuracy": 92.1
+    },
+    {
+      "epoch": 40,
+      "loss": 0.2396,
+      "accuracy": 92.34
+    },
+    {
+      "epoch": 41,
+      "loss": 0.2397,
+      "accuracy": 92.49
+    },
+    {
+      "epoch": 42,
+      "loss": 0.2397,
+      "accuracy": 92.49
+    },
+    {
+      "epoch": 43,
+      "loss": 0.2388,
+      "accuracy": 92.59
+    },
+    {
+      "epoch": 44,
+      "loss": 0.2388,
+      "accuracy": 92.37
+    },
+    {
+      "epoch": 45,
+      "loss": 0.2384,
+      "accuracy": 92.51
+    },
+    {
+      "epoch": 46,
+      "loss": 0.2376,
+      "accuracy": 92.29
+    },
+    {
+      "epoch": 47,
+      "loss": 0.2375,
+      "accuracy": 92.32
+    },
+    {
+      "epoch": 48,
+      "loss": 0.2372,
+      "accuracy": 92.55
+    },
+    {
+      "epoch": 49,
+      "loss": 0.2379,
+      "accuracy": 92.43
+    },
+    {
+      "epoch": 50,
+      "loss": 0.2375,
+      "accuracy": 92.45
+    }
+  ],
+  "config": {
+    "dataset_id": "8919fbc8",
+    "architecture": {
+      "name": "multinomial_logistic_regression",
+      "description": "Simple multinomial logistic regression with single linear layer for MNIST digit classification",
+      "data_type": "image",
+      "input_shape": [
+        1,
+        28,
+        28
+      ],
+      "num_classes": 10,
+      "layers": [
+        {
+          "type": "flatten",
+          "params": {}
+        },
+        {
+          "type": "linear",
+          "params": {
+            "in_features": 784,
+            "out_features": 10
+          }
+        }
+      ],
+      "training": {
+        "optimizer": {
+          "type": "adam",
+          "params": {
+            "learning_rate": 0.001
+          }
+        },
+        "scheduler": {
+          "type": "none",
+          "params": {}
+        },
+        "epochs": 50,
+        "batch_size": 128
+      }
+    }
+  }
+}

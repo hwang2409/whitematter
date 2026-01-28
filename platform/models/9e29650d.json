@@ -1,0 +1,54 @@
+{
+  "id": "9e29650d",
+  "name": "custom_mnist-dataset_9e29650d",
+  "dataset": "custom:8919fbc8",
+  "architecture": "custom",
+  "created_at": "2026-01-28T14:47:58.400427",
+  "epochs_trained": 0,
+  "best_accuracy": 0.0,
+  "status": "failed",
+  "training_history": [],
+  "config": {
+    "dataset_id": "8919fbc8",
+    "architecture": {
+      "name": "mnist_logistic_regression",
+      "description": "Simple multinomial logistic regression for MNIST digit classification - flattens 28x28 images to 784-dim vectors and applies single linear layer",
+      "data_type": "image",
+      "input_shape": [
+        1,
+        28,
+        28
+      ],
+      "num_classes": 10,
+      "layers": [
+        {
+          "type": "flatten",
+          "params": {}
+        },
+        {
+          "type": "linear",
+          "params": {
+            "in_features": 784,
+            "out_features": 10
+          }
+        }
+      ],
+      "training": {
+        "optimizer": {
+          "type": "adam",
+          "params": {
+            "learning_rate": 0.001
+          }
+        },
+        "scheduler": {
+          "type": "cosine",
+          "params": {
+            "T_max": 30
+          }
+        },
+        "epochs": 30,
+        "batch_size": 128
+      }
+    }
+  }
+}

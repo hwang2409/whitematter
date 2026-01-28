@@ -6,6 +6,7 @@ export default function ModelsTab() {
   const [selectedModel, setSelectedModel] = useState<api.Model | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     loadModels();
@@ -53,6 +54,17 @@ export default function ModelsTab() {
         return 'status-cancelled';
       default:
         return 'status-pending';
+    }
+  }
+
+  async function copyEndpoint(modelId: string) {
+    const url = `http://localhost:8080/api/${modelId}/predict`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (e) {
+      console.error('Failed to copy:', e);
     }
   }
 
@@ -156,6 +168,25 @@ export default function ModelsTab() {
                       ))}
                     </tbody>
                   </table>
+                </div>
+              )}
+
+              {selectedModel.status === 'completed' && (
+                <div className="api-endpoint">
+                  <h4>API Endpoint</h4>
+                  <div className="endpoint-row">
+                    <code>POST /api/{selectedModel.id}/predict</code>
+                    <button
+                      className="btn copy-btn"
+                      onClick={() => copyEndpoint(selectedModel.id)}
+                    >
+                      {copied ? 'Copied!' : 'Copy URL'}
+                    </button>
+                  </div>
+                  <details className="curl-example">
+                    <summary>cURL Example</summary>
+                    <pre>curl -X POST -F "file=@image.jpg" \{'\n'}  http://localhost:8080/api/{selectedModel.id}/predict</pre>
+                  </details>
                 </div>
               )}
 

@@ -104,7 +104,8 @@ export interface PredictResult {
 export interface CustomDataset {
   id: string;
   name: string;
-  data_type: 'image' | 'text' | 'tabular';
+  data_type: 'image' | 'text' | 'tabular' | 'unknown';
+  format: string;
   input_shape: number[];
   num_classes: number;
   class_names: string[];
@@ -261,6 +262,19 @@ export async function getCustomDataset(id: string): Promise<CustomDataset> {
 
 export async function deleteCustomDataset(id: string): Promise<void> {
   await fetch(`${API_BASE}/datasets/${id}`, { method: 'DELETE' });
+}
+
+export interface DatasetPreviewSample {
+  image: string;
+  label: string;
+}
+
+export async function getDatasetPreview(id: string): Promise<{
+  metadata: CustomDataset;
+  samples: DatasetPreviewSample[];
+}> {
+  const res = await fetch(`${API_BASE}/datasets/${id}/preview`);
+  return res.json();
 }
 
 // Architecture design API

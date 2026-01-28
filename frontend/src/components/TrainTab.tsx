@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import * as api from '../api';
+import TrainingChart from './TrainingChart';
 
 export default function TrainTab() {
   const [datasets, setDatasets] = useState<api.Dataset[]>([]);
@@ -32,6 +33,7 @@ export default function TrainTab() {
   // Training state
   const [isTraining, setIsTraining] = useState(false);
   const [currentJob, setCurrentJob] = useState<api.TrainJob | null>(null);
+  const [trainingHistory, setTrainingHistory] = useState<{ epoch: number; loss: number; accuracy: number }[]>([]);
   const [error, setError] = useState('');
   const [showAdvanced, setShowAdvanced] = useState(false);
 
@@ -46,6 +48,16 @@ export default function TrainTab() {
         try {
           const status = await api.getTrainingStatus(currentJob.id);
           setCurrentJob(status);
+
+          // Accumulate training history
+          if (status.epoch > 0 && status.loss > 0) {
+            setTrainingHistory((prev) => {
+              const existing = prev.find((h) => h.epoch === status.epoch);
+              if (existing) return prev;
+              return [...prev, { epoch: status.epoch, loss: status.loss, accuracy: status.accuracy }];
+            });
+          }
+
           if (!['pending', 'running'].includes(status.status)) {
             setIsTraining(false);
           }
@@ -109,6 +121,7 @@ export default function TrainTab() {
 
     setError('');
     setIsTraining(true);
+    setTrainingHistory([]);
 
     const optimizerParams: Record<string, number> = { learning_rate: learningRate };
     if (selectedOptimizer === 'sgd') {
@@ -435,6 +448,9 @@ export default function TrainTab() {
                 style={{ width: `${(currentJob.epoch / (currentJob.total_epochs || epochs)) * 100}%` }}
               />
             </div>
+          )}
+          {trainingHistory.length > 0 && (
+            <TrainingChart data={trainingHistory} />
           )}
         </div>
       )}

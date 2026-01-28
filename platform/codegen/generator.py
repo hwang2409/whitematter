@@ -35,9 +35,9 @@ OPTIMIZER_TEMPLATES = {
 
 SCHEDULER_TEMPLATES = {
     "none": "",
-    "step": "StepLR scheduler(optimizer, {step_size}, {gamma}f);",
-    "cosine": "CosineAnnealingLR scheduler(optimizer, {T_max});",
-    "exponential": "ExponentialLR scheduler(optimizer, {gamma}f);",
+    "step": "StepLR scheduler(&optimizer, {step_size}, {gamma}f);",
+    "cosine": "CosineAnnealingLR scheduler(&optimizer, {T_max});",
+    "exponential": "ExponentialLR scheduler(&optimizer, {gamma}f);",
 }
 
 
@@ -92,6 +92,15 @@ class CodeGenerator:
         train_cpp = output_dir / "train.cpp"
         with open(train_cpp, 'w') as f:
             f.write(train_code)
+
+        # Generate inference code
+        infer_code = self._generate_inference_code(
+            layers_code=layers_code,
+            dataset_config=dataset_config
+        )
+        infer_cpp = output_dir / "infer.cpp"
+        with open(infer_cpp, 'w') as f:
+            f.write(infer_code)
 
         # Generate Makefile
         makefile = output_dir / "Makefile"
@@ -436,8 +445,134 @@ int main(int argc, char* argv[]) {{
 '''
         return code
 
+    def _generate_inference_code(
+        self,
+        layers_code: str,
+        dataset_config: dict
+    ) -> str:
+        """Generate inference-only code for the model."""
+        num_classes = dataset_config.get("num_classes", 10)
+
+        code = f'''// Auto-generated inference code
+#include <cstdio>
+#include <cstring>
+#include <fstream>
+#include <vector>
+#include <cmath>
+#include "tensor.h"
+#include "layer.h"
+#include "serialize.h"
+
+// Binary tensor loading
+struct TensorFile {{
+    std::vector<size_t> shape;
+    std::vector<float> data;
+}};
+
+TensorFile load_tensor_file(const std::string& path) {{
+    TensorFile result;
+    std::ifstream f(path, std::ios::binary);
+    if (!f) throw std::runtime_error("Cannot open: " + path);
+
+    uint32_t magic;
+    f.read(reinterpret_cast<char*>(&magic), 4);
+    if (magic != 0x54454E53) throw std::runtime_error("Invalid tensor file");
+
+    uint32_t ndim;
+    f.read(reinterpret_cast<char*>(&ndim), 4);
+
+    result.shape.resize(ndim);
+    for (uint32_t i = 0; i < ndim; i++) {{
+        uint64_t dim;
+        f.read(reinterpret_cast<char*>(&dim), 8);
+        result.shape[i] = dim;
+    }}
+
+    size_t total = 1;
+    for (auto d : result.shape) total *= d;
+    result.data.resize(total);
+    f.read(reinterpret_cast<char*>(result.data.data()), total * sizeof(float));
+
+    return result;
+}}
+
+int main(int argc, char* argv[]) {{
+    if (argc < 3) {{
+        fprintf(stderr, "Usage: %s <model.bin> <input_tensor.bin>\\n", argv[0]);
+        return 1;
+    }}
+
+    std::string model_path = argv[1];
+    std::string input_path = argv[2];
+
+    try {{
+        // Build model with same architecture as training
+        Sequential model({{
+{layers_code}
+        }});
+
+        // Load weights
+        if (!load_model(&model, model_path)) {{
+            fprintf(stderr, "Failed to load model from: %s\\n", model_path.c_str());
+            return 1;
+        }}
+
+        // Load input tensor
+        auto input_file = load_tensor_file(input_path);
+        auto input = Tensor::create(input_file.shape, false);
+        input->data = input_file.data;
+
+        // Run inference
+        NoGradGuard no_grad;
+        model.eval();
+        auto output = model.forward(input);
+
+        // Apply softmax for probabilities
+        size_t num_classes = output->shape.back();
+        std::vector<float> probs(num_classes);
+
+        float max_val = output->data[0];
+        for (size_t i = 1; i < num_classes; i++) {{
+            max_val = std::max(max_val, output->data[i]);
+        }}
+
+        float sum = 0.0f;
+        for (size_t i = 0; i < num_classes; i++) {{
+            probs[i] = std::exp(output->data[i] - max_val);
+            sum += probs[i];
+        }}
+        for (size_t i = 0; i < num_classes; i++) {{
+            probs[i] /= sum;
+        }}
+
+        // Find predicted class
+        size_t predicted = 0;
+        float max_prob = probs[0];
+        for (size_t i = 1; i < num_classes; i++) {{
+            if (probs[i] > max_prob) {{
+                max_prob = probs[i];
+                predicted = i;
+            }}
+        }}
+
+        // Output JSON result
+        printf("{{\\"predicted_class\\": %zu, \\"probabilities\\": [", predicted);
+        for (size_t i = 0; i < num_classes; i++) {{
+            printf("%.6f%s", probs[i], i < num_classes - 1 ? ", " : "");
+        }}
+        printf("]}}\\n");
+
+        return 0;
+    }} catch (const std::exception& e) {{
+        fprintf(stderr, "Error: %s\\n", e.what());
+        return 1;
+    }}
+}}
+'''
+        return code
+
     def _generate_makefile(self) -> str:
-        """Generate Makefile for compiling training code."""
+        """Generate Makefile for compiling training and inference code."""
         return '''# Auto-generated Makefile
 CXX = g++
 CXXFLAGS = -std=c++17 -O3 -Wall -Wextra -ffast-math -funroll-loops
@@ -457,11 +592,16 @@ BUILD_DIR = $(PROJECT_ROOT)/build
 
 OBJS = $(BUILD_DIR)/tensor.o $(BUILD_DIR)/layer.o $(BUILD_DIR)/loss.o $(BUILD_DIR)/optimizer.o $(BUILD_DIR)/serialize.o
 
+all: train infer
+
 train: train.cpp $(OBJS)
 \t$(CXX) $(CXXFLAGS) -I$(CORE_DIR) -o $@ $^ $(LDFLAGS)
 
+infer: infer.cpp $(OBJS)
+\t$(CXX) $(CXXFLAGS) -I$(CORE_DIR) -o $@ $^ $(LDFLAGS)
+
 clean:
-\trm -f train
+\trm -f train infer
 
 .PHONY: clean
 '''
