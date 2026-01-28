@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import * as api from '../api';
+import TrainingChart from './TrainingChart';
 
 interface ValidationResult {
   valid: boolean;
@@ -19,6 +20,7 @@ export default function DesignTab() {
   const [refining, setRefining] = useState(false);
   const [training, setTraining] = useState(false);
   const [trainingJob, setTrainingJob] = useState<api.CustomTrainJob | null>(null);
+  const [trainingHistory, setTrainingHistory] = useState<{ epoch: number; loss: number; accuracy: number }[]>([]);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -32,6 +34,16 @@ export default function DesignTab() {
         try {
           const status = await api.getCustomTrainingStatus(trainingJob.job_id);
           setTrainingJob(status);
+
+          // Accumulate training history
+          if (status.epoch !== undefined && status.loss !== undefined && status.accuracy !== undefined) {
+            setTrainingHistory((prev) => {
+              const existing = prev.find((h) => h.epoch === status.epoch);
+              if (existing) return prev;
+              return [...prev, { epoch: status.epoch!, loss: status.loss!, accuracy: status.accuracy! }];
+            });
+          }
+
           if (!['pending', 'compiling', 'training'].includes(status.status)) {
             setTraining(false);
           }
@@ -120,6 +132,7 @@ export default function DesignTab() {
 
     setTraining(true);
     setError('');
+    setTrainingHistory([]);
 
     try {
       const job = await api.startCustomTraining(selectedDatasetId, architecture);
@@ -333,6 +346,9 @@ export default function DesignTab() {
                 style={{ width: `${(trainingJob.epoch / (trainingJob.total_epochs || 1)) * 100}%` }}
               />
             </div>
+          )}
+          {trainingHistory.length > 0 && (
+            <TrainingChart data={trainingHistory} />
           )}
           {trainingJob.status === 'completed' && (
             <div className="success-message">

@@ -25,7 +25,7 @@ import uvicorn
 from dataset_manager import DatasetManager, DataType
 from preprocessing import ImageProcessor
 from codegen import CodeGenerator, compile_training_code
-from codegen.compiler import run_training
+from codegen.compiler import run_training as run_custom_training_process
 from llm.service import get_llm_service
 
 try:
@@ -202,6 +202,139 @@ llm_service = get_llm_service()
 app = FastAPI(title="Whitematter Model Server", version="0.4.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
+
+def process_mnist_idx(raw_dir: Path, output_dir: Path, metadata) -> dict:
+    """
+    Process MNIST IDX format files into binary tensors.
+    """
+    import struct
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Find IDX files (must be actual files, not directories)
+    all_items = list(raw_dir.iterdir())
+    files = [f for f in all_items if f.is_file()]
+
+    print(f"[MNIST] Looking for IDX files in {raw_dir}")
+    print(f"[MNIST] Found {len(files)} files: {[f.name for f in files]}")
+
+    train_images_file = None
+    train_labels_file = None
+    test_images_file = None
+    test_labels_file = None
+
+    for f in files:
+        if not f.is_file():
+            continue
+        name_lower = f.name.lower()
+        # Must contain 'ubyte' or 'idx' to be a valid IDX file
+        if not ('ubyte' in name_lower or 'idx' in name_lower):
+            continue
+
+        if 'train' in name_lower and 'images' in name_lower:
+            train_images_file = f
+        elif 'train' in name_lower and 'labels' in name_lower:
+            train_labels_file = f
+        elif ('t10k' in name_lower or 'test' in name_lower) and 'images' in name_lower:
+            test_images_file = f
+        elif ('t10k' in name_lower or 'test' in name_lower) and 'labels' in name_lower:
+            test_labels_file = f
+
+    # Fallback: if no train/test distinction, use what we have
+    if not train_images_file:
+        for f in files:
+            if f.is_file() and 'images' in f.name.lower() and ('ubyte' in f.name.lower() or 'idx' in f.name.lower()):
+                train_images_file = f
+                break
+    if not train_labels_file:
+        for f in files:
+            if f.is_file() and 'labels' in f.name.lower() and ('ubyte' in f.name.lower() or 'idx' in f.name.lower()):
+                train_labels_file = f
+                break
+
+    print(f"[MNIST] train_images: {train_images_file}, train_labels: {train_labels_file}")
+    print(f"[MNIST] test_images: {test_images_file}, test_labels: {test_labels_file}")
+
+    if not train_images_file or not train_labels_file:
+        raise ValueError(f"Could not find MNIST IDX files. Found files: {[f.name for f in files]}")
+
+    def read_idx_images(filepath):
+        with open(filepath, 'rb') as f:
+            magic = struct.unpack('>I', f.read(4))[0]
+            num_images = struct.unpack('>I', f.read(4))[0]
+            rows = struct.unpack('>I', f.read(4))[0]
+            cols = struct.unpack('>I', f.read(4))[0]
+            data = np.frombuffer(f.read(), dtype=np.uint8)
+            data = data.reshape(num_images, 1, rows, cols).astype(np.float32) / 255.0
+            return data, rows, cols
+
+    def read_idx_labels(filepath):
+        with open(filepath, 'rb') as f:
+            magic = struct.unpack('>I', f.read(4))[0]
+            num_labels = struct.unpack('>I', f.read(4))[0]
+            labels = np.frombuffer(f.read(), dtype=np.uint8).astype(np.float32)
+            return labels
+
+    def save_tensor(path, data):
+        TENSOR_MAGIC = 0x54454E53  # 'TENS'
+        with open(path, 'wb') as f:
+            f.write(struct.pack('I', TENSOR_MAGIC))
+            f.write(struct.pack('I', len(data.shape)))
+            for dim in data.shape:
+                f.write(struct.pack('Q', dim))
+            data = np.ascontiguousarray(data, dtype=np.float32)
+            f.write(data.tobytes())
+
+    # Read training data
+    train_images, rows, cols = read_idx_images(train_images_file)
+    train_labels = read_idx_labels(train_labels_file)
+
+    # Read test data if available
+    if test_images_file and test_labels_file:
+        test_images, _, _ = read_idx_images(test_images_file)
+        test_labels = read_idx_labels(test_labels_file)
+    else:
+        # Split training data
+        split_idx = int(len(train_images) * 0.8)
+        indices = np.random.permutation(len(train_images))
+        test_images = train_images[indices[split_idx:]]
+        test_labels = train_labels[indices[split_idx:]]
+        train_images = train_images[indices[:split_idx]]
+        train_labels = train_labels[indices[:split_idx]]
+
+    # Compute normalization stats
+    mean = [float(train_images.mean())]
+    std = [float(max(train_images.std(), 1e-7))]
+
+    # Normalize
+    train_images = (train_images - mean[0]) / std[0]
+    test_images = (test_images - mean[0]) / std[0]
+
+    # Save tensors
+    save_tensor(output_dir / "train_images.bin", train_images)
+    save_tensor(output_dir / "train_labels.bin", train_labels)
+    save_tensor(output_dir / "test_images.bin", test_images)
+    save_tensor(output_dir / "test_labels.bin", test_labels)
+
+    # Save config
+    config = {
+        "target_size": [rows, cols],
+        "channels": 1,
+        "mean": mean,
+        "std": std,
+        "num_classes": metadata.num_classes,
+        "class_names": metadata.class_names,
+        "train_samples": len(train_images),
+        "test_samples": len(test_images),
+        "input_shape": [1, rows, cols]
+    }
+    with open(output_dir / "config.json", 'w') as f:
+        json.dump(config, f, indent=2)
+
+    print(f"[MNIST] Processed {len(train_images)} train, {len(test_images)} test images")
+    return config
+
+
 def ensure_dirs():
     MODELS_DIR.mkdir(exist_ok=True)
     UPLOADS_DIR.mkdir(exist_ok=True)
@@ -364,28 +497,37 @@ async def upload_dataset(
 
         # If it's an image dataset, process it
         if metadata.data_type == DataType.IMAGE:
-            processor = ImageProcessor(
-                target_size=(metadata.input_shape[1], metadata.input_shape[2]),
-                channels=metadata.input_shape[0]
-            )
             raw_dir = dataset_manager.uploads_dir / dataset_id / "raw"
             processed_dir = dataset_manager.uploads_dir / dataset_id / "processed"
-            config = processor.process_dataset(
-                raw_dir, processed_dir, metadata.class_names
-            )
+
+            # Handle MNIST IDX format separately
+            if metadata.format == "mnist_idx":
+                config = process_mnist_idx(raw_dir, processed_dir, metadata)
+            else:
+                # Standard image processing for folder-per-class
+                processor = ImageProcessor(
+                    target_size=(metadata.input_shape[1], metadata.input_shape[2]),
+                    channels=metadata.input_shape[0]
+                )
+                config = processor.process_dataset(
+                    raw_dir, processed_dir, metadata.class_names
+                )
+
             # Update metadata with processing info
             metadata.input_shape = config["input_shape"]
-            metadata.status = "processed"
+            metadata.status = "ready"
             dataset_manager._save_metadata(dataset_id, metadata)
 
         return {
-            "dataset_id": dataset_id,
+            "id": dataset_id,
             "name": metadata.name,
             "data_type": metadata.data_type.value,
+            "format": metadata.format,
             "num_classes": metadata.num_classes,
             "class_names": metadata.class_names,
             "total_samples": metadata.total_samples,
             "input_shape": metadata.input_shape,
+            "created_at": metadata.created_at,
             "status": metadata.status
         }
     except Exception as e:
@@ -526,7 +668,7 @@ def run_custom_training(job_id: str, request: CustomTrainRequest, metadata: Mode
         training_jobs[job_id]["message"] = "Training..."
         output_model = job_dir / "model.bin"
 
-        process = run_training(
+        process = run_custom_training_process(
             generated_dir=job_dir,
             data_dir=processed_dir,
             output_model=output_model
@@ -592,7 +734,7 @@ async def start_custom_training(request: CustomTrainRequest):
     if not dataset_meta:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
-    if dataset_meta.status != "processed":
+    if dataset_meta.status not in ("processed", "ready"):
         raise HTTPException(status_code=400, detail="Dataset not processed yet")
 
     # Validate architecture
@@ -775,7 +917,10 @@ async def predict(model_id: str, file: UploadFile = File(...)):
             "probabilities": {classes[i]: float(probs[i]) for i in range(len(classes))}}
 
 async def predict_custom_model(model_id: str, metadata: ModelMetadata, file: UploadFile):
-    """Handle prediction for custom-trained models."""
+    """Handle prediction for custom-trained models using subprocess inference."""
+    import struct
+    import subprocess
+
     # Get the dataset config for preprocessing params
     dataset_id = metadata.dataset.replace("custom:", "")
     dataset_meta = dataset_manager.get_metadata(dataset_id)
@@ -790,6 +935,24 @@ async def predict_custom_model(model_id: str, metadata: ModelMetadata, file: Upl
 
     with open(config_path) as f:
         config = json.load(f)
+
+    # Find the inference executable
+    job_dir = GENERATED_DIR / model_id
+    infer_exe = job_dir / "infer"
+    model_bin = get_model_path(model_id)
+
+    # Compile inference executable if needed
+    if not infer_exe.exists():
+        if not (job_dir / "infer.cpp").exists():
+            raise HTTPException(status_code=400, detail="Inference code not found - model may need retraining")
+        result = subprocess.run(
+            ["make", "infer"],
+            cwd=job_dir,
+            capture_output=True,
+            text=True
+        )
+        if result.returncode != 0:
+            raise HTTPException(status_code=500, detail=f"Failed to compile inference: {result.stderr}")
 
     # Load and preprocess image
     image = Image.open(io.BytesIO(await file.read()))
@@ -814,22 +977,56 @@ async def predict_custom_model(model_id: str, metadata: ModelMetadata, file: Upl
     std = np.array(config["std"]).reshape(-1, 1, 1)
     arr = (arr - mean) / std
 
+    # Add batch dimension
+    arr = arr[np.newaxis, ...]
     input_tensor = np.ascontiguousarray(arr, dtype=np.float32)
 
-    # Load model if not cached
-    model = get_loaded_model(model_id)
-    predicted_class = model.predict_class(input_tensor)
-    probs = model.predict_proba(input_tensor).flatten().tolist()
-    classes = config["class_names"]
+    # Save input tensor to temp file
+    TENSOR_MAGIC = 0x54454E53  # 'TENS'
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.bin') as tmp:
+        tmp.write(struct.pack('I', TENSOR_MAGIC))
+        tmp.write(struct.pack('I', len(input_tensor.shape)))
+        for dim in input_tensor.shape:
+            tmp.write(struct.pack('Q', dim))
+        tmp.write(input_tensor.tobytes())
+        input_path = Path(tmp.name)
 
-    return {
-        "model_id": model_id,
-        "model_name": metadata.name,
-        "predicted_class": predicted_class,
-        "class_name": classes[predicted_class],
-        "confidence": float(probs[predicted_class]),
-        "probabilities": {classes[i]: float(probs[i]) for i in range(len(classes))}
-    }
+    try:
+        # Run inference
+        result = subprocess.run(
+            [str(infer_exe), str(model_bin), str(input_path)],
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+
+        if result.returncode != 0:
+            raise HTTPException(status_code=500, detail=f"Inference failed: {result.stderr}")
+
+        # Parse JSON output (find the JSON line, skip any debug output)
+        stdout_lines = result.stdout.strip().split('\n')
+        json_line = None
+        for line in stdout_lines:
+            if line.startswith('{'):
+                json_line = line
+                break
+        if not json_line:
+            raise HTTPException(status_code=500, detail=f"No JSON output from inference: {result.stdout}")
+        output = json.loads(json_line)
+        predicted_class = output["predicted_class"]
+        probs = output["probabilities"]
+        classes = config["class_names"]
+
+        return {
+            "model_id": model_id,
+            "model_name": metadata.name,
+            "predicted_class": predicted_class,
+            "class_name": classes[predicted_class],
+            "confidence": float(probs[predicted_class]),
+            "probabilities": {classes[i]: float(probs[i]) for i in range(len(classes))}
+        }
+    finally:
+        input_path.unlink(missing_ok=True)
 
 # Convenience API endpoint
 @app.post("/api/{model_id}/predict")

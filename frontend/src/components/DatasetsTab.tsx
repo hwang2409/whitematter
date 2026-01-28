@@ -4,8 +4,12 @@ import * as api from '../api';
 export default function DatasetsTab() {
   const [datasets, setDatasets] = useState<api.CustomDataset[]>([]);
   const [selectedDataset, setSelectedDataset] = useState<api.CustomDataset | null>(null);
+  const [preview, setPreview] = useState<api.DatasetPreviewSample[]>([]);
+  const [loadingPreview, setLoadingPreview] = useState(false);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [uploadedDataset, setUploadedDataset] = useState<api.CustomDataset | null>(null);
+  const [uploadPreview, setUploadPreview] = useState<api.DatasetPreviewSample[]>([]);
   const [error, setError] = useState('');
   const [datasetName, setDatasetName] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -14,6 +18,27 @@ export default function DatasetsTab() {
   useEffect(() => {
     loadDatasets();
   }, []);
+
+  useEffect(() => {
+    if (selectedDataset) {
+      loadPreview(selectedDataset.id);
+    } else {
+      setPreview([]);
+    }
+  }, [selectedDataset?.id]);
+
+  async function loadPreview(datasetId: string) {
+    setLoadingPreview(true);
+    try {
+      const data = await api.getDatasetPreview(datasetId);
+      setPreview(data.samples || []);
+    } catch (e) {
+      console.error('Failed to load preview:', e);
+      setPreview([]);
+    } finally {
+      setLoadingPreview(false);
+    }
+  }
 
   async function loadDatasets() {
     setLoading(true);
@@ -74,11 +99,23 @@ export default function DatasetsTab() {
 
     try {
       const dataset = await api.uploadDataset(file, datasetName.trim());
-      setDatasets([...datasets, dataset]);
+      setDatasets((prev) => [dataset, ...prev]);
       setFile(null);
       setDatasetName('');
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
+      }
+      // Show upload success with preview
+      setUploadedDataset(dataset);
+      setSelectedDataset(dataset);
+
+      // Load preview for the uploaded dataset
+      try {
+        const previewData = await api.getDatasetPreview(dataset.id);
+        setUploadPreview(previewData.samples || []);
+      } catch (e) {
+        console.error('Failed to load upload preview:', e);
+        setUploadPreview([]);
       }
     } catch (e: any) {
       setError(e.message || 'Upload failed');
@@ -170,7 +207,7 @@ export default function DatasetsTab() {
           ) : (
             <div className="drop-zone-content">
               <p>Drop a ZIP file here or click to upload</p>
-              <p className="hint">ZIP should contain folders, one per class</p>
+              <p className="hint">Supports: folder-per-class, MNIST IDX, flat images, CSV</p>
             </div>
           )}
           <input
@@ -189,6 +226,56 @@ export default function DatasetsTab() {
         >
           {uploading ? 'Uploading...' : 'Upload Dataset'}
         </button>
+
+        {/* Upload Success Preview */}
+        {uploadedDataset && (
+          <div className="upload-success">
+            <div className="upload-success-header">
+              <h4>Upload Successful: {uploadedDataset.name}</h4>
+              <button
+                className="btn-close"
+                onClick={() => {
+                  setUploadedDataset(null);
+                  setUploadPreview([]);
+                }}
+              >
+                &times;
+              </button>
+            </div>
+            <div className="upload-success-info">
+              <span>{uploadedDataset.data_type}</span>
+              <span>{uploadedDataset.format?.replace(/_/g, ' ')}</span>
+              <span>{uploadedDataset.num_classes} classes</span>
+              <span>{uploadedDataset.total_samples.toLocaleString()} samples</span>
+              {uploadedDataset.input_shape.length > 0 && (
+                <span>Shape: [{uploadedDataset.input_shape.join('x')}]</span>
+              )}
+            </div>
+            {uploadedDataset.class_names.length > 0 && (
+              <div className="upload-success-classes">
+                {uploadedDataset.class_names.map((name, i) => (
+                  <span key={i} className="class-chip">{name}</span>
+                ))}
+              </div>
+            )}
+            {uploadPreview.length > 0 && (
+              <div className="upload-preview">
+                <h5>Sample Images</h5>
+                <div className="preview-grid">
+                  {uploadPreview.map((sample, i) => (
+                    <div key={i} className="preview-item">
+                      <img
+                        src={`data:image/png;base64,${sample.image}`}
+                        alt={sample.label}
+                      />
+                      <span className="preview-label">{sample.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Datasets List */}
@@ -237,16 +324,22 @@ export default function DatasetsTab() {
                   <span className="value">{selectedDataset.data_type}</span>
                 </div>
                 <div className="detail-item">
-                  <span className="label">Input Shape</span>
-                  <span className="value">[{selectedDataset.input_shape.join(', ')}]</span>
+                  <span className="label">Format</span>
+                  <span className="value">{selectedDataset.format?.replace(/_/g, ' ') || 'unknown'}</span>
                 </div>
+                {selectedDataset.input_shape.length > 0 && (
+                  <div className="detail-item">
+                    <span className="label">Input Shape</span>
+                    <span className="value">[{selectedDataset.input_shape.join('x')}]</span>
+                  </div>
+                )}
                 <div className="detail-item">
                   <span className="label">Classes</span>
                   <span className="value">{selectedDataset.num_classes}</span>
                 </div>
                 <div className="detail-item">
                   <span className="label">Total Samples</span>
-                  <span className="value">{selectedDataset.total_samples}</span>
+                  <span className="value">{selectedDataset.total_samples.toLocaleString()}</span>
                 </div>
                 <div className="detail-item">
                   <span className="label">Created</span>
@@ -270,6 +363,27 @@ export default function DatasetsTab() {
                   </div>
                 </div>
               )}
+
+              <div className="dataset-preview">
+                <h4>Sample Data</h4>
+                {loadingPreview ? (
+                  <p className="loading-text">Loading preview...</p>
+                ) : preview.length > 0 ? (
+                  <div className="preview-grid">
+                    {preview.map((sample, i) => (
+                      <div key={i} className="preview-item">
+                        <img
+                          src={`data:image/png;base64,${sample.image}`}
+                          alt={sample.label}
+                        />
+                        <span className="preview-label">{sample.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="empty-text">No preview available</p>
+                )}
+              </div>
 
               <div className="dataset-actions">
                 <button
