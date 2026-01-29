@@ -1392,11 +1392,11 @@ whitematter includes a self-service ML training platform where users can upload 
 │                                                                              │
 │  uploads/{dataset_id}/          generated/{job_id}/       models/           │
 │    raw/                           train.cpp                 {model}.bin     │
-│    processed/                     Makefile                  {model}.json    │
-│      train_images.bin             build.log                                 │
-│      train_labels.bin             train (executable)                        │
-│      test_images.bin                                                        │
-│      test_labels.bin                                                        │
+│    processed/                     infer.cpp                 {model}.json    │
+│      train_images.bin             Makefile                                  │
+│      train_labels.bin             build.log                                 │
+│      test_images.bin              train (executable)                        │
+│      test_labels.bin              infer (executable)                        │
 │    metadata.json                                                            │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1409,14 +1409,47 @@ whitematter includes a self-service ML training platform where users can upload 
     │             │                │               │            │             │
     ▼             ▼                ▼               ▼            ▼             ▼
 ┌───────┐   ┌─────────┐      ┌──────────┐    ┌────────┐   ┌────────┐   ┌────────┐
-│ ZIP   │──▶│ Claude  │─────▶│ Template │───▶│  g++   │──▶│ ./train│──▶│ model  │
-│ file  │   │   API   │      │ Engine   │    │  make  │   │        │   │ .bin   │
+│ ZIP   │──▶│ Claude  │─────▶│ Template │───▶│  g++   │──▶│ ./train│──▶│./infer │
+│ file  │   │   API   │      │ Engine   │    │  make  │   │        │   │        │
 └───────┘   └─────────┘      └──────────┘    └────────┘   └────────┘   └────────┘
-    │             │                │
-    ▼             ▼                ▼
- Extract     Architecture      train.cpp
- & Process   JSON              Makefile
+    │             │                │                            │             │
+    ▼             ▼                ▼                            ▼             ▼
+ Extract     Architecture      train.cpp                    model.bin    JSON result
+ & Process   JSON              infer.cpp
+                               Makefile
 ```
+
+### Custom Model Inference
+
+Custom models trained via the platform are run through a generated inference executable (infer.cpp) that mirrors the training architecture. This allows prediction on models with dynamically generated architectures that can't be loaded through the Python bindings.
+
+```
+generated/{job_id}/
+  ├── train.cpp      # Training code with architecture
+  ├── infer.cpp      # Inference code (same architecture)
+  ├── Makefile       # Builds both train and infer
+  ├── train          # Training executable
+  └── infer          # Inference executable
+```
+
+The inference executable:
+- Loads the trained model weights from `.bin` file
+- Accepts input tensors in binary format
+- Outputs JSON with predicted class and probabilities
+
+### Frontend Design System
+
+The React frontend uses a CSS design system with semantic tokens for consistent styling:
+
+**Status Colors:**
+- Green (`--color-success`) - Completed, ready states
+- Purple (`--color-running`) - Training in progress
+- Red (`--color-error`) - Failed states
+- Amber (`--color-warning`) - Warnings
+
+**Surfaces:** Dark theme with layered surfaces (`--surface-0` to `--surface-4`)
+
+**Typography:** Hierarchical text colors (`--text-primary`, `--text-secondary`, `--text-muted`)
 
 ### Key Components
 
@@ -1432,7 +1465,7 @@ whitematter includes a self-service ML training platform where users can upload 
 | Server | `platform/server.py` | FastAPI REST endpoints |
 | Dataset Manager | `platform/dataset_manager.py` | Upload, extract, preprocess |
 | Image Processor | `platform/preprocessing/image_processor.py` | Resize, normalize, binarize |
-| Code Generator | `platform/codegen/generator.py` | Architecture JSON to C++ |
+| Code Generator | `platform/codegen/generator.py` | Architecture JSON to C++ (train.cpp + infer.cpp) |
 | LLM Service | `platform/llm/service.py` | Claude API for design |
 | Frontend | `frontend/src/` | React UI |
 
@@ -1482,6 +1515,12 @@ cd frontend && npm run dev
 
 # Open http://localhost:5173 in browser
 ```
+
+**UI Features:**
+- Dark theme with semantic status colors
+- Real-time training progress with loss charts
+- Dataset preview with sample images
+- Responsive layout with auto-sizing containers
 
 ### Architecture JSON Schema
 
