@@ -4,6 +4,8 @@ Supports multiple dataset formats: folder-per-class, MNIST IDX, CSV, and more.
 """
 
 import json
+import logging
+import os
 import shutil
 import struct
 import uuid
@@ -14,6 +16,467 @@ from enum import Enum
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
 import numpy as np
+
+# Configure module logger
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
+
+
+# =============================================================================
+# Validation Constants
+# =============================================================================
+
+# Maximum file size for uploads (1 GB)
+MAX_UPLOAD_SIZE_BYTES = 1 * 1024 * 1024 * 1024  # 1 GB
+
+# Maximum total extracted size (to prevent zip bombs)
+MAX_EXTRACTED_SIZE_BYTES = 5 * 1024 * 1024 * 1024  # 5 GB
+
+# Maximum number of files in a ZIP (to prevent resource exhaustion)
+MAX_FILES_IN_ZIP = 100_000
+
+# Magic bytes for common image formats
+IMAGE_MAGIC_BYTES = {
+    b'\x89PNG\r\n\x1a\n': 'png',           # PNG
+    b'\xff\xd8\xff': 'jpeg',                # JPEG (various subtypes)
+    b'GIF87a': 'gif',                       # GIF87a
+    b'GIF89a': 'gif',                       # GIF89a
+    b'BM': 'bmp',                           # BMP
+    b'RIFF': 'webp',                        # WebP (needs additional check)
+}
+
+# Minimum number of samples per class for consistency check
+MIN_SAMPLES_PER_CLASS = 1
+
+# Maximum class imbalance ratio (largest class / smallest class)
+MAX_CLASS_IMBALANCE_RATIO = 100
+
+
+# =============================================================================
+# Custom Exceptions
+# =============================================================================
+
+class DatasetValidationError(Exception):
+    """Base exception for dataset validation errors."""
+    pass
+
+
+class FileSizeError(DatasetValidationError):
+    """Raised when file size exceeds limits."""
+    pass
+
+
+class PathTraversalError(DatasetValidationError):
+    """Raised when path traversal attack is detected."""
+    pass
+
+
+class InvalidImageError(DatasetValidationError):
+    """Raised when an invalid image file is detected."""
+    pass
+
+
+class ClassStructureError(DatasetValidationError):
+    """Raised when class folder structure is invalid."""
+    pass
+
+
+class CorruptedFileError(DatasetValidationError):
+    """Raised when a file is corrupted or cannot be read."""
+    pass
+
+
+class ZipBombError(DatasetValidationError):
+    """Raised when a potential zip bomb is detected."""
+    pass
+
+
+# =============================================================================
+# Validation Helper Functions
+# =============================================================================
+
+def validate_file_size(file_path: Path, max_size: int = MAX_UPLOAD_SIZE_BYTES) -> None:
+    """
+    Validate that a file does not exceed the maximum allowed size.
+
+    Args:
+        file_path: Path to the file to validate
+        max_size: Maximum allowed size in bytes (default: 1GB)
+
+    Raises:
+        FileSizeError: If file exceeds the maximum size
+        FileNotFoundError: If file does not exist
+    """
+    if not file_path.exists():
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+    file_size = file_path.stat().st_size
+    if file_size > max_size:
+        size_mb = file_size / (1024 * 1024)
+        max_mb = max_size / (1024 * 1024)
+        raise FileSizeError(
+            f"File size ({size_mb:.1f} MB) exceeds maximum allowed size ({max_mb:.1f} MB). "
+            f"Please upload a smaller file or contact support for larger uploads."
+        )
+
+
+def validate_zip_safety(zip_path: Path) -> Dict[str, Any]:
+    """
+    Validate ZIP file for security issues including path traversal and zip bombs.
+
+    Args:
+        zip_path: Path to the ZIP file to validate
+
+    Returns:
+        Dictionary with validation results including file count and total size
+
+    Raises:
+        PathTraversalError: If ZIP contains path traversal attempts
+        ZipBombError: If ZIP appears to be a zip bomb
+        CorruptedFileError: If ZIP file is corrupted
+    """
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as zf:
+            # Check for corrupted ZIP
+            bad_file = zf.testzip()
+            if bad_file is not None:
+                raise CorruptedFileError(f"ZIP file is corrupted. Bad file: {bad_file}")
+
+            file_list = zf.namelist()
+            file_count = len(file_list)
+
+            # Check file count limit
+            if file_count > MAX_FILES_IN_ZIP:
+                raise ZipBombError(
+                    f"ZIP contains too many files ({file_count:,}). "
+                    f"Maximum allowed: {MAX_FILES_IN_ZIP:,}"
+                )
+
+            total_uncompressed_size = 0
+
+            for file_info in zf.infolist():
+                filename = file_info.filename
+
+                # Check for path traversal attacks
+                # Normalize the path and check for directory escape attempts
+                normalized = os.path.normpath(filename)
+
+                # Check for absolute paths
+                if os.path.isabs(normalized):
+                    raise PathTraversalError(
+                        f"ZIP contains absolute path which is not allowed: {filename}"
+                    )
+
+                # Check for parent directory references
+                if normalized.startswith('..') or '/../' in filename or filename.startswith('../'):
+                    raise PathTraversalError(
+                        f"ZIP contains path traversal attempt: {filename}. "
+                        f"Paths containing '../' are not allowed for security reasons."
+                    )
+
+                # Check for suspicious path components
+                parts = filename.replace('\\', '/').split('/')
+                for part in parts:
+                    if part == '..':
+                        raise PathTraversalError(
+                            f"ZIP contains path traversal attempt: {filename}"
+                        )
+
+                # Accumulate uncompressed size
+                total_uncompressed_size += file_info.file_size
+
+                # Check for zip bomb (high compression ratio)
+                if file_info.compress_size > 0:
+                    compression_ratio = file_info.file_size / file_info.compress_size
+                    # Suspicious if ratio is > 100:1 for large files
+                    if compression_ratio > 100 and file_info.file_size > 10 * 1024 * 1024:
+                        raise ZipBombError(
+                            f"Suspicious compression ratio detected for {filename}. "
+                            f"This may indicate a zip bomb attack."
+                        )
+
+            # Check total extracted size
+            if total_uncompressed_size > MAX_EXTRACTED_SIZE_BYTES:
+                size_gb = total_uncompressed_size / (1024 * 1024 * 1024)
+                max_gb = MAX_EXTRACTED_SIZE_BYTES / (1024 * 1024 * 1024)
+                raise ZipBombError(
+                    f"Total extracted size ({size_gb:.1f} GB) exceeds maximum ({max_gb:.1f} GB). "
+                    f"This may indicate a zip bomb attack."
+                )
+
+            return {
+                'file_count': file_count,
+                'total_uncompressed_size': total_uncompressed_size,
+                'files': file_list
+            }
+
+    except zipfile.BadZipFile as e:
+        raise CorruptedFileError(f"Invalid or corrupted ZIP file: {e}")
+
+
+def validate_image_magic_bytes(file_path: Path) -> Tuple[bool, str]:
+    """
+    Validate that a file is actually an image by checking magic bytes.
+
+    Args:
+        file_path: Path to the file to validate
+
+    Returns:
+        Tuple of (is_valid, detected_format)
+
+    Raises:
+        CorruptedFileError: If file cannot be read
+    """
+    try:
+        with open(file_path, 'rb') as f:
+            header = f.read(12)  # Read enough bytes for all signatures
+
+        if len(header) < 2:
+            return False, 'empty'
+
+        # Check against known magic bytes
+        for magic, format_name in IMAGE_MAGIC_BYTES.items():
+            if header.startswith(magic):
+                # Special handling for WebP (RIFF header + WEBP)
+                if magic == b'RIFF' and len(header) >= 12:
+                    if header[8:12] == b'WEBP':
+                        return True, 'webp'
+                    continue
+                return True, format_name
+
+        return False, 'unknown'
+
+    except IOError as e:
+        raise CorruptedFileError(f"Cannot read file {file_path}: {e}")
+
+
+def validate_image_file(file_path: Path, check_loadable: bool = True) -> Dict[str, Any]:
+    """
+    Comprehensively validate an image file.
+
+    Args:
+        file_path: Path to the image file
+        check_loadable: Whether to attempt loading the image with PIL
+
+    Returns:
+        Dictionary with image information (format, size, dimensions if loadable)
+
+    Raises:
+        InvalidImageError: If file is not a valid image
+        CorruptedFileError: If file is corrupted
+    """
+    # First check magic bytes
+    is_valid, detected_format = validate_image_magic_bytes(file_path)
+
+    if not is_valid:
+        raise InvalidImageError(
+            f"File {file_path.name} is not a valid image. "
+            f"Expected image magic bytes but found: {detected_format}"
+        )
+
+    result = {
+        'path': str(file_path),
+        'format': detected_format,
+        'size_bytes': file_path.stat().st_size
+    }
+
+    # Optionally try to load with PIL for deeper validation
+    if check_loadable:
+        try:
+            from PIL import Image
+            with Image.open(file_path) as img:
+                # This will raise if image is corrupted
+                img.verify()
+
+            # Re-open to get dimensions (verify() leaves file in unusable state)
+            with Image.open(file_path) as img:
+                result['width'] = img.width
+                result['height'] = img.height
+                result['mode'] = img.mode
+                result['pil_format'] = img.format
+
+        except Exception as e:
+            raise CorruptedFileError(
+                f"Image file {file_path.name} appears corrupted or cannot be loaded: {e}"
+            )
+
+    return result
+
+
+def validate_class_folder_structure(
+    class_dirs: List[Path],
+    warn_on_imbalance: bool = True
+) -> Dict[str, Any]:
+    """
+    Validate the consistency of class folder structure.
+
+    Args:
+        class_dirs: List of class directory paths
+        warn_on_imbalance: Whether to include warnings for class imbalance
+
+    Returns:
+        Dictionary with validation results and statistics
+
+    Raises:
+        ClassStructureError: If structure is invalid
+    """
+    if not class_dirs:
+        raise ClassStructureError("No class folders found in dataset")
+
+    results = {
+        'num_classes': len(class_dirs),
+        'class_stats': {},
+        'warnings': [],
+        'total_samples': 0
+    }
+
+    samples_per_class = {}
+    extensions_per_class = {}
+    empty_classes = []
+
+    for class_dir in class_dirs:
+        if not class_dir.is_dir():
+            continue
+
+        class_name = class_dir.name
+        files = [f for f in class_dir.iterdir() if f.is_file()]
+        num_files = len(files)
+
+        samples_per_class[class_name] = num_files
+        results['total_samples'] += num_files
+
+        if num_files == 0:
+            empty_classes.append(class_name)
+        elif num_files < MIN_SAMPLES_PER_CLASS:
+            results['warnings'].append(
+                f"Class '{class_name}' has very few samples ({num_files})"
+            )
+
+        # Track file extensions per class
+        extensions = set(f.suffix.lower() for f in files if f.suffix)
+        extensions_per_class[class_name] = extensions
+
+    # Check for empty classes
+    if empty_classes:
+        raise ClassStructureError(
+            f"Found {len(empty_classes)} empty class folder(s): {', '.join(empty_classes[:5])}"
+            + (f" and {len(empty_classes) - 5} more" if len(empty_classes) > 5 else "")
+        )
+
+    results['class_stats'] = samples_per_class
+
+    # Check class imbalance
+    if warn_on_imbalance and samples_per_class:
+        counts = list(samples_per_class.values())
+        min_count = min(counts)
+        max_count = max(counts)
+
+        if min_count > 0:
+            imbalance_ratio = max_count / min_count
+            if imbalance_ratio > MAX_CLASS_IMBALANCE_RATIO:
+                min_class = min(samples_per_class, key=samples_per_class.get)
+                max_class = max(samples_per_class, key=samples_per_class.get)
+                results['warnings'].append(
+                    f"Significant class imbalance detected (ratio: {imbalance_ratio:.1f}:1). "
+                    f"'{max_class}' has {max_count} samples, '{min_class}' has {min_count}."
+                )
+
+    # Check extension consistency
+    all_extensions = set()
+    for exts in extensions_per_class.values():
+        all_extensions.update(exts)
+
+    # Warn if classes have different file types
+    if len(all_extensions) > 1:
+        image_exts = all_extensions & IMAGE_EXTENSIONS
+        non_image_exts = all_extensions - IMAGE_EXTENSIONS
+
+        if image_exts and non_image_exts:
+            results['warnings'].append(
+                f"Mixed file types found: images ({', '.join(image_exts)}) "
+                f"and other files ({', '.join(non_image_exts)})"
+            )
+
+    return results
+
+
+def validate_extracted_images(
+    raw_dir: Path,
+    sample_size: int = 10,
+    validate_all: bool = False
+) -> Dict[str, Any]:
+    """
+    Validate extracted image files for integrity.
+
+    Args:
+        raw_dir: Directory containing extracted files
+        sample_size: Number of images to validate if not validating all
+        validate_all: Whether to validate all images (slower but thorough)
+
+    Returns:
+        Dictionary with validation results
+
+    Raises:
+        InvalidImageError: If invalid images are found
+    """
+    results = {
+        'total_checked': 0,
+        'valid': 0,
+        'invalid': [],
+        'warnings': []
+    }
+
+    # Find all image files
+    image_files = []
+    for ext in IMAGE_EXTENSIONS:
+        image_files.extend(raw_dir.rglob(f"*{ext}"))
+        image_files.extend(raw_dir.rglob(f"*{ext.upper()}"))
+
+    # Remove duplicates
+    image_files = list(set(image_files))
+
+    if not image_files:
+        results['warnings'].append("No image files found in extracted content")
+        return results
+
+    # Determine which files to check
+    if validate_all:
+        files_to_check = image_files
+    else:
+        # Sample files from different parts of the directory structure
+        import random
+        files_to_check = random.sample(
+            image_files,
+            min(sample_size, len(image_files))
+        )
+
+    for file_path in files_to_check:
+        results['total_checked'] += 1
+        try:
+            validate_image_file(file_path, check_loadable=True)
+            results['valid'] += 1
+        except (InvalidImageError, CorruptedFileError) as e:
+            results['invalid'].append({
+                'path': str(file_path),
+                'error': str(e)
+            })
+
+    # If we found invalid images in sample, warn user
+    if results['invalid']:
+        invalid_count = len(results['invalid'])
+        if not validate_all:
+            # Estimate total invalid based on sample
+            estimated_total = (invalid_count / results['total_checked']) * len(image_files)
+            results['warnings'].append(
+                f"Found {invalid_count} invalid images in sample. "
+                f"Estimated ~{int(estimated_total)} invalid images in total."
+            )
+        else:
+            results['warnings'].append(
+                f"Found {invalid_count} invalid images out of {len(image_files)} total."
+            )
+
+    return results
 
 
 class DataType(str, Enum):
@@ -89,19 +552,73 @@ class DatasetManager:
         self._save_metadata(dataset_id, metadata)
         return dataset_id
 
-    def extract_zip(self, dataset_id: str, zip_path: Path) -> DatasetMetadata:
-        """Extract ZIP file and analyze contents."""
+    def extract_zip(
+        self,
+        dataset_id: str,
+        zip_path: Path,
+        validate_images: bool = True,
+        validate_all_images: bool = False
+    ) -> DatasetMetadata:
+        """
+        Extract ZIP file and analyze contents with comprehensive validation.
+
+        Args:
+            dataset_id: The dataset ID to extract into
+            zip_path: Path to the ZIP file
+            validate_images: Whether to validate image files (default: True)
+            validate_all_images: Whether to validate ALL images vs a sample (default: False)
+
+        Returns:
+            DatasetMetadata with analysis results
+
+        Raises:
+            FileSizeError: If file exceeds size limit
+            PathTraversalError: If ZIP contains path traversal attempts
+            ZipBombError: If ZIP appears to be a zip bomb
+            CorruptedFileError: If ZIP or contents are corrupted
+            InvalidImageError: If image validation fails
+            ClassStructureError: If class folder structure is invalid
+        """
         dataset_dir = self.uploads_dir / dataset_id
         raw_dir = dataset_dir / "raw"
 
         metadata = self._load_metadata(dataset_id)
-        metadata.status = "extracting"
+        metadata.status = "validating"
         self._save_metadata(dataset_id, metadata)
 
+        validation_warnings = []
+
         try:
-            # Extract ZIP
+            # Step 1: Validate file size
+            logger.info("Validating ZIP file size...")
+            validate_file_size(zip_path)
+
+            # Step 2: Validate ZIP safety (path traversal, zip bombs, corruption)
+            logger.info("Validating ZIP file safety...")
+            metadata.status = "validating"
+            self._save_metadata(dataset_id, metadata)
+
+            zip_info = validate_zip_safety(zip_path)
+            logger.info(
+                "ZIP validation passed: %d files, %.1f MB uncompressed",
+                zip_info['file_count'],
+                zip_info['total_uncompressed_size'] / (1024 * 1024)
+            )
+
+            # Step 3: Extract ZIP (now safe to do so)
+            logger.info("Extracting ZIP file...")
+            metadata.status = "extracting"
+            self._save_metadata(dataset_id, metadata)
+
             with zipfile.ZipFile(zip_path, 'r') as zf:
-                zf.extractall(raw_dir)
+                # Extract with safe member filtering (extra safety)
+                for member in zf.namelist():
+                    # Double-check path safety during extraction
+                    member_path = Path(member)
+                    if member_path.is_absolute() or '..' in member_path.parts:
+                        logger.warning("Skipping suspicious path: %s", member)
+                        continue
+                    zf.extract(member, raw_dir)
 
             # Handle nested folder (common when zipping a folder)
             contents = list(raw_dir.iterdir())
@@ -112,14 +629,79 @@ class DatasetManager:
                     shutil.move(str(item), str(raw_dir / item.name))
                 nested_dir.rmdir()
 
-            # Analyze structure
+            # Step 4: Analyze structure
+            logger.info("Analyzing dataset structure...")
+            metadata.status = "analyzing"
+            self._save_metadata(dataset_id, metadata)
+
             metadata = self._analyze_dataset(dataset_id, metadata)
+
+            # Step 5: Validate class folder structure if folder-per-class format
+            if metadata.format == DatasetFormat.FOLDER_PER_CLASS.value:
+                logger.info("Validating class folder structure...")
+                class_dirs = [raw_dir / name for name in metadata.class_names]
+                try:
+                    structure_result = validate_class_folder_structure(class_dirs)
+                    validation_warnings.extend(structure_result.get('warnings', []))
+                except ClassStructureError as e:
+                    # Log but don't fail - user might want to fix it
+                    logger.warning("Class structure issue: %s", e)
+                    validation_warnings.append(str(e))
+
+            # Step 6: Validate image files if this is an image dataset
+            if validate_images and metadata.data_type == DataType.IMAGE:
+                logger.info("Validating image files...")
+                try:
+                    image_result = validate_extracted_images(
+                        raw_dir,
+                        sample_size=20,
+                        validate_all=validate_all_images
+                    )
+                    validation_warnings.extend(image_result.get('warnings', []))
+
+                    if image_result['invalid']:
+                        # Log invalid images but don't fail
+                        for invalid in image_result['invalid'][:5]:
+                            logger.warning(
+                                "Invalid image: %s - %s",
+                                invalid['path'],
+                                invalid['error']
+                            )
+                except (InvalidImageError, CorruptedFileError) as e:
+                    logger.warning("Image validation issue: %s", e)
+                    validation_warnings.append(str(e))
+
+            # Store any validation warnings in metadata
+            if validation_warnings:
+                # Store warnings in error field if there were issues (but dataset is still usable)
+                metadata.error = "Warnings: " + "; ".join(validation_warnings[:3])
+                if len(validation_warnings) > 3:
+                    metadata.error += f" (+{len(validation_warnings) - 3} more)"
+
             metadata.status = "ready"
             self._save_metadata(dataset_id, metadata)
 
-        except Exception as e:
+        except DatasetValidationError as e:
+            # Handle our custom validation errors with clear messages
+            logger.error("Dataset validation failed: %s", e)
             metadata.status = "error"
             metadata.error = str(e)
+            self._save_metadata(dataset_id, metadata)
+            raise
+
+        except zipfile.BadZipFile as e:
+            # Handle corrupted ZIP files
+            logger.error("Invalid ZIP file: %s", e)
+            metadata.status = "error"
+            metadata.error = f"Invalid or corrupted ZIP file: {e}"
+            self._save_metadata(dataset_id, metadata)
+            raise CorruptedFileError(f"Invalid or corrupted ZIP file: {e}")
+
+        except Exception as e:
+            # Handle unexpected errors
+            logger.exception("Unexpected error during extraction")
+            metadata.status = "error"
+            metadata.error = f"Unexpected error: {str(e)}"
             self._save_metadata(dataset_id, metadata)
             raise
 
@@ -149,10 +731,10 @@ class DatasetManager:
         files = [f for f in all_items if f.is_file()]
         dirs = [d for d in all_items if d.is_dir()]
 
-        print(f"[DEBUG] Detecting format in {raw_dir}")
-        print(f"[DEBUG] Found {len(files)} files, {len(dirs)} dirs")
+        logger.debug("Detecting format in %s", raw_dir)
+        logger.debug("Found %d files, %d dirs", len(files), len(dirs))
         for f in files:
-            print(f"[DEBUG] File: {f.name} (is_file={f.is_file()})")
+            logger.debug("File: %s (is_file=%s)", f.name, f.is_file())
 
         # Check for MNIST IDX format by filename pattern
         idx_images = [f for f in files if
@@ -162,22 +744,22 @@ class DatasetManager:
                       ('labels' in f.name.lower() or 'label' in f.name.lower()) and
                       ('ubyte' in f.name.lower() or 'idx' in f.name.lower())]
 
-        print(f"[DEBUG] IDX by name - images: {[f.name for f in idx_images]}, labels: {[f.name for f in idx_labels]}")
+        logger.debug("IDX by name - images: %s, labels: %s", [f.name for f in idx_images], [f.name for f in idx_labels])
 
         # If filename detection didn't work, try reading magic numbers
         if not (idx_images and idx_labels):
-            print("[DEBUG] Trying magic number detection...")
+            logger.debug("Trying magic number detection...")
             for f in files:
                 is_idx, idx_type = self._is_idx_file(f)
                 if is_idx:
-                    print(f"[DEBUG] {f.name} is IDX type: {idx_type}")
+                    logger.debug("%s is IDX type: %s", f.name, idx_type)
                     if idx_type == 'images':
                         idx_images.append(f)
                     elif idx_type == 'labels':
                         idx_labels.append(f)
 
         if idx_images and idx_labels:
-            print(f"[DEBUG] Detected MNIST IDX format!")
+            logger.debug("Detected MNIST IDX format!")
             # Prefer train files over test files
             train_images = [f for f in idx_images if 'train' in f.name.lower()]
             train_labels = [f for f in idx_labels if 'train' in f.name.lower()]
@@ -193,7 +775,7 @@ class DatasetManager:
             # Verify folders contain files
             has_samples = any(any(d.iterdir()) for d in dirs)
             if has_samples:
-                print(f"[DEBUG] Detected folder-per-class format")
+                logger.debug("Detected folder-per-class format")
                 return DatasetFormat.FOLDER_PER_CLASS, {"class_dirs": dirs}
 
         # Check for CSV with labels
@@ -206,7 +788,7 @@ class DatasetManager:
         if image_files:
             return DatasetFormat.FLAT_IMAGES, {"image_files": image_files}
 
-        print(f"[DEBUG] Unknown format")
+        logger.debug("Unknown format")
         return DatasetFormat.UNKNOWN, {"files": files, "dirs": dirs}
 
     def _analyze_dataset(self, dataset_id: str, metadata: DatasetMetadata) -> DatasetMetadata:
@@ -486,10 +1068,10 @@ class DatasetManager:
             elif 'labels' in name_lower and labels_file is None:
                 labels_file = f
 
-        print(f"[DEBUG] Preview MNIST - images: {images_file}, labels: {labels_file}")
+        logger.debug("Preview MNIST - images: %s, labels: %s", images_file, labels_file)
 
         if not images_file or not labels_file:
-            print(f"[DEBUG] Missing files for MNIST preview")
+            logger.debug("Missing files for MNIST preview")
             return samples
 
         try:
@@ -536,9 +1118,7 @@ class DatasetManager:
                     break
 
         except Exception as e:
-            import traceback
-            print(f"[DEBUG] Failed to preview MNIST IDX: {e}")
-            traceback.print_exc()
+            logger.debug("Failed to preview MNIST IDX: %s", e, exc_info=True)
 
         return samples
 
@@ -569,7 +1149,7 @@ class DatasetManager:
                                 "label": class_name
                             })
                     except Exception as e:
-                        print(f"Failed to load preview image {f}: {e}")
+                        logger.warning("Failed to load preview image %s: %s", f, e)
                         continue
 
             if len(samples) >= num_samples:
@@ -600,7 +1180,7 @@ class DatasetManager:
                         "label": f.stem
                     })
             except Exception as e:
-                print(f"Failed to load preview image {f}: {e}")
+                logger.warning("Failed to load preview image %s: %s", f, e)
                 continue
 
         return samples
@@ -659,5 +1239,5 @@ class DatasetManager:
                     data['format'] = 'unknown'
                 return DatasetMetadata(**data)
         except Exception as e:
-            print(f"Failed to load metadata: {e}")
+            logger.warning("Failed to load metadata: %s", e)
             return None

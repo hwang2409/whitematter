@@ -399,6 +399,128 @@ void test_lstm_parameters() {
     TEST_ASSERT_EQ(params.size(), 4u);  // weight_ih, weight_hh, bias_ih, bias_hh
 }
 
+void test_lstm_variable_sequence_lengths() {
+    // Test LSTM with different sequence lengths
+    LSTM lstm(16, 32, true);
+
+    // Short sequence
+    auto input_short = Tensor::randn({2, 5, 16});
+    auto output_short = lstm.forward(input_short);
+    TEST_ASSERT_SHAPE(output_short, std::vector<size_t>({2, 5, 32}));
+
+    // Long sequence
+    auto input_long = Tensor::randn({2, 20, 16});
+    auto output_long = lstm.forward(input_long);
+    TEST_ASSERT_SHAPE(output_long, std::vector<size_t>({2, 20, 32}));
+
+    // Single timestep
+    auto input_single = Tensor::randn({2, 1, 16});
+    auto output_single = lstm.forward(input_single);
+    TEST_ASSERT_SHAPE(output_single, std::vector<size_t>({2, 1, 32}));
+}
+
+void test_lstm_seq_first() {
+    // Test with batch_first=false (seq, batch, input)
+    LSTM lstm(16, 32, false);
+    auto input = Tensor::randn({10, 4, 16});  // [seq, batch, input]
+    auto output = lstm.forward(input);
+
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({10, 4, 32}));  // [seq, batch, hidden]
+    TEST_ASSERT_SHAPE(lstm.h_n, std::vector<size_t>({4, 32}));
+}
+
+void test_lstm_initial_hidden_state() {
+    LSTM lstm(16, 32, true);
+    auto input = Tensor::randn({2, 5, 16});
+
+    // Provide custom initial hidden states
+    auto h0 = Tensor::ones({2, 32}, false);
+    auto c0 = Tensor::zeros({2, 32}, false);
+
+    auto output = lstm.forward(input, h0, c0);
+
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({2, 5, 32}));
+
+    // Output should be different from default zero initialization
+    // (since we passed ones for h0)
+    // This is a smoke test - the values should be computed correctly
+    TEST_ASSERT(output->data.size() > 0);
+}
+
+void test_lstm_gradient_flow() {
+    LSTM lstm(8, 16, true);
+    auto input = Tensor::randn({2, 4, 8}, true);
+    auto output = lstm.forward(input);
+    auto loss = output->sum();
+
+    loss->backward();
+
+    // Input should have gradients
+    TEST_ASSERT(input->grad.size() > 0);
+    bool has_nonzero_input_grad = false;
+    for (size_t i = 0; i < input->grad.size(); i++) {
+        if (std::abs(input->grad[i]) > 1e-7f) {
+            has_nonzero_input_grad = true;
+            break;
+        }
+    }
+    TEST_ASSERT(has_nonzero_input_grad);
+
+    // Weight matrices should have gradients
+    TEST_ASSERT(lstm.weight_ih->grad.size() > 0);
+    TEST_ASSERT(lstm.weight_hh->grad.size() > 0);
+    TEST_ASSERT(lstm.bias_ih->grad.size() > 0);
+    TEST_ASSERT(lstm.bias_hh->grad.size() > 0);
+
+    // Check weight_ih gradient is non-zero
+    bool has_nonzero_weight_grad = false;
+    for (size_t i = 0; i < lstm.weight_ih->grad.size(); i++) {
+        if (std::abs(lstm.weight_ih->grad[i]) > 1e-7f) {
+            has_nonzero_weight_grad = true;
+            break;
+        }
+    }
+    TEST_ASSERT(has_nonzero_weight_grad);
+}
+
+void test_lstm_weight_shapes() {
+    LSTM lstm(10, 20, true);
+    auto params = lstm.parameters();
+
+    // weight_ih: [4*hidden_size, input_size] = [80, 10]
+    TEST_ASSERT_SHAPE(params[0], std::vector<size_t>({80, 10}));
+
+    // weight_hh: [4*hidden_size, hidden_size] = [80, 20]
+    TEST_ASSERT_SHAPE(params[1], std::vector<size_t>({80, 20}));
+
+    // bias_ih: [4*hidden_size] = [80]
+    TEST_ASSERT_SHAPE(params[2], std::vector<size_t>({80}));
+
+    // bias_hh: [4*hidden_size] = [80]
+    TEST_ASSERT_SHAPE(params[3], std::vector<size_t>({80}));
+}
+
+void test_lstm_output_values_bounded() {
+    // LSTM output uses tanh, so hidden state should be in [-1, 1]
+    LSTM lstm(8, 16, true);
+    auto input = Tensor::randn({4, 10, 8});
+    auto output = lstm.forward(input);
+
+    for (size_t i = 0; i < output->data.size(); i++) {
+        TEST_ASSERT(output->data[i] >= -1.0f && output->data[i] <= 1.0f);
+    }
+}
+
+void test_lstm_forget_gate_bias() {
+    // LSTM initializes forget gate bias to 1.0 for better gradient flow
+    LSTM lstm(8, 16, true);
+
+    // Forget gate bias is in bias_ih[hidden_size:2*hidden_size]
+    for (size_t i = 16; i < 32; i++) {
+        TEST_ASSERT_NEAR(lstm.bias_ih->data[i], 1.0f, 1e-5f);
+    }
+}
+
 // =============================================================================
 // GRU Tests
 // =============================================================================
@@ -418,6 +540,152 @@ void test_gru_hidden_state() {
 
     TEST_ASSERT(gru.h_n != nullptr);
     TEST_ASSERT_SHAPE(gru.h_n, std::vector<size_t>({4, 64}));
+}
+
+void test_gru_parameters() {
+    GRU gru(32, 64);
+    auto params = gru.parameters();
+
+    TEST_ASSERT_EQ(params.size(), 4u);  // weight_ih, weight_hh, bias_ih, bias_hh
+}
+
+void test_gru_variable_sequence_lengths() {
+    // Test GRU with different sequence lengths
+    GRU gru(16, 32, true);
+
+    // Short sequence
+    auto input_short = Tensor::randn({2, 5, 16});
+    auto output_short = gru.forward(input_short);
+    TEST_ASSERT_SHAPE(output_short, std::vector<size_t>({2, 5, 32}));
+
+    // Long sequence
+    auto input_long = Tensor::randn({2, 20, 16});
+    auto output_long = gru.forward(input_long);
+    TEST_ASSERT_SHAPE(output_long, std::vector<size_t>({2, 20, 32}));
+
+    // Single timestep
+    auto input_single = Tensor::randn({2, 1, 16});
+    auto output_single = gru.forward(input_single);
+    TEST_ASSERT_SHAPE(output_single, std::vector<size_t>({2, 1, 32}));
+}
+
+void test_gru_seq_first() {
+    // Test with batch_first=false (seq, batch, input)
+    GRU gru(16, 32, false);
+    auto input = Tensor::randn({10, 4, 16});  // [seq, batch, input]
+    auto output = gru.forward(input);
+
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({10, 4, 32}));  // [seq, batch, hidden]
+    TEST_ASSERT_SHAPE(gru.h_n, std::vector<size_t>({4, 32}));
+}
+
+void test_gru_initial_hidden_state() {
+    GRU gru(16, 32, true);
+    auto input = Tensor::randn({2, 5, 16});
+
+    // Provide custom initial hidden state
+    auto h0 = Tensor::ones({2, 32}, false);
+    auto output = gru.forward(input, h0);
+
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({2, 5, 32}));
+    TEST_ASSERT(output->data.size() > 0);
+}
+
+void test_gru_gradient_flow() {
+    GRU gru(8, 16, true);
+    auto input = Tensor::randn({2, 4, 8}, true);
+    auto output = gru.forward(input);
+    auto loss = output->sum();
+
+    loss->backward();
+
+    // Input should have gradients
+    TEST_ASSERT(input->grad.size() > 0);
+    bool has_nonzero_input_grad = false;
+    for (size_t i = 0; i < input->grad.size(); i++) {
+        if (std::abs(input->grad[i]) > 1e-7f) {
+            has_nonzero_input_grad = true;
+            break;
+        }
+    }
+    TEST_ASSERT(has_nonzero_input_grad);
+
+    // Weight matrices should have gradients
+    TEST_ASSERT(gru.weight_ih->grad.size() > 0);
+    TEST_ASSERT(gru.weight_hh->grad.size() > 0);
+    TEST_ASSERT(gru.bias_ih->grad.size() > 0);
+    TEST_ASSERT(gru.bias_hh->grad.size() > 0);
+
+    // Check weight_ih gradient is non-zero
+    bool has_nonzero_weight_grad = false;
+    for (size_t i = 0; i < gru.weight_ih->grad.size(); i++) {
+        if (std::abs(gru.weight_ih->grad[i]) > 1e-7f) {
+            has_nonzero_weight_grad = true;
+            break;
+        }
+    }
+    TEST_ASSERT(has_nonzero_weight_grad);
+}
+
+void test_gru_weight_shapes() {
+    GRU gru(10, 20, true);
+    auto params = gru.parameters();
+
+    // weight_ih: [3*hidden_size, input_size] = [60, 10]
+    TEST_ASSERT_SHAPE(params[0], std::vector<size_t>({60, 10}));
+
+    // weight_hh: [3*hidden_size, hidden_size] = [60, 20]
+    TEST_ASSERT_SHAPE(params[1], std::vector<size_t>({60, 20}));
+
+    // bias_ih: [3*hidden_size] = [60]
+    TEST_ASSERT_SHAPE(params[2], std::vector<size_t>({60}));
+
+    // bias_hh: [3*hidden_size] = [60]
+    TEST_ASSERT_SHAPE(params[3], std::vector<size_t>({60}));
+}
+
+void test_gru_output_continuity() {
+    // Final hidden state should match the last timestep of output
+    GRU gru(8, 16, true);
+    auto input = Tensor::randn({2, 5, 8});
+    auto output = gru.forward(input);
+
+    // h_n should equal output[:, -1, :]
+    for (size_t b = 0; b < 2; b++) {
+        for (size_t h = 0; h < 16; h++) {
+            size_t output_idx = b * 5 * 16 + 4 * 16 + h;  // last timestep
+            size_t h_n_idx = b * 16 + h;
+            TEST_ASSERT_NEAR(gru.h_n->data[h_n_idx], output->data[output_idx], 1e-5f);
+        }
+    }
+}
+
+void test_gru_deterministic() {
+    // Same input should produce same output (with same weights)
+    GRU gru1(8, 16, true);
+    GRU gru2(8, 16, true);
+
+    // Copy weights from gru1 to gru2
+    for (size_t i = 0; i < gru1.weight_ih->data.size(); i++) {
+        gru2.weight_ih->data[i] = gru1.weight_ih->data[i];
+    }
+    for (size_t i = 0; i < gru1.weight_hh->data.size(); i++) {
+        gru2.weight_hh->data[i] = gru1.weight_hh->data[i];
+    }
+    for (size_t i = 0; i < gru1.bias_ih->data.size(); i++) {
+        gru2.bias_ih->data[i] = gru1.bias_ih->data[i];
+    }
+    for (size_t i = 0; i < gru1.bias_hh->data.size(); i++) {
+        gru2.bias_hh->data[i] = gru1.bias_hh->data[i];
+    }
+
+    auto input = Tensor::randn({2, 5, 8});
+    auto output1 = gru1.forward(input);
+    auto output2 = gru2.forward(input);
+
+    for (size_t i = 0; i < output1->data.size(); i++) {
+        TEST_ASSERT_NEAR(output1->data[i], output2->data[i], 1e-5f);
+    }
 }
 
 // =============================================================================
@@ -455,6 +723,253 @@ void test_multihead_attention_causal_mask() {
     // - Upper triangular should be large negative (don't attend)
     // Position (0, 0) should be 0 (can attend to self)
     TEST_ASSERT_NEAR(mask->data[0], 0.0f, 1e-5f);
+}
+
+void test_multihead_attention_parameters() {
+    MultiHeadAttention mha(64, 8);
+    auto params = mha.parameters();
+
+    // W_q, W_k, W_v, W_o, b_q, b_k, b_v, b_o = 8 parameters
+    TEST_ASSERT_EQ(params.size(), 8u);
+
+    // Check weight shapes: [embed_dim, embed_dim]
+    TEST_ASSERT_SHAPE(params[0], std::vector<size_t>({64, 64}));  // W_q
+    TEST_ASSERT_SHAPE(params[1], std::vector<size_t>({64, 64}));  // W_k
+    TEST_ASSERT_SHAPE(params[2], std::vector<size_t>({64, 64}));  // W_v
+    TEST_ASSERT_SHAPE(params[3], std::vector<size_t>({64, 64}));  // W_o
+
+    // Check bias shapes: [embed_dim]
+    TEST_ASSERT_SHAPE(params[4], std::vector<size_t>({64}));  // b_q
+    TEST_ASSERT_SHAPE(params[5], std::vector<size_t>({64}));  // b_k
+    TEST_ASSERT_SHAPE(params[6], std::vector<size_t>({64}));  // b_v
+    TEST_ASSERT_SHAPE(params[7], std::vector<size_t>({64}));  // b_o
+}
+
+void test_multihead_attention_with_mask() {
+    MultiHeadAttention mha(32, 4);  // embed_dim=32, num_heads=4
+    auto input = Tensor::randn({2, 6, 32});
+
+    // Create a causal mask
+    auto mask = MultiHeadAttention::causal_mask(6);
+
+    auto output = mha.forward(input, input, input, mask);
+
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({2, 6, 32}));
+
+    // Output should still be valid
+    for (size_t i = 0; i < output->data.size(); i++) {
+        TEST_ASSERT(!std::isnan(output->data[i]));
+        TEST_ASSERT(!std::isinf(output->data[i]));
+    }
+}
+
+void test_multihead_attention_causal_mask_structure() {
+    auto mask = MultiHeadAttention::causal_mask(4);
+
+    // Check shape: [1, 1, 4, 4]
+    TEST_ASSERT_EQ(mask->shape.size(), 4u);
+    TEST_ASSERT_EQ(mask->shape[0], 1u);
+    TEST_ASSERT_EQ(mask->shape[1], 1u);
+    TEST_ASSERT_EQ(mask->shape[2], 4u);
+    TEST_ASSERT_EQ(mask->shape[3], 4u);
+
+    // Verify causal structure
+    // Position (i, j) should be 0 if j <= i (can attend), -inf if j > i (can't attend)
+    for (size_t i = 0; i < 4; i++) {
+        for (size_t j = 0; j < 4; j++) {
+            float val = mask->data[i * 4 + j];
+            if (j <= i) {
+                TEST_ASSERT_NEAR(val, 0.0f, 1e-5f);
+            } else {
+                TEST_ASSERT(val < -1e6f);  // Large negative value
+            }
+        }
+    }
+}
+
+void test_multihead_attention_no_mask() {
+    // Test that attention without mask attends to all positions
+    MultiHeadAttention mha(32, 4);
+    auto input = Tensor::randn({1, 5, 32});
+
+    auto output_no_mask = mha.forward(input, input, input, nullptr);
+
+    TEST_ASSERT_SHAPE(output_no_mask, std::vector<size_t>({1, 5, 32}));
+
+    // Check that attention weights exist and are valid probabilities
+    TEST_ASSERT(mha.attn_weights != nullptr);
+    TEST_ASSERT_EQ(mha.attn_weights->shape.size(), 4u);  // [batch, heads, seq_q, seq_k]
+}
+
+void test_multihead_attention_attention_weights_sum() {
+    MultiHeadAttention mha(32, 4);
+    auto input = Tensor::randn({2, 6, 32});
+    mha.forward(input);
+
+    // Attention weights should sum to 1 along the last dimension (seq_k)
+    auto attn = mha.attn_weights;
+    size_t batch = attn->shape[0];
+    size_t heads = attn->shape[1];
+    size_t seq_q = attn->shape[2];
+    size_t seq_k = attn->shape[3];
+
+    for (size_t b = 0; b < batch; b++) {
+        for (size_t h = 0; h < heads; h++) {
+            for (size_t i = 0; i < seq_q; i++) {
+                float sum = 0.0f;
+                for (size_t j = 0; j < seq_k; j++) {
+                    size_t idx = b * heads * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j;
+                    sum += attn->data[idx];
+                }
+                TEST_ASSERT_NEAR(sum, 1.0f, 1e-4f);
+            }
+        }
+    }
+}
+
+void test_multihead_attention_gradient_flow() {
+    MultiHeadAttention mha(32, 4);
+    auto input = Tensor::randn({2, 5, 32}, true);
+    auto output = mha.forward(input);
+    auto loss = output->sum();
+
+    loss->backward();
+
+    // Input should have gradients
+    TEST_ASSERT(input->grad.size() > 0);
+    bool has_nonzero_input_grad = false;
+    for (size_t i = 0; i < input->grad.size(); i++) {
+        if (std::abs(input->grad[i]) > 1e-7f) {
+            has_nonzero_input_grad = true;
+            break;
+        }
+    }
+    TEST_ASSERT(has_nonzero_input_grad);
+
+    // Weight matrices should have gradients
+    TEST_ASSERT(mha.W_q->grad.size() > 0);
+    TEST_ASSERT(mha.W_k->grad.size() > 0);
+    TEST_ASSERT(mha.W_v->grad.size() > 0);
+    TEST_ASSERT(mha.W_o->grad.size() > 0);
+
+    // Check W_q gradient is non-zero
+    bool has_nonzero_weight_grad = false;
+    for (size_t i = 0; i < mha.W_q->grad.size(); i++) {
+        if (std::abs(mha.W_q->grad[i]) > 1e-7f) {
+            has_nonzero_weight_grad = true;
+            break;
+        }
+    }
+    TEST_ASSERT(has_nonzero_weight_grad);
+
+    // Biases should have gradients
+    TEST_ASSERT(mha.b_q->grad.size() > 0);
+    TEST_ASSERT(mha.b_o->grad.size() > 0);
+}
+
+void test_multihead_attention_cross_gradient() {
+    // Test gradient flow in cross-attention
+    MultiHeadAttention mha(32, 4);
+    auto query = Tensor::randn({2, 5, 32}, true);
+    auto key = Tensor::randn({2, 8, 32}, true);
+    auto value = Tensor::randn({2, 8, 32}, true);
+
+    auto output = mha.forward(query, key, value);
+    auto loss = output->sum();
+
+    loss->backward();
+
+    // All inputs should have gradients
+    TEST_ASSERT(query->grad.size() > 0);
+    TEST_ASSERT(key->grad.size() > 0);
+    TEST_ASSERT(value->grad.size() > 0);
+
+    // Check that gradients are non-zero
+    bool query_has_grad = false;
+    for (size_t i = 0; i < query->grad.size(); i++) {
+        if (std::abs(query->grad[i]) > 1e-7f) {
+            query_has_grad = true;
+            break;
+        }
+    }
+    TEST_ASSERT(query_has_grad);
+
+    bool key_has_grad = false;
+    for (size_t i = 0; i < key->grad.size(); i++) {
+        if (std::abs(key->grad[i]) > 1e-7f) {
+            key_has_grad = true;
+            break;
+        }
+    }
+    TEST_ASSERT(key_has_grad);
+
+    bool value_has_grad = false;
+    for (size_t i = 0; i < value->grad.size(); i++) {
+        if (std::abs(value->grad[i]) > 1e-7f) {
+            value_has_grad = true;
+            break;
+        }
+    }
+    TEST_ASSERT(value_has_grad);
+}
+
+void test_multihead_attention_head_dim() {
+    // Test that head_dim = embed_dim / num_heads
+    MultiHeadAttention mha(64, 8);  // 64/8 = 8
+
+    TEST_ASSERT_EQ(mha.head_dim, 8u);
+    TEST_ASSERT_EQ(mha.num_heads, 8u);
+    TEST_ASSERT_EQ(mha.embed_dim, 64u);
+}
+
+void test_multihead_attention_single_head() {
+    // Test with single head (standard attention)
+    MultiHeadAttention mha(32, 1);
+    auto input = Tensor::randn({2, 5, 32});
+    auto output = mha.forward(input);
+
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({2, 5, 32}));
+    TEST_ASSERT_EQ(mha.head_dim, 32u);
+}
+
+void test_multihead_attention_variable_seq_len() {
+    MultiHeadAttention mha(32, 4);
+
+    // Short sequence
+    auto input_short = Tensor::randn({2, 3, 32});
+    auto output_short = mha.forward(input_short);
+    TEST_ASSERT_SHAPE(output_short, std::vector<size_t>({2, 3, 32}));
+
+    // Long sequence
+    auto input_long = Tensor::randn({2, 20, 32});
+    auto output_long = mha.forward(input_long);
+    TEST_ASSERT_SHAPE(output_long, std::vector<size_t>({2, 20, 32}));
+
+    // Single token
+    auto input_single = Tensor::randn({2, 1, 32});
+    auto output_single = mha.forward(input_single);
+    TEST_ASSERT_SHAPE(output_single, std::vector<size_t>({2, 1, 32}));
+}
+
+void test_multihead_attention_numerical_stability() {
+    // Test with large/small values
+    MultiHeadAttention mha(32, 4);
+
+    // Normal input
+    auto input = Tensor::randn({1, 5, 32});
+
+    // Scale input to test numerical stability
+    for (size_t i = 0; i < input->data.size(); i++) {
+        input->data[i] *= 10.0f;  // Larger values
+    }
+
+    auto output = mha.forward(input);
+
+    // Output should not have NaN or Inf
+    for (size_t i = 0; i < output->data.size(); i++) {
+        TEST_ASSERT(!std::isnan(output->data[i]));
+        TEST_ASSERT(!std::isinf(output->data[i]));
+    }
 }
 
 // =============================================================================
@@ -612,15 +1127,41 @@ TestSuite* create_layer_tests() {
     suite->add_test("lstm_forward", test_lstm_forward);
     suite->add_test("lstm_hidden_state", test_lstm_hidden_state);
     suite->add_test("lstm_parameters", test_lstm_parameters);
+    suite->add_test("lstm_variable_sequence_lengths", test_lstm_variable_sequence_lengths);
+    suite->add_test("lstm_seq_first", test_lstm_seq_first);
+    suite->add_test("lstm_initial_hidden_state", test_lstm_initial_hidden_state);
+    suite->add_test("lstm_gradient_flow", test_lstm_gradient_flow);
+    suite->add_test("lstm_weight_shapes", test_lstm_weight_shapes);
+    suite->add_test("lstm_output_values_bounded", test_lstm_output_values_bounded);
+    suite->add_test("lstm_forget_gate_bias", test_lstm_forget_gate_bias);
 
     // GRU tests
     suite->add_test("gru_forward", test_gru_forward);
     suite->add_test("gru_hidden_state", test_gru_hidden_state);
+    suite->add_test("gru_parameters", test_gru_parameters);
+    suite->add_test("gru_variable_sequence_lengths", test_gru_variable_sequence_lengths);
+    suite->add_test("gru_seq_first", test_gru_seq_first);
+    suite->add_test("gru_initial_hidden_state", test_gru_initial_hidden_state);
+    suite->add_test("gru_gradient_flow", test_gru_gradient_flow);
+    suite->add_test("gru_weight_shapes", test_gru_weight_shapes);
+    suite->add_test("gru_output_continuity", test_gru_output_continuity);
+    suite->add_test("gru_deterministic", test_gru_deterministic);
 
     // MultiHeadAttention tests
     suite->add_test("mha_forward", test_multihead_attention_forward);
     suite->add_test("mha_cross", test_multihead_attention_cross);
     suite->add_test("mha_causal_mask", test_multihead_attention_causal_mask);
+    suite->add_test("mha_parameters", test_multihead_attention_parameters);
+    suite->add_test("mha_with_mask", test_multihead_attention_with_mask);
+    suite->add_test("mha_causal_mask_structure", test_multihead_attention_causal_mask_structure);
+    suite->add_test("mha_no_mask", test_multihead_attention_no_mask);
+    suite->add_test("mha_attention_weights_sum", test_multihead_attention_attention_weights_sum);
+    suite->add_test("mha_gradient_flow", test_multihead_attention_gradient_flow);
+    suite->add_test("mha_cross_gradient", test_multihead_attention_cross_gradient);
+    suite->add_test("mha_head_dim", test_multihead_attention_head_dim);
+    suite->add_test("mha_single_head", test_multihead_attention_single_head);
+    suite->add_test("mha_variable_seq_len", test_multihead_attention_variable_seq_len);
+    suite->add_test("mha_numerical_stability", test_multihead_attention_numerical_stability);
 
     // Sequential tests
     suite->add_test("sequential_forward", test_sequential_forward);
