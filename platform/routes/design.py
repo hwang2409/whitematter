@@ -2,12 +2,16 @@
 Architecture design endpoints (LLM-powered suggestions, validation, refinement).
 """
 
+import json
 import logging
+import shutil
+import tempfile
+from pathlib import Path
 from typing import Dict, Any, Optional
 
 from fastapi import APIRouter, HTTPException
 
-from schemas import DesignRequest, RefineRequest, DesignHelpRequest
+from schemas import DesignRequest, RefineRequest, DesignHelpRequest, PreviewCodeRequest
 from dependencies import dataset_manager, dataset_service, code_generator, llm_service
 
 logger = logging.getLogger(__name__)
@@ -83,6 +87,77 @@ async def refine_architecture(request: RefineRequest):
     except (ValueError, RuntimeError, ConnectionError) as e:
         logger.exception("LLM architecture refinement failed")
         raise HTTPException(status_code=500, detail=f"LLM error: {str(e)}") from e
+
+
+def _resolve_dataset_config_for_preview(dataset_id: str, architecture: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve dataset_config for code generation: from processed blobs or from dataset metadata."""
+    from db import get_blob_store
+    blob_store = get_blob_store()
+
+    # Try processed dir on disk (local dev)
+    processed_dir = dataset_manager.uploads_dir / dataset_id / "processed"
+    config_path = processed_dir / "config.json"
+    if config_path.exists():
+        with open(config_path) as f:
+            config = json.load(f)
+        if architecture.get("data_type"):
+            config["data_type"] = architecture["data_type"]
+        return config
+
+    # Try blob storage (processed_blob_prefix)
+    db_dataset = dataset_service.get_dataset(dataset_id)
+    if not db_dataset:
+        raise ValueError("Dataset not found")
+    if db_dataset.get("processed_blob_prefix"):
+        config_blob = blob_store.get(f"{db_dataset['processed_blob_prefix']}/config.json")
+        if config_blob:
+            config = json.loads(config_blob.decode())
+            if architecture.get("data_type"):
+                config["data_type"] = architecture["data_type"]
+            return config
+
+    # Fallback: minimal config from dataset metadata (preview without processed data)
+    config = {
+        "data_type": db_dataset.get("data_type", "image"),
+        "num_classes": db_dataset.get("num_classes", 10),
+        "input_shape": db_dataset.get("input_shape") or [3, 32, 32],
+    }
+    if config["data_type"] == "text":
+        preproc = db_dataset.get("preprocessing_config") or {}
+        config["vocab_size"] = preproc.get("vocab_size", db_dataset.get("num_classes", 100))
+        config["seq_length"] = preproc.get("seq_length", 128)
+        config["tokenizer_type"] = preproc.get("tokenizer_type", "character")
+    if architecture.get("data_type"):
+        config["data_type"] = architecture["data_type"]
+    return config
+
+
+@router.post("/design/preview-code")
+async def preview_code(request: PreviewCodeRequest):
+    """Generate train.cpp and infer.cpp for preview (no job, no compilation)."""
+    try:
+        dataset_config = _resolve_dataset_config_for_preview(
+            request.dataset_id, request.architecture
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+
+    tmpdir = tempfile.mkdtemp(prefix="wm_preview_")
+    try:
+        out = Path(tmpdir)
+        code_generator.generate(
+            architecture=request.architecture,
+            dataset_config=dataset_config,
+            output_dir=out,
+        )
+        train_cpp = (out / "train.cpp").read_text()
+        infer_cpp = (out / "infer.cpp").read_text()
+        return {"train_cpp": train_cpp, "infer_cpp": infer_cpp}
+    except Exception as e:
+        logger.exception("Preview code generation failed")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 @router.post("/design/help")

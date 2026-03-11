@@ -6,6 +6,7 @@ import logging
 import tempfile
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, File, UploadFile, HTTPException, Form
 
@@ -14,6 +15,8 @@ from preprocessing import ImageProcessor
 from dependencies import (
     dataset_manager, dataset_service, process_mnist_idx,
 )
+from services.url_fetcher import fetch_for_import, URLFetchError
+from schemas.import_schemas import ImportFromUrlRequest, ImportFromHuggingFaceRequest
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +128,130 @@ async def upload_text_dataset(
         logger.exception("Failed to upload text dataset %s", dataset_id)
         dataset_service.delete_dataset(dataset_id)
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+def _infer_name_from_url(url: str, suggested_filename: str | None) -> str:
+    """Derive a dataset name from URL or filename."""
+    if suggested_filename:
+        base = suggested_filename
+        for ext in (".zip", ".txt", ".tar.gz", ".tar"):
+            if base.endswith(ext):
+                base = base[: -len(ext)]
+                break
+        if base:
+            return base[:200]
+    path = urlparse(url).path.rstrip("/")
+    name = path.split("/")[-1] if path else "imported"
+    if "." in name:
+        name = name.rsplit(".", 1)[0]
+    return name[:200] or "imported"
+
+
+@router.post("/datasets/import/url")
+async def import_dataset_from_url(body: ImportFromUrlRequest):
+    """
+    Import a dataset from a public HTTPS URL.
+    Supports ZIP (folder-per-class images or MNIST IDX) and TXT (text for language models).
+    """
+    url_str = str(body.url)
+    try:
+        result = fetch_for_import(url_str)
+    except URLFetchError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    name = (body.name or _infer_name_from_url(url_str, result.suggested_filename)).strip() or "imported"
+    content = result.content
+    suggested = (result.suggested_filename or "").lower()
+
+    # ZIP: use legacy dataset_manager path (same as file upload)
+    if suggested.endswith(".zip") or (result.content_type or "").startswith("application/zip"):
+        dataset_id = dataset_manager.create_dataset(name)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+            tmp.write(content)
+            tmp_path = Path(tmp.name)
+        try:
+            metadata = dataset_manager.extract_zip(dataset_id, tmp_path)
+            if metadata.data_type == DataType.IMAGE:
+                raw_dir = dataset_manager.uploads_dir / dataset_id / "raw"
+                processed_dir = dataset_manager.uploads_dir / dataset_id / "processed"
+                if metadata.format == "mnist_idx":
+                    config = process_mnist_idx(raw_dir, processed_dir, metadata)
+                else:
+                    processor = ImageProcessor(
+                        target_size=(metadata.input_shape[1], metadata.input_shape[2]),
+                        channels=metadata.input_shape[0],
+                    )
+                    config = processor.process_dataset(
+                        raw_dir, processed_dir, metadata.class_names
+                    )
+                metadata.input_shape = config["input_shape"]
+                metadata.status = "ready"
+                dataset_manager._save_metadata(dataset_id, metadata)
+            logger.info("Imported dataset from URL %s -> %s (%s)", url_str[:80], dataset_id, metadata.name)
+            return {
+                "id": dataset_id,
+                "name": metadata.name,
+                "data_type": metadata.data_type.value,
+                "format": metadata.format,
+                "num_classes": metadata.num_classes,
+                "class_names": metadata.class_names,
+                "total_samples": metadata.total_samples,
+                "input_shape": metadata.input_shape,
+                "created_at": metadata.created_at,
+                "status": metadata.status,
+            }
+        except (ValueError, IOError, OSError) as e:
+            logger.exception("Failed to import dataset from URL %s", dataset_id)
+            dataset_manager.delete_dataset(dataset_id)
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        finally:
+            tmp_path.unlink(missing_ok=True)
+    # TXT: use dataset_service
+    if suggested.endswith(".txt") or (result.content_type or "").startswith("text/"):
+        dataset_info = dataset_service.create_dataset(name)
+        dataset_id = dataset_info["id"]
+        filename = result.suggested_filename or "imported.txt"
+        try:
+            result_dict = dataset_service.upload_text(
+                dataset_id=dataset_id,
+                file_content=content,
+                filename=filename,
+                tokenizer_type="character",
+                seq_length=128,
+            )
+            logger.info("Imported text dataset from URL %s -> %s", url_str[:80], dataset_id)
+            return result_dict
+        except (ValueError, IOError, OSError) as e:
+            logger.exception("Failed to import text dataset from URL %s", dataset_id)
+            dataset_service.delete_dataset(dataset_id)
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
+    raise HTTPException(
+        status_code=400,
+        detail="URL must point to a ZIP file (images) or a TXT file (text). Check Content-Type or filename.",
+    )
+
+
+@router.post("/datasets/import/huggingface")
+async def import_dataset_from_huggingface(body: ImportFromHuggingFaceRequest):
+    """
+    Import a dataset from Hugging Face Hub by dataset ID (e.g. 'username/dataset-name').
+    Auto-detects image classification (image + label columns) or text datasets.
+    """
+    from services.huggingface_import import import_from_huggingface, HuggingFaceImportError
+
+    name = (body.name or body.dataset_id.replace("/", "_"))[:200].strip() or "hf_import"
+    try:
+        result = import_from_huggingface(
+            dataset_id=body.dataset_id,
+            name=name,
+            config=body.config,
+            split=body.split,
+        )
+    except HuggingFaceImportError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    logger.info("Imported HF dataset %s -> %s", body.dataset_id, result.get("id"))
+    return result
 
 
 @router.get("/datasets")
