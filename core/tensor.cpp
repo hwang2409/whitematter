@@ -404,17 +404,10 @@ static std::vector<size_t> compute_strides(const std::vector<size_t>& shape) {
 
 static std::mt19937 rng(42);
 
-Tensor::Tensor() : requires_grad(false), data_ptr_(nullptr), data_size_(0), grad_ptr_(nullptr), grad_size_(0) {}
+Tensor::Tensor() : requires_grad(false), data_size_(0), grad_size_(0) {}
 
 Tensor::~Tensor() {
-    if (data_ptr_) {
-        MemoryPool::instance().release(data_ptr_, data_size_);
-        data_ptr_ = nullptr;
-    }
-    if (grad_ptr_) {
-        MemoryPool::instance().release(grad_ptr_, grad_size_);
-        grad_ptr_ = nullptr;
-    }
+    // shared_ptr deleters return memory to pool when last owner is destroyed
 }
 
 Tensor::Tensor(const std::vector<size_t>& shape, bool requires_grad)
@@ -422,19 +415,15 @@ Tensor::Tensor(const std::vector<size_t>& shape, bool requires_grad)
     size_t total = 1;
     for (auto s : shape) total *= s;
     data_size_ = total;
-    data_ptr_ = MemoryPool::instance().acquire(total);
-    if (!data_ptr_) throw std::bad_alloc();
-    std::fill(data_ptr_, data_ptr_ + total, 0.0f);
+    data_storage_ = MemoryPool::instance().acquire_shared(total);
+    if (!data_storage_) throw std::bad_alloc();
+    std::fill(data(), data() + total, 0.0f);
     if (requires_grad) {
         grad_size_ = total;
-        grad_ptr_ = MemoryPool::instance().acquire(total);
-        if (!grad_ptr_) {
-            MemoryPool::instance().release(data_ptr_, data_size_);
-            throw std::bad_alloc();
-        }
-        std::fill(grad_ptr_, grad_ptr_ + total, 0.0f);
+        grad_storage_ = MemoryPool::instance().acquire_shared(total);
+        if (!grad_storage_) throw std::bad_alloc();
+        std::fill(grad(), grad() + total, 0.0f);
     } else {
-        grad_ptr_ = nullptr;
         grad_size_ = 0;
     }
 }
@@ -442,19 +431,29 @@ Tensor::Tensor(const std::vector<size_t>& shape, bool requires_grad)
 Tensor::Tensor(const std::vector<float>& data, const std::vector<size_t>& shape, bool requires_grad)
     : shape(shape), requires_grad(requires_grad) {
     data_size_ = data.size();
-    data_ptr_ = MemoryPool::instance().acquire(data_size_);
-    if (!data_ptr_) throw std::bad_alloc();
-    std::memcpy(data_ptr_, data.data(), data_size_ * sizeof(float));
+    data_storage_ = MemoryPool::instance().acquire_shared(data_size_);
+    if (!data_storage_) throw std::bad_alloc();
+    std::memcpy(data_storage_.get(), data.data(), data_size_ * sizeof(float));
     if (requires_grad) {
         grad_size_ = data_size_;
-        grad_ptr_ = MemoryPool::instance().acquire(grad_size_);
-        if (!grad_ptr_) {
-            MemoryPool::instance().release(data_ptr_, data_size_);
-            throw std::bad_alloc();
-        }
-        std::fill(grad_ptr_, grad_ptr_ + grad_size_, 0.0f);
+        grad_storage_ = MemoryPool::instance().acquire_shared(grad_size_);
+        if (!grad_storage_) throw std::bad_alloc();
+        std::fill(grad(), grad() + grad_size_, 0.0f);
     } else {
-        grad_ptr_ = nullptr;
+        grad_size_ = 0;
+    }
+}
+
+Tensor::Tensor(std::shared_ptr<float> data_storage, size_t data_size,
+               const std::vector<size_t>& shape, bool requires_grad)
+    : shape(shape), requires_grad(requires_grad),
+      data_storage_(std::move(data_storage)), data_size_(data_size) {
+    if (requires_grad) {
+        grad_size_ = data_size_;
+        grad_storage_ = MemoryPool::instance().acquire_shared(grad_size_);
+        if (!grad_storage_) throw std::bad_alloc();
+        std::fill(grad(), grad() + grad_size_, 0.0f);
+    } else {
         grad_size_ = 0;
     }
 }
@@ -766,8 +765,8 @@ void Tensor::zero_grad() {
     if (!grad_empty()) std::fill(grad(), grad() + grad_size(), 0.0f);
 }
 
-float& Tensor::operator[](size_t idx) { return data_ptr_[idx]; }
-float Tensor::operator[](size_t idx) const { return data_ptr_[idx]; }
+float& Tensor::operator[](size_t idx) { return data()[idx]; }
+float Tensor::operator[](size_t idx) const { return data()[idx]; }
 
 float& Tensor::at(const std::vector<size_t>& indices) {
     size_t idx = 0, stride = 1;
@@ -775,7 +774,7 @@ float& Tensor::at(const std::vector<size_t>& indices) {
         idx += indices[i] * stride;
         stride *= shape[i];
     }
-    return data_ptr_[idx];
+    return data()[idx];
 }
 
 float Tensor::at(const std::vector<size_t>& indices) const {
@@ -784,7 +783,7 @@ float Tensor::at(const std::vector<size_t>& indices) const {
         idx += indices[i] * stride;
         stride *= shape[i];
     }
-    return data_ptr_[idx];
+    return data()[idx];
 }
 
 bool Tensor::should_track_grad() const {
@@ -803,8 +802,8 @@ void Tensor::build_topo(std::vector<Tensor*>& topo, std::vector<Tensor*>& visite
 void Tensor::backward() {
     assert(size() == 1);
     if (grad_empty()) {
-        grad_ptr_ = MemoryPool::instance().acquire(1);
-        if (!grad_ptr_) throw std::bad_alloc();
+        grad_storage_ = MemoryPool::instance().acquire_shared(1);
+        if (!grad_storage_) throw std::bad_alloc();
         grad_size_ = 1;
     }
     grad()[0] = 1.0f;
@@ -2297,8 +2296,7 @@ TensorPtr Tensor::reshape(const std::vector<size_t>& new_shape) const {
     assert(total == size());
 
     bool track = requires_grad && GradMode::is_enabled();
-    std::vector<float> data_vec(data(), data() + size());
-    auto result = create(data_vec, new_shape, track);
+    auto result = std::make_shared<Tensor>(data_storage_, data_size_, new_shape, track);
     if (track && !grad_empty()) std::memcpy(result->grad(), grad(), size() * sizeof(float));
 
     if (track) {
@@ -2993,27 +2991,15 @@ TensorPtr Tensor::squeeze(int dim) const {
 
     // If shape unchanged, return self (no-op)
     if (new_shape == shape) {
-        std::vector<float> data_vec(data(), data() + size());
-        auto result = Tensor::create(data_vec, shape, requires_grad);
-        if (should_track_grad()) {
-            result->parents = {self};
-            result->grad_fn = [self, result]() {
-                for (size_t i = 0; i < self->size(); i++) {
-                    self->grad()[i] += result->grad()[i];
-                }
-            };
-        }
-        return result;
+        return self;
     }
 
-    std::vector<float> data_vec(data(), data() + size());
-    auto result = Tensor::create(data_vec, new_shape, requires_grad);
+    bool track = should_track_grad();
+    auto result = std::make_shared<Tensor>(data_storage_, data_size_, new_shape, track);
 
-    if (should_track_grad()) {
+    if (track) {
         result->parents = {self};
-        auto orig_shape = shape;
-        result->grad_fn = [self, result, orig_shape]() {
-            // Gradient is just passed through unchanged (reshape)
+        result->grad_fn = [self, result]() {
             for (size_t i = 0; i < self->size(); i++) {
                 self->grad()[i] += result->grad()[i];
             }
@@ -3042,13 +3028,12 @@ TensorPtr Tensor::unsqueeze(int dim) const {
         }
     }
 
-    std::vector<float> data_vec(data(), data() + size());
-    auto result = Tensor::create(data_vec, new_shape, requires_grad);
+    bool track = should_track_grad();
+    auto result = std::make_shared<Tensor>(data_storage_, data_size_, new_shape, track);
 
-    if (should_track_grad()) {
+    if (track) {
         result->parents = {self};
         result->grad_fn = [self, result]() {
-            // Gradient is just passed through unchanged (reshape)
             for (size_t i = 0; i < self->size(); i++) {
                 self->grad()[i] += result->grad()[i];
             }

@@ -38,14 +38,14 @@ public:
     std::function<void()> grad_fn;
     std::vector<TensorPtr> parents;
 
-    // Pool-backed storage accessors (replaces std::vector<float> data and grad)
-    float* data() { return data_ptr_; }
-    const float* data() const { return data_ptr_; }
+    // Pool-backed storage accessors (shared_ptr; views share data_storage_)
+    float* data() { return data_storage_ ? data_storage_.get() : nullptr; }
+    const float* data() const { return data_storage_ ? data_storage_.get() : nullptr; }
     size_t size() const { return data_size_; }
-    float* grad() { return grad_ptr_; }
-    const float* grad() const { return grad_ptr_; }
+    float* grad() { return grad_storage_ ? grad_storage_.get() : nullptr; }
+    const float* grad() const { return grad_storage_ ? grad_storage_.get() : nullptr; }
     size_t grad_size() const { return grad_size_; }
-    bool grad_empty() const { return grad_ptr_ == nullptr; }
+    bool grad_empty() const { return !grad_storage_; }
 
     Tensor();
     ~Tensor();
@@ -53,6 +53,10 @@ public:
     Tensor& operator=(const Tensor&) = delete;
     Tensor(const std::vector<size_t>& shape, bool requires_grad = false);
     Tensor(const std::vector<float>& data, const std::vector<size_t>& shape, bool requires_grad = false);
+
+    // View constructor: shares data_storage_, own grad. Used by reshape/squeeze/unsqueeze.
+    Tensor(std::shared_ptr<float> data_storage, size_t data_size,
+          const std::vector<size_t>& shape, bool requires_grad);
 
     static TensorPtr create(const std::vector<size_t>& shape, bool requires_grad = false);
     static TensorPtr create(const std::vector<float>& data, const std::vector<size_t>& shape, bool requires_grad = false);
@@ -142,9 +146,9 @@ private:
     void build_topo(std::vector<Tensor*>& topo, std::vector<Tensor*>& visited);
     bool should_track_grad() const;
 
-    float* data_ptr_;
+    std::shared_ptr<float> data_storage_;
     size_t data_size_;
-    float* grad_ptr_;
+    std::shared_ptr<float> grad_storage_;
     size_t grad_size_;
 };
 
