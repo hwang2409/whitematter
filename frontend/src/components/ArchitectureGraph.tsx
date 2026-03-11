@@ -7,52 +7,100 @@ import {
   Edge,
   Background,
   Controls,
-  MiniMap,
   useNodesState,
   useEdgesState,
+  type NodeProps,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
 import type { Architecture, ArchitectureLayer } from "@/api";
+import { themeTokens } from "@/theme";
 
-const NODE_HEIGHT = 44;
+const NODE_HEIGHT = 52;
 const SPACING = 56;
 
-function layerLabel(layer: ArchitectureLayer): string {
+function layerShortParams(layer: ArchitectureLayer): string {
   const { type, params } = layer;
   const p = params as Record<string, number>;
   switch (type) {
     case "conv2d":
-      return `Conv2d ${p.in_channels ?? "?"}→${p.out_channels ?? "?"}`;
+      return `${p.in_channels ?? "?"}→${p.out_channels ?? "?"}, k=${p.kernel_size ?? "?"}, s=${p.stride ?? "?"}, p=${p.padding ?? "?"}`;
     case "linear":
-      return `Linear ${p.in_features ?? "?"}→${p.out_features ?? "?"}`;
+      return `${p.in_features ?? "?"}→${p.out_features ?? "?"}`;
     case "lstm":
-      return `LSTM ${p.hidden_size ?? "?"}`;
+      return `hidden=${p.hidden_size ?? "?"}`;
     case "embedding":
-      return `Embed ${p.num_embeddings ?? "?"}×${p.embedding_dim ?? "?"}`;
+      return `${p.num_embeddings ?? "?"}×${p.embedding_dim ?? "?"}`;
     case "dropout":
-      return `Dropout ${p.p ?? "?"}`;
+      return `p=${p.p ?? "?"}`;
     case "batchnorm2d":
-      return `BatchNorm ${p.num_features ?? "?"}`;
+      return `features=${p.num_features ?? "?"}`;
     case "maxpool2d":
     case "avgpool2d":
-      return `${type} ${p.kernel_size ?? "?"}`;
+      return `k=${p.kernel_size ?? "?"}`;
     default:
-      return type;
+      return Object.entries(p)
+        .map(([k, v]) => `${k}=${v}`)
+        .slice(0, 3)
+        .join(", ") || "";
   }
 }
 
+type LayerNodeData = {
+  layerType: string;
+  paramsText: string;
+};
+
+function LayerNode({ data }: NodeProps<Node<LayerNodeData>>) {
+  return (
+    <Box
+      sx={{
+        minWidth: 140,
+        maxWidth: 200,
+        py: 1,
+        px: 1.25,
+        borderRadius: 1,
+        borderLeft: "3px solid",
+        borderLeftColor: themeTokens.accent,
+        bgcolor: themeTokens.surface,
+        transition: "opacity 0.25s ease-out",
+      }}
+    >
+      <Typography variant="body2" fontWeight={600} sx={{ display: "block", mb: 0.25 }}>
+        {data.layerType}
+      </Typography>
+      <Typography
+        variant="caption"
+        sx={{
+          color: "text.secondary",
+          fontFamily: '"JetBrains Mono", monospace',
+          fontSize: "0.6875rem",
+        }}
+      >
+        {data.paramsText}
+      </Typography>
+    </Box>
+  );
+}
+
+const nodeTypes = { layer: LayerNode };
+
 function architectureToFlow(architecture: Architecture | null): {
-  nodes: Node[];
+  nodes: Node<LayerNodeData>[];
   edges: Edge[];
 } {
   if (!architecture?.layers?.length) {
     return { nodes: [], edges: [] };
   }
-  const nodes: Node[] = architecture.layers.map((layer, i) => ({
+  const nodes: Node<LayerNodeData>[] = architecture.layers.map((layer, i) => ({
     id: `layer-${i}`,
-    type: "default",
+    type: "layer",
     position: { x: 0, y: i * (NODE_HEIGHT + SPACING) },
-    data: { label: layerLabel(layer) },
+    data: {
+      layerType: layer.type,
+      paramsText: layerShortParams(layer),
+    },
   }));
   const edges: Edge[] = [];
   for (let i = 0; i < nodes.length - 1; i++) {
@@ -60,6 +108,8 @@ function architectureToFlow(architecture: Architecture | null): {
       id: `e-${i}-${i + 1}`,
       source: `layer-${i}`,
       target: `layer-${i + 1}`,
+      style: { stroke: "rgba(126, 184, 255, 0.3)", strokeWidth: 1.5 },
+      type: "smoothstep",
     });
   }
   return { nodes, edges };
@@ -82,13 +132,35 @@ export default function ArchitectureGraph({ architecture }: Props) {
   const graphKey = `${architecture.name}-${architecture.layers.length}-${architecture.layers.map((l) => l.type).join(",")}`;
 
   return (
-    <div className="architecture-graph" style={{ height: 320, minHeight: 320 }}>
+    <Box
+      sx={{
+        height: 320,
+        minHeight: 320,
+        border: "1px solid",
+        borderColor: "divider",
+        borderRadius: 1,
+        bgcolor: "background.default",
+        overflow: "hidden",
+        "& .react-flow__controls": {
+          button: {
+            bgcolor: themeTokens.surface,
+            color: "text.secondary",
+            borderColor: "divider",
+            "&:hover": { bgcolor: "action.hover", color: "text.primary" },
+          },
+        },
+        "& .react-flow__background": {
+          patternColor: themeTokens.border,
+        },
+      }}
+    >
       <ReactFlow
         key={graphKey}
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        nodeTypes={nodeTypes}
         fitView
         fitViewOptions={{ padding: 0.2 }}
         minZoom={0.3}
@@ -96,11 +168,11 @@ export default function ArchitectureGraph({ architecture }: Props) {
         nodesDraggable
         nodesConnectable={false}
         elementsSelectable={false}
+        proOptions={{ hideAttribution: true }}
       >
-        <Background />
+        <Background color={themeTokens.border} gap={16} size={0.5} />
         <Controls showInteractive={false} />
-        <MiniMap nodeColor="#444" maskColor="rgba(0,0,0,0.6)" />
       </ReactFlow>
-    </div>
+    </Box>
   );
 }

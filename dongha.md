@@ -300,4 +300,17 @@ Existing views (Data, Train, Models, Predict, Settings) and `App.css` unchanged;
 
 ---
 
+## N. CI workflow (ci.yml)
+
+**Summary:** Added a GitHub Actions CI workflow that runs on every push and PR to `main`/`master`. It gives contributors a green/red signal and enables a README badge.
+
+### Changes
+
+- **.github/workflows/ci.yml**
+  - **cpp job:** Matrix on `ubuntu-latest` and `macos-latest`. On macOS, `brew install libomp`; then `make` and `make test`.
+  - **platform job:** Ubuntu, Python 3.11; install `pytest` and `platform/requirements.txt`; run `python -m pytest tests/ -v` in `platform/`.
+  - **frontend job:** Ubuntu, Node 20; `npm ci` and `npm run build` in `frontend/` (with npm cache).
+- **README.md**
+  - Added CI status badge linking to the workflow.
+
 *When you implement another plan, add a new numbered section above this line.*

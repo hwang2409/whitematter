@@ -760,7 +760,16 @@ export default function TrainTab({
       )}
 
       {mode === "custom" && (
-        <Box sx={{ mb: 2 }}>
+        <Box
+          sx={{
+            mb: 2,
+            display: training ? "block" : "grid",
+            gridTemplateColumns: "60% 1fr",
+            gap: 3,
+            alignItems: "start",
+          }}
+        >
+          <Box sx={{ minWidth: 0 }}>
           <FormControl fullWidth sx={{ mb: 1.5 }}>
             <InputLabel id="custom-dataset-label">Dataset</InputLabel>
             <Select
@@ -790,13 +799,23 @@ export default function TrainTab({
           <TextField
             fullWidth
             multiline
-            rows={4}
-            label="Describe Your Model"
-            placeholder="e.g., I want a CNN with good accuracy for image classification. Use batch normalization and dropout for regularization."
+            rows={3}
+            placeholder="Describe the model you want to build..."
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
             disabled={generating || training}
-            sx={{ mb: 1.5 }}
+            sx={{
+              mb: 1.5,
+              "& .MuiOutlinedInput-root": {
+                fontSize: "1rem",
+                fontFamily: '"JetBrains Mono", monospace',
+                bgcolor: "background.default",
+                "&.Mui-focused": {
+                  borderColor: "primary.main",
+                  "& .MuiOutlinedInput-notchedOutline": { borderColor: "primary.main", borderWidth: 2 },
+                },
+              },
+            }}
           />
 
           <Button
@@ -857,13 +876,6 @@ export default function TrainTab({
                   ))}
                 </Box>
               )}
-
-              <Typography variant="overline" sx={{ color: "text.secondary", display: "block", mb: 0.5 }}>
-                Architecture
-              </Typography>
-              <Box sx={{ mb: 1.5 }}>
-                <ArchitectureGraph architecture={architecture} />
-              </Box>
 
               <Typography variant="overline" sx={{ color: "text.secondary", display: "block", mb: 0.5 }}>
                 Layers ({architecture.layers.length})
@@ -1083,6 +1095,12 @@ export default function TrainTab({
                 )}
               </Box>
             </Paper>
+          )}
+          </Box>
+          {architecture && !training && (
+            <Box sx={{ position: "sticky", top: 24, minWidth: 0 }}>
+              <ArchitectureGraph architecture={architecture} />
+            </Box>
           )}
         </Box>
       )}

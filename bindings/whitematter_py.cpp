@@ -3,9 +3,62 @@
 #include <pybind11/numpy.h>
 #include "tensor.h"
 #include "layer.h"
+#include "loss.h"
+#include "optimizer.h"
 #include "serialize.h"
+#include <sstream>
 
 namespace py = pybind11;
+
+// --- Numpy <-> Tensor conversion helpers ---
+static TensorPtr tensor_from_numpy(py::array_t<float> arr, bool requires_grad = false) {
+    py::buffer_info buf = arr.request();
+    if (buf.ndim == 0) {
+        throw std::runtime_error("Tensor must have at least one dimension");
+    }
+    std::vector<size_t> shape;
+    for (py::ssize_t i = 0; i < buf.ndim; i++) {
+        shape.push_back(static_cast<size_t>(buf.shape[i]));
+    }
+    auto t = Tensor::create(shape, requires_grad);
+    const float* ptr = static_cast<const float*>(buf.ptr);
+    std::copy(ptr, ptr + t->size(), t->data());
+    return t;
+}
+
+static TensorPtr tensor_from_numpy_int_labels(py::array arr, bool requires_grad = false) {
+    py::buffer_info buf = arr.request();
+    if (buf.ndim != 1) {
+        throw std::runtime_error("Label array must be 1D");
+    }
+    size_t n = static_cast<size_t>(buf.shape[0]);
+    auto t = Tensor::create({n}, requires_grad);
+    float* out = t->data();
+    if (buf.format == py::format_descriptor<float>::format()) {
+        const float* ptr = static_cast<const float*>(buf.ptr);
+        std::copy(ptr, ptr + n, out);
+    } else if (buf.format == py::format_descriptor<int>::format() ||
+               buf.format == py::format_descriptor<int32_t>::format()) {
+        const int32_t* ptr = static_cast<const int32_t*>(buf.ptr);
+        for (size_t i = 0; i < n; i++) out[i] = static_cast<float>(ptr[i]);
+    } else if (buf.format == py::format_descriptor<int64_t>::format()) {
+        const int64_t* ptr = static_cast<const int64_t*>(buf.ptr);
+        for (size_t i = 0; i < n; i++) out[i] = static_cast<float>(ptr[i]);
+    } else {
+        throw std::runtime_error("Label array must be float, int32, or int64");
+    }
+    return t;
+}
+
+static py::array_t<float> tensor_to_numpy(const TensorPtr& t) {
+    std::vector<py::ssize_t> shape;
+    for (size_t d : t->shape) shape.push_back(static_cast<py::ssize_t>(d));
+    py::array_t<float> out(shape);
+    py::buffer_info buf = out.request();
+    float* ptr = static_cast<float*>(buf.ptr);
+    std::copy(t->data(), t->data() + t->size(), ptr);
+    return out;
+}
 
 // Build CIFAR-10 VGG-style model into a Sequential
 void build_cifar10_model(Sequential& model) {
