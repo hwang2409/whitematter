@@ -4,6 +4,25 @@
 #include <cstring>
 #include <sstream>
 
+// Local fp16 conversion (avoids pulling in amp.h/optimizer.h)
+static uint16_t float_to_half(float f) {
+    uint32_t x;
+    std::memcpy(&x, &f, sizeof(float));
+    uint32_t sign = (x >> 16) & 0x8000;
+    int32_t exponent = ((x >> 23) & 0xFF) - 127 + 15;
+    uint32_t mantissa = x & 0x7FFFFF;
+    if (exponent <= 0) {
+        if (exponent < -10) return sign;
+        mantissa = (mantissa | 0x800000) >> (1 - exponent);
+        return sign | (mantissa >> 13);
+    }
+    if (exponent >= 0xFF - 127 + 15) {
+        return sign | 0x7C00 | (mantissa ? (mantissa >> 13) : 0);
+    }
+    if (exponent > 30) return sign | 0x7C00;
+    return sign | (static_cast<uint32_t>(exponent) << 10) | (mantissa >> 13);
+}
+
 // =============================================================================
 // Protobuf wire format helpers (no protobuf dependency needed)
 // =============================================================================
@@ -87,19 +106,33 @@ public:
 enum ONNXDataType {
     ONNX_FLOAT = 1,
     ONNX_INT64 = 7,
+    ONNX_FLOAT16 = 10,
 };
 
-// Build TensorProto
+// Build TensorProto (fp32)
 ProtobufWriter build_tensor_proto(const std::string& name, const std::vector<int64_t>& dims,
                                    const float* data, size_t data_size) {
     ProtobufWriter tensor;
-    // dims (field 1, repeated int64)
     tensor.write_packed_int64(1, dims);
-    // data_type (field 2, int32) = FLOAT
     tensor.write_int64(2, ONNX_FLOAT);
-    // float_data (field 4, repeated float) - packed
     tensor.write_packed_floats(4, data, data_size);
-    // name (field 8, string)
+    tensor.write_string(8, name);
+    return tensor;
+}
+
+// Build TensorProto (fp16, for smaller export / edge deployment)
+ProtobufWriter build_tensor_proto_fp16(const std::string& name, const std::vector<int64_t>& dims,
+                                       const float* data, size_t data_size) {
+    ProtobufWriter tensor;
+    tensor.write_packed_int64(1, dims);
+    tensor.write_int64(2, ONNX_FLOAT16);
+    std::vector<uint8_t> raw(data_size * 2);
+    for (size_t i = 0; i < data_size; i++) {
+        uint16_t h = float_to_half(data[i]);
+        raw[i * 2] = static_cast<uint8_t>(h & 0xFF);
+        raw[i * 2 + 1] = static_cast<uint8_t>(h >> 8);
+    }
+    tensor.write_bytes(7, raw.data(), raw.size());  // raw_data (field 7)
     tensor.write_string(8, name);
     return tensor;
 }
@@ -211,6 +244,7 @@ struct ONNXContext {
     int node_counter = 0;
     int weight_counter = 0;
     bool verbose = false;
+    bool export_fp16 = false;
 
     std::string new_name(const std::string& prefix) {
         return prefix + "_" + std::to_string(node_counter++);
@@ -237,11 +271,17 @@ bool convert_linear(Linear* layer, ONNXContext& ctx) {
 
     // Add weight initializer [in_features, out_features]
     std::vector<int64_t> weight_dims = {static_cast<int64_t>(in_features), static_cast<int64_t>(out_features)};
-    ctx.initializers.push_back(build_tensor_proto(weight_name, weight_dims, W->data(), W->size()));
+    if (ctx.export_fp16)
+        ctx.initializers.push_back(build_tensor_proto_fp16(weight_name, weight_dims, W->data(), W->size()));
+    else
+        ctx.initializers.push_back(build_tensor_proto(weight_name, weight_dims, W->data(), W->size()));
 
     // Add bias initializer [out_features]
     std::vector<int64_t> bias_dims = {static_cast<int64_t>(out_features)};
-    ctx.initializers.push_back(build_tensor_proto(bias_name, bias_dims, b->data(), b->size()));
+    if (ctx.export_fp16)
+        ctx.initializers.push_back(build_tensor_proto_fp16(bias_name, bias_dims, b->data(), b->size()));
+    else
+        ctx.initializers.push_back(build_tensor_proto(bias_name, bias_dims, b->data(), b->size()));
 
     // Create Gemm node: Y = alpha * A @ B + beta * C
     // A = input [batch, in], B = weight [in, out], C = bias [out]
@@ -271,11 +311,17 @@ bool convert_conv2d(Conv2d* layer, ONNXContext& ctx) {
     // Weight shape: [out_channels, in_channels, kH, kW]
     std::vector<int64_t> weight_dims;
     for (auto d : W->shape) weight_dims.push_back(static_cast<int64_t>(d));
-    ctx.initializers.push_back(build_tensor_proto(weight_name, weight_dims, W->data(), W->size()));
+    if (ctx.export_fp16)
+        ctx.initializers.push_back(build_tensor_proto_fp16(weight_name, weight_dims, W->data(), W->size()));
+    else
+        ctx.initializers.push_back(build_tensor_proto(weight_name, weight_dims, W->data(), W->size()));
 
     // Bias shape: [out_channels]
     std::vector<int64_t> bias_dims = {static_cast<int64_t>(b->shape[0])};
-    ctx.initializers.push_back(build_tensor_proto(bias_name, bias_dims, b->data(), b->size()));
+    if (ctx.export_fp16)
+        ctx.initializers.push_back(build_tensor_proto_fp16(bias_name, bias_dims, b->data(), b->size()));
+    else
+        ctx.initializers.push_back(build_tensor_proto(bias_name, bias_dims, b->data(), b->size()));
 
     // Conv attributes
     std::vector<ProtobufWriter> attrs;
@@ -398,10 +444,17 @@ bool convert_batchnorm2d(BatchNorm2d* layer, ONNXContext& ctx) {
     int64_t num_features = static_cast<int64_t>(layer->num_features);
     std::vector<int64_t> dims = {num_features};
 
-    ctx.initializers.push_back(build_tensor_proto(scale_name, dims, layer->gamma->data(), layer->gamma->size()));
-    ctx.initializers.push_back(build_tensor_proto(bias_name, dims, layer->beta->data(), layer->beta->size()));
-    ctx.initializers.push_back(build_tensor_proto(mean_name, dims, layer->running_mean->data(), layer->running_mean->size()));
-    ctx.initializers.push_back(build_tensor_proto(var_name, dims, layer->running_var->data(), layer->running_var->size()));
+    if (ctx.export_fp16) {
+        ctx.initializers.push_back(build_tensor_proto_fp16(scale_name, dims, layer->gamma->data(), layer->gamma->size()));
+        ctx.initializers.push_back(build_tensor_proto_fp16(bias_name, dims, layer->beta->data(), layer->beta->size()));
+        ctx.initializers.push_back(build_tensor_proto_fp16(mean_name, dims, layer->running_mean->data(), layer->running_mean->size()));
+        ctx.initializers.push_back(build_tensor_proto_fp16(var_name, dims, layer->running_var->data(), layer->running_var->size()));
+    } else {
+        ctx.initializers.push_back(build_tensor_proto(scale_name, dims, layer->gamma->data(), layer->gamma->size()));
+        ctx.initializers.push_back(build_tensor_proto(bias_name, dims, layer->beta->data(), layer->beta->size()));
+        ctx.initializers.push_back(build_tensor_proto(mean_name, dims, layer->running_mean->data(), layer->running_mean->size()));
+        ctx.initializers.push_back(build_tensor_proto(var_name, dims, layer->running_var->data(), layer->running_var->size()));
+    }
 
     std::vector<ProtobufWriter> attrs;
     attrs.push_back(build_attr_float("epsilon", layer->eps));
@@ -436,6 +489,7 @@ bool export_onnx(Sequential* model, const std::string& filepath, const ONNXExpor
 
     ONNXContext ctx;
     ctx.verbose = options.verbose;
+    ctx.export_fp16 = options.export_fp16;
     ctx.current_input = "input";
 
     // Convert input shape to int64

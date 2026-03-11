@@ -1,5 +1,6 @@
 #include "test_framework.h"
 #include "../core/tensor.h"
+#include "../core/device.h"
 #include <cmath>
 
 // =============================================================================
@@ -544,6 +545,16 @@ TestSuite* create_tensor_tests() {
 
     // Operators
     suite->add_test("operators", test_tensor_operators);
+
+    // Device (CPU/Metal/CUDA auto-selection)
+    suite->add_test("device_auto_returns_valid", []() {
+        whitematter::Device d = whitematter::Device::auto_();
+        TEST_ASSERT(d.is_available());
+    });
+    suite->add_test("default_device_is_auto", []() {
+        whitematter::Device def = whitematter::Device::default_device();
+        TEST_ASSERT(def.is_available());
+    });
 
     return suite;
 }

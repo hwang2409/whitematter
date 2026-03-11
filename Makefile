@@ -39,10 +39,10 @@ CUDA ?= 0
 # Core library objects
 CORE_SRCS = $(CORE_DIR)/memory_pool.cpp $(CORE_DIR)/tensor.cpp $(CORE_DIR)/layer.cpp $(CORE_DIR)/loss.cpp \
             $(CORE_DIR)/optimizer.cpp $(CORE_DIR)/serialize.cpp $(CORE_DIR)/dataloader.cpp \
-            $(CORE_DIR)/model_zoo.cpp $(CORE_DIR)/onnx_export.cpp $(CORE_DIR)/device.cpp
+            $(CORE_DIR)/model_zoo.cpp $(CORE_DIR)/onnx_export.cpp $(CORE_DIR)/onnx_import.cpp $(CORE_DIR)/device.cpp
 CORE_OBJS = $(BUILD_DIR)/memory_pool.o $(BUILD_DIR)/tensor.o $(BUILD_DIR)/layer.o $(BUILD_DIR)/loss.o \
             $(BUILD_DIR)/optimizer.o $(BUILD_DIR)/serialize.o $(BUILD_DIR)/dataloader.o \
-            $(BUILD_DIR)/model_zoo.o $(BUILD_DIR)/onnx_export.o $(BUILD_DIR)/device.o
+            $(BUILD_DIR)/model_zoo.o $(BUILD_DIR)/onnx_export.o $(BUILD_DIR)/onnx_import.o $(BUILD_DIR)/device.o
 
 # Metal: use stub (returns false) unless METAL=1 on Darwin
 ifeq ($(METAL),1)
@@ -131,6 +131,9 @@ $(BUILD_DIR)/model_zoo.o: $(CORE_DIR)/model_zoo.cpp $(CORE_DIR)/model_zoo.h $(CO
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/onnx_export.o: $(CORE_DIR)/onnx_export.cpp $(CORE_DIR)/onnx_export.h $(CORE_DIR)/layer.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/onnx_import.o: $(CORE_DIR)/onnx_import.cpp $(CORE_DIR)/onnx_import.h $(CORE_DIR)/onnx_export.h $(CORE_DIR)/layer.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/device.o: $(CORE_DIR)/device.cpp $(CORE_DIR)/device.h | $(BUILD_DIR)

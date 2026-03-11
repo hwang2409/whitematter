@@ -1,7 +1,10 @@
 #include "test_framework.h"
 #include "../core/tensor.h"
 #include "../core/layer.h"
+#include "../core/onnx_export.h"
+#include "../core/onnx_import.h"
 #include <cmath>
+#include <cstdio>
 
 // =============================================================================
 // Linear Layer Tests
@@ -1067,6 +1070,34 @@ void test_format_number() {
 }
 
 // =============================================================================
+// ONNX round-trip (export then import, compare forward)
+// =============================================================================
+
+void test_onnx_roundtrip_linear_relu() {
+    Sequential original;
+    original.add(new Linear(4, 2));
+    original.add(new ReLU());
+    original.eval();
+
+    std::vector<size_t> input_shape = {1, 4};
+    const char* path = "/tmp/whitematter_onnx_roundtrip.onnx";
+    TEST_ASSERT(export_onnx(&original, path, input_shape));
+
+    std::unique_ptr<Sequential> loaded = load_onnx(path);
+    TEST_ASSERT(loaded != nullptr);
+    TEST_ASSERT(loaded->layers.size() == 2u);
+
+    auto input = Tensor::randn({1, 4});
+    TensorPtr out_orig = original.forward(input);
+    TensorPtr out_loaded = loaded->forward(input);
+    TEST_ASSERT(out_orig->shape == out_loaded->shape);
+    for (size_t i = 0; i < out_orig->size(); i++) {
+        TEST_ASSERT_NEAR(out_orig->data()[i], out_loaded->data()[i], 1e-5f);
+    }
+    std::remove(path);
+}
+
+// =============================================================================
 // Test Suite Registration
 // =============================================================================
 
@@ -1174,6 +1205,9 @@ TestSuite* create_layer_tests() {
     suite->add_test("count_parameters", test_count_parameters);
     suite->add_test("format_memory", test_format_memory);
     suite->add_test("format_number", test_format_number);
+
+    // ONNX round-trip
+    suite->add_test("onnx_roundtrip_linear_relu", test_onnx_roundtrip_linear_relu);
 
     return suite;
 }

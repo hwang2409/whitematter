@@ -218,4 +218,61 @@ This file records plans I implemented in the whitematter project. Add new entrie
 
 ---
 
+## 9. One-Click Deploy to API (2026-03-11)
+
+**Summary:** Added a “Deploy to API” flow so completed custom image models can be deployed to a small EC2 instance with their own inference URL. Users with AWS credentials can click “Deploy to API” on the Models page, choose a region, and get a live endpoint (e.g. `http://<ec2-ip>:8080/predict`) after the instance boots and fetches artifacts from the platform.
+
+### Backend
+
+- **DB:** New `deployments` table and `Deployment` / `DeploymentStatus` in `db.auth_models`; Alembic migration `e6a1b2c3d4e5_add_deployments_table.py`.
+- **Deploy package (`platform/deploy/`):**
+  - `inference_user_data.py`: Generates EC2 user-data that installs Python/Flask, fetches artifact tarball from platform (one-time token), runs inference server, and calls platform callback with endpoint URL.
+  - `server_py_content.py`: Generates the Flask `server.py` used on the instance (image preprocessing + subprocess `infer`).
+  - `provisioner.py`: `InferenceProvisioner` launches t3.micro Ubuntu instances with the inference user-data and terminates them (uses user’s AWS credentials like BYOC).
+- **Deployment service (`services/deployment_service.py`):** Builds artifact tarball (model.bin, infer, config.json, server.py) from blob or disk; creates deployment with one-time token; serves `GET /deploy/artifacts/{id}?token=...`; handles `POST /deploy/callback` to set deployment to LIVE with endpoint_url and consume token.
+- **Routes (`routes/deploy.py`):** `POST /deploy` (create, requires JWT + AWS creds), `GET /deploy/deployments`, `GET /deploy/deployments/{id}`, `DELETE /deploy/deployments/{id}`, `GET /deploy/artifacts/{id}`, `POST /deploy/callback`. Deploy router mounted in `server.py`.
+
+### Frontend
+
+- **Deploy service (`services/deploy.ts`):** `createDeployment`, `getDeployment`, `listDeployments`, `terminateDeployment` (all with auth token).
+- **Models tab:** “Deploy to API” section for completed non-text models; button opens a modal that lists live deployments (with Copy URL and Undeploy), or shows region select + “Deploy to EC2”; polls deployment status until live or failed; toasts and modal styling in `App.css`.
+
+### Notes
+
+- Only custom image models are supported (config from dataset; infer + model from blob or `GENERATED_DIR`/`MODELS_DIR`).
+- Platform must be reachable from EC2 for artifact fetch and callback (`PLATFORM_PUBLIC_URL` or request body `platform_url`).
+- Ubuntu 22.04 AMI IDs in the provisioner are placeholders; update per region if needed.
+
+---
+
+## 10. Credibility Layer: Device::auto(), ONNX Import, FP16 Export (2026-03-11)
+
+**Summary:** Implemented the “Credibility” layer so the C++ core is not “just another wrapper”: (1) **Metal/CUDA auto-detection** via `Device::auto_()` and `Device::default_device()`; (2) **ONNX import** so users can load ONNX models into the high-performance core; (3) **Float16 path** via optional FP16 ONNX export and README guidance for edge inference.
+
+### Changes
+
+- **Device (`core/device.h`, `core/device.cpp`)**
+  - Added `Device::auto_()`: selects Metal on macOS (if built with `METAL=1`), else CUDA (if built with `CUDA=1`), else CPU. Uses existing `metal_backend_available()` / `cuda_backend_available()`.
+  - `Device::default_device()` now returns `auto_()` instead of always CPU.
+
+- **ONNX import (`core/onnx_import.h`, `core/onnx_import.cpp`)**
+  - Protobuf wire-format reader (no protobuf dependency), parses ModelProto → GraphProto → nodes and initializers.
+  - `load_onnx(filepath)` returns `std::unique_ptr<Sequential>`; supports Gemm, Conv, Relu, Sigmoid, Tanh, Softmax, Flatten, MaxPool, AveragePool, BatchNormalization, Identity (same set as export).
+  - `load_onnx_input_shape(filepath, out_shape)` for optional input shape.
+  - Makefile: added `onnx_import.o` to core objects and build rule.
+
+- **ONNX export FP16 (`core/onnx_export.h`, `core/onnx_export.cpp`)**
+  - `ONNXExportOptions::export_fp16`: when true, initializers are written as Float16 (TensorProto raw_data, type FLOAT16) for smaller, edge-friendly files. Local `float_to_half` in onnx_export.cpp to avoid pulling in `amp.h`/optimizer.
+
+- **Tests**
+  - Tensor suite: `device_auto_returns_valid`, `default_device_is_auto`.
+  - Layers suite: `onnx_roundtrip_linear_relu` (export → import → forward, compare outputs).
+
+- **README**
+  - Documented Device auto-selection, ONNX import/export and `export_fp16`, and HalfTensor/amp.h for inference.
+
+### Verification
+
+- `make test`: 187 passed (184 + 3 new).
+
 *When you implement another plan, add a new numbered section above this line.*
