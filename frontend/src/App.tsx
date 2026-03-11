@@ -5,6 +5,9 @@ import TrainTab from './components/TrainTab';
 import DesignHelper from './components/DesignHelper';
 import ModelsTab from './components/ModelsTab';
 import PredictTab from './components/PredictTab';
+import { useAuth } from './context/AuthContext';
+import LoginPage from './pages/LoginPage';
+import RegisterPage from './pages/RegisterPage';
 import { getCustomDatasets, getModels } from './api';
 import type { CustomDataset, Model, Architecture } from './api';
 import './App.css';
@@ -22,6 +25,7 @@ interface ChatMessage {
 }
 
 function App() {
+  const { user, loading, logout } = useAuth();
   const [activeStep, setActiveStep] = useState<Step>('data');
   const [datasets, setDatasets] = useState<CustomDataset[]>([]);
   const [models, setModels] = useState<Model[]>([]);
@@ -30,6 +34,8 @@ function App() {
   const [designHelperOpen, setDesignHelperOpen] = useState(false);
   const [designHelperContext, setDesignHelperContext] = useState<DesignHelperContext>({});
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+
+  const isRegister = typeof window !== 'undefined' && window.location.hash === '#register';
 
   useEffect(() => {
     loadData();
@@ -74,11 +80,30 @@ function App() {
     }
   }, [activeStep]);
 
+  if (loading) {
+    return (
+      <div className="app" style={{ alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
+        <p>Loading…</p>
+      </div>
+    );
+  }
+  if (!user) {
+    return (
+      <ErrorBoundary>
+        {isRegister ? <RegisterPage /> : <LoginPage />}
+      </ErrorBoundary>
+    );
+  }
+
   return (
     <ErrorBoundary>
     <div className={`app ${designHelperOpen ? 'with-sidebar' : ''}`}>
       <header className="header">
         <h1>whitematter</h1>
+        <div className="header-actions">
+          <span className="header-email">{user.email}</span>
+          <button type="button" className="header-logout" onClick={logout}>Log out</button>
+        </div>
       </header>
 
       {/* Workflow Navigation */}
