@@ -2,6 +2,7 @@
 #define LAYER_H
 
 #include "tensor.h"
+#include <memory>
 #include <vector>
 #include <initializer_list>
 
@@ -316,11 +317,16 @@ public:
 
 class Sequential : public Module {
 public:
-    std::vector<Module*> layers;
+    std::vector<std::unique_ptr<Module>> layers;
 
     Sequential() = default;
     Sequential(std::initializer_list<Module*> modules);
-    ~Sequential();
+    ~Sequential() = default;
+
+    Sequential(Sequential&&) = default;
+    Sequential& operator=(Sequential&&) = default;
+    Sequential(const Sequential&) = delete;
+    Sequential& operator=(const Sequential&) = delete;
 
     void add(Module* module);
     TensorPtr forward(const TensorPtr& input) override;

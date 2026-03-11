@@ -73,19 +73,13 @@ TensorPtr Dropout::forward(const TensorPtr& input) {
 }
 
 Sequential::Sequential(std::initializer_list<Module*> modules) {
-    for (auto m : modules) {
-        layers.push_back(m);
-    }
-}
-
-Sequential::~Sequential() {
-    for (auto m : layers) {
-        delete m;
+    for (Module* m : modules) {
+        layers.push_back(std::unique_ptr<Module>(m));
     }
 }
 
 void Sequential::add(Module* module) {
-    layers.push_back(module);
+    layers.push_back(std::unique_ptr<Module>(module));
 }
 
 TensorPtr Sequential::forward(const TensorPtr& input) {
@@ -107,9 +101,10 @@ std::vector<TensorPtr> Sequential::parameters() {
 
 void Sequential::train() {
     for (auto& layer : layers) {
-        if (auto dropout = dynamic_cast<Dropout*>(layer)) {
+        Module* m = layer.get();
+        if (auto dropout = dynamic_cast<Dropout*>(m)) {
             dropout->train();
-        } else if (auto bn = dynamic_cast<BatchNorm2d*>(layer)) {
+        } else if (auto bn = dynamic_cast<BatchNorm2d*>(m)) {
             bn->train();
         }
     }
@@ -117,9 +112,10 @@ void Sequential::train() {
 
 void Sequential::eval() {
     for (auto& layer : layers) {
-        if (auto dropout = dynamic_cast<Dropout*>(layer)) {
+        Module* m = layer.get();
+        if (auto dropout = dynamic_cast<Dropout*>(m)) {
             dropout->eval();
-        } else if (auto bn = dynamic_cast<BatchNorm2d*>(layer)) {
+        } else if (auto bn = dynamic_cast<BatchNorm2d*>(m)) {
             bn->eval();
         }
     }
@@ -1691,7 +1687,7 @@ void Sequential::summary(const std::vector<size_t>& input_shape) const {
     bool tracking_shapes = !input_shape.empty();
 
     for (size_t i = 0; i < layers.size(); i++) {
-        Module* layer = layers[i];
+        Module* layer = layers[i].get();
         size_t layer_params = layer->num_parameters();
         size_t layer_trainable = layer->num_trainable_parameters();
 

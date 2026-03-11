@@ -30,13 +30,29 @@ CXXFLAGS = -std=c++17 -O3 -Wall -Wextra $(SIMD_FLAGS) -ffast-math -funroll-loops
 CXXFLAGS += -I$(CORE_DIR) -I$(DATASETS_DIR)
 LDFLAGS = $(OPENMP_LIBS)
 
+# Metal backend: METAL=1 on macOS enables Metal; default is CPU-only (Linux-friendly)
+METAL ?= 0
+
 # Core library objects
 CORE_SRCS = $(CORE_DIR)/memory_pool.cpp $(CORE_DIR)/tensor.cpp $(CORE_DIR)/layer.cpp $(CORE_DIR)/loss.cpp \
             $(CORE_DIR)/optimizer.cpp $(CORE_DIR)/serialize.cpp $(CORE_DIR)/dataloader.cpp \
-            $(CORE_DIR)/model_zoo.cpp $(CORE_DIR)/onnx_export.cpp
+            $(CORE_DIR)/model_zoo.cpp $(CORE_DIR)/onnx_export.cpp $(CORE_DIR)/device.cpp
 CORE_OBJS = $(BUILD_DIR)/memory_pool.o $(BUILD_DIR)/tensor.o $(BUILD_DIR)/layer.o $(BUILD_DIR)/loss.o \
             $(BUILD_DIR)/optimizer.o $(BUILD_DIR)/serialize.o $(BUILD_DIR)/dataloader.o \
-            $(BUILD_DIR)/model_zoo.o $(BUILD_DIR)/onnx_export.o
+            $(BUILD_DIR)/model_zoo.o $(BUILD_DIR)/onnx_export.o $(BUILD_DIR)/device.o
+
+# Metal: use stub (returns false) unless METAL=1 on Darwin
+ifeq ($(METAL),1)
+  ifeq ($(UNAME_S),Darwin)
+    CORE_OBJS += $(BUILD_DIR)/metal_backend.o
+    CXXFLAGS += -DWHITEMATTER_METAL
+    LDFLAGS += -framework Metal -framework Foundation
+  else
+    CORE_OBJS += $(BUILD_DIR)/metal_stub.o
+  endif
+else
+  CORE_OBJS += $(BUILD_DIR)/metal_stub.o
+endif
 
 # Dataset objects
 DATASET_SRCS = $(DATASETS_DIR)/mnist.cpp $(DATASETS_DIR)/cifar10.cpp
@@ -99,6 +115,15 @@ $(BUILD_DIR)/model_zoo.o: $(CORE_DIR)/model_zoo.cpp $(CORE_DIR)/model_zoo.h $(CO
 
 $(BUILD_DIR)/onnx_export.o: $(CORE_DIR)/onnx_export.cpp $(CORE_DIR)/onnx_export.h $(CORE_DIR)/layer.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/device.o: $(CORE_DIR)/device.cpp $(CORE_DIR)/device.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/metal_stub.o: $(CORE_DIR)/metal/metal_stub.cpp $(CORE_DIR)/device.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/metal_backend.o: $(CORE_DIR)/metal/metal_backend.mm $(CORE_DIR)/metal/metal_backend.h $(CORE_DIR)/device.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -I$(CORE_DIR)/metal -c -o $@ $<
 
 # Dataset compilation
 $(BUILD_DIR)/mnist.o: $(DATASETS_DIR)/mnist.cpp $(DATASETS_DIR)/mnist.h $(CORE_DIR)/tensor.h | $(BUILD_DIR)

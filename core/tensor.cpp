@@ -1,5 +1,9 @@
 #include "tensor.h"
 #include "memory_pool.h"
+#include "device.h"
+#if defined(WHITEMATTER_METAL) && defined(__APPLE__)
+#include "metal/metal_backend.h"
+#endif
 #include <algorithm>
 #include <numeric>
 #include <stdexcept>
@@ -485,6 +489,17 @@ TensorPtr Tensor::randn(const std::vector<size_t>& shape, bool requires_grad) {
     return t;
 }
 
+TensorPtr Tensor::to(whitematter::DeviceType d) const {
+    if (d == device) return const_cast<Tensor*>(this)->shared_from_this();
+    auto out = create(shape, requires_grad);
+    out->device = d;
+    std::memcpy(out->data(), data(), size() * sizeof(float));
+    if (!grad_empty() && out->grad()) {
+        std::memcpy(out->grad(), grad(), grad_size_ * sizeof(float));
+    }
+    return out;
+}
+
 TensorPtr Tensor::xavier(size_t fan_in, size_t fan_out, bool requires_grad) {
     auto t = create({fan_in, fan_out}, requires_grad);
     float std_val = std::sqrt(2.0f / (fan_in + fan_out));
@@ -830,6 +845,42 @@ TensorPtr Tensor::matmul(const TensorPtr& other) const {
     size_t m = shape[0], k = shape[1], n = other->shape[1];
     bool track = (requires_grad || other->requires_grad) && GradMode::is_enabled();
     auto result = create({m, n}, track);
+    result->device = device;  // result on same device as primary input
+
+#if defined(WHITEMATTER_METAL) && defined(__APPLE__)
+    if (device == whitematter::DeviceType::METAL && other->device == whitematter::DeviceType::METAL &&
+        whitematter::metal_backend_available()) {
+        whitematter::MetalBackend::instance().matmul(data(), other->data(), result->data(),
+            static_cast<int>(m), static_cast<int>(n), static_cast<int>(k));
+        if (track) {
+            auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
+            auto other_ptr = other;
+            result->parents = {self_ptr, other_ptr};
+            result->grad_fn = [self_ptr, other_ptr, result, m, k, n]() {
+                if (self_ptr->requires_grad) {
+                    for (size_t i = 0; i < m; i++) {
+                        for (size_t l = 0; l < k; l++) {
+                            self_ptr->grad()[i * k + l] += simd_dot(
+                                &result->grad()[i * n], &other_ptr->data()[l * n], n);
+                        }
+                    }
+                }
+                if (other_ptr->requires_grad) {
+                    for (size_t l = 0; l < k; l++) {
+                        for (size_t j = 0; j < n; j++) {
+                            float sum = 0.0f;
+                            for (size_t i = 0; i < m; i++) {
+                                sum += self_ptr->data()[i * k + l] * result->grad()[i * n + j];
+                            }
+                            other_ptr->grad()[l * n + j] += sum;
+                        }
+                    }
+                }
+            };
+        }
+        return result;
+    }
+#endif
 
     matmul_blocked(result->data(), data(), other->data(), m, k, n);
 
