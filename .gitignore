@@ -19,6 +19,10 @@ platform/models/*.json
 
 # Personal / internal tooling (purged from history; keep local only)
 dongha.md
+
+# Alembic / SQLite (generated; do not commit)
+platform/alembic_default.db
+**/alembic*.db
 .beads/
 mayor/
 deacon/
