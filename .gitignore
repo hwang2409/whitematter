@@ -101,4 +101,4 @@ node_modules/
 # and keeps issues.jsonl, metadata.json, config file as source of truth
 .env
 
-.next/
+frontend/.next/
