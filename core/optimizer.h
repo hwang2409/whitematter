@@ -256,9 +256,22 @@ public:
     // patience: epochs to wait after last improvement before stopping
     // min_delta: minimum change to qualify as improvement
     // mode_min: true = lower is better (loss), false = higher is better (accuracy)
-    // baseline: initial best value (optional, uses first metric if not set)
-    EarlyStopping(int patience = 10, float min_delta = 0.0f, bool mode_min = true,
-                  float baseline = std::numeric_limits<float>::quiet_NaN())
+    // baseline: optional; if not provided, first step() sets best from first metric
+    EarlyStopping(int patience = 10, float min_delta = 0.0f, bool mode_min = true)
+        : patience_(patience),
+          min_delta_(min_delta),
+          mode_min_(mode_min),
+          counter_(0),
+          best_(0.0f),
+          best_epoch_(-1),
+          stopped_epoch_(-1),
+          should_stop_(false),
+          first_step_(true) {
+        if (!mode_min_) {
+            min_delta_ = -min_delta_;
+        }
+    }
+    EarlyStopping(int patience, float min_delta, bool mode_min, float baseline)
         : patience_(patience),
           min_delta_(min_delta),
           mode_min_(mode_min),
@@ -267,8 +280,7 @@ public:
           best_epoch_(-1),
           stopped_epoch_(-1),
           should_stop_(false),
-          first_step_(std::isnan(baseline)) {
-        // Adjust min_delta sign based on mode
+          first_step_(false) {
         if (!mode_min_) {
             min_delta_ = -min_delta_;
         }
