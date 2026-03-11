@@ -2,37 +2,49 @@
 
 import { createTheme } from "@mui/material/styles";
 
-// Minimal, friendly, Apple-inspired dark theme: clean typography, generous spacing, subtle radius
+// Accent: cool blue-white (neural pathways / whitematter). Single accent for all interactive elements and data viz.
+const ACCENT = "#7EB8FF";
+const ACCENT_LIGHT = "rgba(126, 184, 255, 0.15)";
+const ACCENT_MUTED = "rgba(126, 184, 255, 0.5)";
+const BG = "#0a0a0a";
+const SURFACE = "#1a1a1a";
+const BORDER = "rgba(255,255,255,0.08)";
+
 export const theme = createTheme({
   palette: {
     mode: "dark",
     primary: {
-      main: "#ffffff",
-      light: "#f5f5f5",
-      dark: "#e0e0e0",
+      main: ACCENT,
+      light: "#9ecaff",
+      dark: "#5a9ae8",
+      contrastText: "#0a0a0a",
+    },
+    secondary: {
+      main: "rgba(255,255,255,0.6)",
+      light: "rgba(255,255,255,0.8)",
+      dark: "rgba(255,255,255,0.4)",
     },
     background: {
-      default: "#0a0a0a",
-      paper: "#141414",
+      default: BG,
+      paper: SURFACE,
     },
     text: {
-      primary: "#fafafa",
+      primary: "#ffffff",
       secondary: "#a3a3a3",
       disabled: "#525252",
     },
-    divider: "rgba(255,255,255,0.08)",
+    divider: BORDER,
     error: { main: "#ef4444" },
     success: { main: "#22c55e" },
     warning: { main: "#eab308" },
   },
   shape: {
-    borderRadius: 12,
+    borderRadius: 8,
   },
   typography: {
     fontFamily: [
       "-apple-system",
       "BlinkMacSystemFont",
-      '"SF Pro Text"',
       '"Segoe UI"',
       "Roboto",
       "sans-serif",
@@ -77,9 +89,10 @@ export const theme = createTheme({
     MuiButton: {
       styleOverrides: {
         root: {
-          borderRadius: 10,
+          borderRadius: 8,
           padding: "10px 20px",
           fontSize: "0.9375rem",
+          transition: "all 0.2s ease-out",
         },
         contained: {
           boxShadow: "none",
@@ -88,9 +101,10 @@ export const theme = createTheme({
           },
         },
         outlined: {
-          borderWidth: 1,
+          borderColor: BORDER,
           "&:hover": {
-            borderWidth: 1,
+            borderColor: ACCENT_MUTED,
+            backgroundColor: ACCENT_LIGHT,
           },
         },
       },
@@ -103,20 +117,21 @@ export const theme = createTheme({
       styleOverrides: {
         root: {
           "& .MuiOutlinedInput-root": {
-            borderRadius: 10,
+            borderRadius: 8,
             backgroundColor: "rgba(255,255,255,0.04)",
+            fontFamily: 'inherit',
             "&:hover .MuiOutlinedInput-notchedOutline": {
               borderColor: "rgba(255,255,255,0.2)",
             },
             "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
-              borderColor: "rgba(255,255,255,0.5)",
+              borderColor: ACCENT,
               borderWidth: 1,
             },
             "&.Mui-focused": {
-              backgroundColor: "rgba(255,255,255,0.06)",
+              backgroundColor: "rgba(126,184,255,0.06)",
             },
             "& fieldset": {
-              borderColor: "rgba(255,255,255,0.12)",
+              borderColor: BORDER,
             },
           },
         },
@@ -126,8 +141,56 @@ export const theme = createTheme({
       styleOverrides: {
         root: {
           backgroundImage: "none",
-          borderRadius: 12,
-          border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: 8,
+          border: `1px solid ${BORDER}`,
+          backgroundColor: SURFACE,
+        },
+      },
+    },
+    MuiCard: {
+      styleOverrides: {
+        root: {
+          borderRadius: 8,
+          border: `1px solid ${BORDER}`,
+          backgroundColor: SURFACE,
+          transition: "border-color 0.2s ease-out, box-shadow 0.2s ease-out",
+          "&:hover": {
+            borderColor: ACCENT_MUTED,
+          },
+        },
+      },
+    },
+    MuiChip: {
+      styleOverrides: {
+        root: {
+          borderRadius: 6,
+          border: `1px solid ${BORDER}`,
+          backgroundColor: "rgba(255,255,255,0.04)",
+          fontFamily: '"JetBrains Mono", monospace',
+          fontSize: "0.75rem",
+          "&.MuiChip-filled": {
+            backgroundColor: ACCENT_LIGHT,
+            borderColor: ACCENT_MUTED,
+            color: ACCENT,
+          },
+        },
+      },
+    },
+    MuiTable: {
+      styleOverrides: {
+        root: {
+          "& .MuiTableCell-head": {
+            color: "rgba(255,255,255,0.5)",
+            fontSize: "0.625rem",
+            textTransform: "uppercase",
+            letterSpacing: "0.08em",
+            borderBottom: `1px solid ${BORDER}`,
+          },
+          "& .MuiTableCell-body": {
+            borderBottom: `1px solid ${BORDER}`,
+            fontFamily: '"JetBrains Mono", monospace',
+            fontSize: "0.8125rem",
+          },
         },
       },
     },
@@ -135,7 +198,7 @@ export const theme = createTheme({
       styleOverrides: {
         root: {
           backgroundImage: "none",
-          borderBottom: "1px solid rgba(255,255,255,0.08)",
+          borderBottom: `1px solid ${BORDER}`,
         },
       },
     },
@@ -151,6 +214,7 @@ export const theme = createTheme({
     MuiLink: {
       styleOverrides: {
         root: {
+          color: ACCENT,
           textDecoration: "none",
           "&:hover": {
             textDecoration: "underline",
@@ -161,17 +225,19 @@ export const theme = createTheme({
     MuiAlert: {
       styleOverrides: {
         root: {
-          borderRadius: 10,
-        },
-      },
-    },
-    MuiCard: {
-      styleOverrides: {
-        root: {
-          borderRadius: 12,
-          border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: 8,
         },
       },
     },
   },
 });
+
+// Export tokens for use in sx and custom components
+export const themeTokens = {
+  accent: ACCENT,
+  accentLight: ACCENT_LIGHT,
+  accentMuted: ACCENT_MUTED,
+  bg: BG,
+  surface: SURFACE,
+  border: BORDER,
+};

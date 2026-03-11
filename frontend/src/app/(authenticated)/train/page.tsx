@@ -4,6 +4,10 @@ import TrainTab from "@/components/TrainTab";
 import DesignHelper from "@/components/DesignHelper";
 import { getCustomDatasets, getModels } from "@/api";
 import type { CustomDataset, Architecture } from "@/api";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import Button from "@mui/material/Button";
+import Paper from "@mui/material/Paper";
 
 export default function TrainRoute() {
   const [datasets, setDatasets] = useState<CustomDataset[]>([]);
@@ -31,9 +35,9 @@ export default function TrainRoute() {
   const readyDatasets = datasets.filter((d) => d.status === "ready");
 
   return (
-    <div className={designHelperOpen ? "app with-sidebar" : ""} style={{ maxWidth: "100%", padding: 0 }}>
-      <div className="app-body" style={{ width: "100%" }}>
-        <main className="content">
+    <Box sx={{ width: "100%", maxWidth: "100%", p: 0 }}>
+      <Box sx={{ display: "flex", gap: 2, alignItems: "flex-start", width: "100%" }}>
+        <Box component="main" sx={{ flex: 1, minWidth: 0 }}>
           <TrainTab
             datasets={readyDatasets}
             selectedDataset={selectedDataset}
@@ -43,26 +47,59 @@ export default function TrainRoute() {
             onHelperToggle={setDesignHelperOpen}
             onHelperContextChange={setDesignHelperContext}
           />
-        </main>
+        </Box>
         {designHelperOpen && (
-          <aside className="app-sidebar">
-            <div className="sidebar-header">
-              <h3>AI Design Assistant</h3>
-              <button className="sidebar-close" onClick={() => setDesignHelperOpen(false)}>
-                &times;
-              </button>
-            </div>
-            <div className="sidebar-body">
+          <Paper
+            variant="outlined"
+            sx={{
+              width: 450,
+              flexShrink: 0,
+              borderColor: "divider",
+              display: "flex",
+              flexDirection: "column",
+              position: "sticky",
+              top: 24,
+              overflow: "hidden",
+            }}
+          >
+            <Box
+              sx={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                p: 1.25,
+                borderBottom: "1px solid",
+                borderColor: "divider",
+                bgcolor: "background.paper",
+              }}
+            >
+              <Typography variant="subtitle1" fontWeight={600}>
+                AI Design Assistant
+              </Typography>
+              <Button
+                size="small"
+                onClick={() => setDesignHelperOpen(false)}
+                sx={{
+                  minWidth: 28,
+                  height: 28,
+                  color: "text.secondary",
+                  "&:hover": { bgcolor: "action.hover", color: "text.primary" },
+                }}
+              >
+                ×
+              </Button>
+            </Box>
+            <Box sx={{ display: "flex", flexDirection: "column", overflow: "hidden", flex: 1 }}>
               <DesignHelper
                 datasetType={designHelperContext.datasetType}
                 currentArchitecture={designHelperContext.architecture}
                 messages={chatMessages}
                 onMessagesChange={setChatMessages}
               />
-            </div>
-          </aside>
+            </Box>
+          </Paper>
         )}
-      </div>
-    </div>
+      </Box>
+    </Box>
   );
 }

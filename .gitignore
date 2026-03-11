@@ -1,5 +1,6 @@
 # Build artifacts
 build/
+build_cmake/
 *.o
 
 # Data (large; do not commit; .gitkeep keeps dir for scripts)
@@ -30,15 +31,18 @@ pretrained/*.bin
 __pycache__/
 *.pyc
 *.egg-info/
+dist/
+*.whl
 *.so
 
 # Uploads and generated code
 uploads/
 generated/
 
-# IDE
+# IDE / editor / tooling
 .vscode/
 .idea/
+.claude/
 
 # Node
 node_modules/

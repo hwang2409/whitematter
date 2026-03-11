@@ -1,10 +1,29 @@
 "use client";
-import { useState, useEffect, useCallback } from 'react';
-import * as api from '@/api';
-import { useAuth } from '@/context/AuthContext';
-import * as deployService from '@/services/deploy';
-import ConfirmDialog from './ConfirmDialog';
-import Toast, { useToast } from './Toast';
+import { useState, useEffect, useCallback } from "react";
+import * as api from "@/api";
+import { useAuth } from "@/context/AuthContext";
+import * as deployService from "@/services/deploy";
+import ConfirmDialog from "./ConfirmDialog";
+import Toast, { useToast } from "./Toast";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import Button from "@mui/material/Button";
+import Paper from "@mui/material/Paper";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
+import TextField from "@mui/material/TextField";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import FormControl from "@mui/material/FormControl";
+import InputLabel from "@mui/material/InputLabel";
+import Select from "@mui/material/Select";
+import MenuItem from "@mui/material/MenuItem";
+import Chip from "@mui/material/Chip";
+import Slider from "@mui/material/Slider";
 
 interface Props {
   onModelSelect?: (id: string | null) => void;
@@ -13,40 +32,48 @@ interface Props {
 
 const DEPLOY_POLL_INTERVAL_MS = 3000;
 
+function getStatusColor(status: string): "success" | "error" | "default" | "warning" {
+  switch (status) {
+    case "completed":
+      return "success";
+    case "running":
+      return "warning";
+    case "failed":
+      return "error";
+    case "cancelled":
+      return "default";
+    default:
+      return "default";
+  }
+}
+
 export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
   const { token } = useAuth();
   const [models, setModels] = useState<api.Model[]>([]);
   const [selectedModel, setSelectedModel] = useState<api.Model | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
 
-  // Text generation state
-  const [prompt, setPrompt] = useState('');
-  const [generatedText, setGeneratedText] = useState('');
+  const [prompt, setPrompt] = useState("");
+  const [generatedText, setGeneratedText] = useState("");
   const [generating, setGenerating] = useState(false);
   const [temperature, setTemperature] = useState(0.8);
   const [maxTokens, setMaxTokens] = useState(100);
 
-  // Confirm dialog state
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
-
-  // Deploy to API state
   const [deployModalOpen, setDeployModalOpen] = useState(false);
-  const [deployRegion, setDeployRegion] = useState('us-east-1');
+  const [deployRegion, setDeployRegion] = useState("us-east-1");
   const [deploying, setDeploying] = useState(false);
   const [deploymentPollId, setDeploymentPollId] = useState<string | null>(null);
   const [deployments, setDeployments] = useState<deployService.Deployment[]>([]);
-  const [deployError, setDeployError] = useState('');
-
-  // Toast notifications
+  const [deployError, setDeployError] = useState("");
   const toast = useToast();
 
   useEffect(() => {
     loadModels();
   }, []);
 
-  // Load deployments when deploy modal opens for selected model
   const loadDeployments = useCallback(async () => {
     if (!token || !selectedModel) return;
     try {
@@ -60,11 +87,10 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
   useEffect(() => {
     if (deployModalOpen && selectedModel && token) {
       loadDeployments();
-      setDeployError('');
+      setDeployError("");
     }
   }, [deployModalOpen, selectedModel?.id, token, loadDeployments]);
 
-  // Poll deployment status until live or failed
   useEffect(() => {
     if (!deploymentPollId || !token) return;
     const t = setInterval(async () => {
@@ -72,14 +98,13 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
         const d = await deployService.getDeployment(token, deploymentPollId);
         setDeployments((prev) => {
           const idx = prev.findIndex((x) => x.id === d.id);
-          const next = idx >= 0 ? [...prev.slice(0, idx), d, ...prev.slice(idx + 1)] : [d, ...prev];
-          return next;
+          return idx >= 0 ? [...prev.slice(0, idx), d, ...prev.slice(idx + 1)] : [d, ...prev];
         });
-        if (d.status === 'live' || d.status === 'failed') {
+        if (d.status === "live" || d.status === "failed") {
           setDeploymentPollId(null);
           setDeploying(false);
-          if (d.status === 'live') toast.success('Deployment live! Your API is ready.');
-          if (d.status === 'failed') toast.error(d.error_message || 'Deployment failed.');
+          if (d.status === "live") toast.success("Deployment live! Your API is ready.");
+          if (d.status === "failed") toast.error(d.error_message || "Deployment failed.");
         }
       } catch {
         setDeploymentPollId(null);
@@ -92,17 +117,31 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
   async function handleDeployStart() {
     if (!token || !selectedModel) return;
     setDeploying(true);
-    setDeployError('');
+    setDeployError("");
     try {
       const res = await deployService.createDeployment(token, {
         model_id: selectedModel.id,
         region: deployRegion,
       });
       setDeploymentPollId(res.deployment_id);
-      setDeployments((prev) => [{ id: res.deployment_id, model_id: selectedModel.id, target_type: 'ec2', status: res.status, instance_id: null, endpoint_url: null, region: deployRegion, error_message: null, created_at: null, updated_at: null }, ...prev]);
+      setDeployments((prev) => [
+        {
+          id: res.deployment_id,
+          model_id: selectedModel.id,
+          target_type: "ec2",
+          status: res.status,
+          instance_id: null,
+          endpoint_url: null,
+          region: deployRegion,
+          error_message: null,
+          created_at: null,
+          updated_at: null,
+        },
+        ...prev,
+      ]);
     } catch (e: unknown) {
       setDeploying(false);
-      setDeployError(e instanceof Error ? e.message : 'Failed to start deployment');
+      setDeployError(e instanceof Error ? e.message : "Failed to start deployment");
     }
   }
 
@@ -111,9 +150,9 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
     try {
       await deployService.terminateDeployment(token, deploymentId);
       await loadDeployments();
-      toast.success('Deployment terminated.');
+      toast.success("Deployment terminated.");
     } catch (e: unknown) {
-      toast.error(e instanceof Error ? e.message : 'Failed to terminate');
+      toast.error(e instanceof Error ? e.message : "Failed to terminate");
     }
   }
 
@@ -122,9 +161,9 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
       await navigator.clipboard.writeText(url);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-      toast.success('Endpoint URL copied.');
+      toast.success("Endpoint URL copied.");
     } catch {
-      toast.error('Failed to copy');
+      toast.error("Failed to copy");
     }
   }
 
@@ -134,8 +173,8 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
       const data = await api.getModels();
       setModels(data);
       onUpdate?.();
-    } catch (e) {
-      setError('Failed to load models');
+    } catch {
+      setError("Failed to load models");
     } finally {
       setLoading(false);
     }
@@ -150,11 +189,9 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
     try {
       await api.deleteModel(id);
       setModels(models.filter((m) => m.id !== id));
-      if (selectedModel?.id === id) {
-        setSelectedModel(null);
-      }
-    } catch (e) {
-      setError('Failed to delete model');
+      if (selectedModel?.id === id) setSelectedModel(null);
+    } catch {
+      setError("Failed to delete model");
     } finally {
       setDeleteConfirm(null);
     }
@@ -162,18 +199,15 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
 
   async function handleResume(id: string) {
     try {
-      setError('');
-      const result = await api.resumeTraining(id);
-      // Update the model in the list to show it's running
-      setModels(models.map((m) =>
-        m.id === id ? { ...m, status: 'running' as const } : m
-      ));
+      setError("");
+      await api.resumeTraining(id);
+      setModels(models.map((m) => (m.id === id ? { ...m, status: "running" as const } : m)));
       if (selectedModel?.id === id) {
-        setSelectedModel({ ...selectedModel, status: 'running' });
+        setSelectedModel({ ...selectedModel, status: "running" });
       }
-      toast.success(`Resuming training from epoch ${result.start_epoch}. Check the Train tab for progress.`);
-    } catch (e: any) {
-      toast.error(e.message || 'Failed to resume training');
+      toast.success("Resuming training. Check the Train tab for progress.");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to resume training");
     }
   }
 
@@ -182,31 +216,15 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
   }
 
   function formatModelName(name: string) {
-    // Clean up model names like "custom_minigpt_bf230670" to "MiniGPT"
-    const parts = name.replace('custom_', '').split('_');
+    const parts = name.replace("custom_", "").split("_");
     if (parts.length > 1) {
-      // Remove the hash suffix and capitalize
-      const baseName = parts.slice(0, -1).join('_');
-      return baseName.split(/[-_]/).map(w =>
-        w.charAt(0).toUpperCase() + w.slice(1)
-      ).join(' ');
+      const baseName = parts.slice(0, -1).join("_");
+      return baseName
+        .split(/[-_]/)
+        .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(" ");
     }
     return name;
-  }
-
-  function getStatusClass(status: string) {
-    switch (status) {
-      case 'completed':
-        return 'status-completed';
-      case 'running':
-        return 'status-running';
-      case 'failed':
-        return 'status-failed';
-      case 'cancelled':
-        return 'status-cancelled';
-      default:
-        return 'status-pending';
-    }
   }
 
   async function copyEndpoint(modelId: string) {
@@ -215,301 +233,395 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
       await navigator.clipboard.writeText(url);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (e) {
-      console.error('Failed to copy:', e);
+      toast.success("URL copied.");
+    } catch {
+      toast.error("Failed to copy");
     }
   }
 
   function isTextModel(model: api.Model) {
-    // Check if this is a text/language model by name or architecture
     const name = model.name.toLowerCase();
     const arch = model.architecture.toLowerCase();
-    return model.dataset.startsWith('custom:') &&
-      (name.includes('gpt') || name.includes('language') || name.includes('text') ||
-       arch.includes('gpt') || arch.includes('language') || arch.includes('text') || arch.includes('lstm'));
+    return (
+      model.dataset.startsWith("custom:") &&
+      (name.includes("gpt") ||
+        name.includes("language") ||
+        name.includes("text") ||
+        arch.includes("gpt") ||
+        arch.includes("language") ||
+        arch.includes("text") ||
+        arch.includes("lstm"))
+    );
   }
 
   async function handleGenerate() {
     if (!selectedModel || !prompt.trim()) return;
-
     setGenerating(true);
-    setError('');
-    setGeneratedText('');
-
+    setError("");
+    setGeneratedText("");
     try {
       const result = await api.generateText(selectedModel.id, {
         prompt: prompt.trim(),
         max_tokens: maxTokens,
         temperature,
       });
-      // Clean up the output (remove debug info)
       let text = result.generated_text;
-      if (text.includes('\n') && text.startsWith('Model loaded:')) {
-        text = text.split('\n').slice(1).join('\n');
+      if (text.includes("\n") && text.startsWith("Model loaded:")) {
+        text = text.split("\n").slice(1).join("\n");
       }
       setGeneratedText(text);
-    } catch (e: any) {
-      setError(e.message || 'Failed to generate text');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to generate text");
     } finally {
       setGenerating(false);
     }
   }
 
   if (loading) {
-    return <div className="models-tab"><p>Loading models...</p></div>;
+    return (
+      <Box sx={{ py: 3 }}>
+        <Typography color="text.secondary">Loading models...</Typography>
+      </Box>
+    );
   }
 
   return (
-    <div className="models-tab">
-      <div className="models-header">
-        <h2>Trained Models</h2>
-        <button className="btn" onClick={loadModels}>Refresh</button>
-      </div>
+    <Box>
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
+        <Typography variant="h2">Trained Models</Typography>
+        <Button variant="outlined" size="small" onClick={loadModels}>
+          Refresh
+        </Button>
+      </Box>
 
-      {error && <div className="error">{error}</div>}
+      {error && (
+        <Box
+          sx={{
+            border: "1px solid",
+            borderColor: "error.main",
+            color: "error.main",
+            p: 1.25,
+            borderRadius: 1,
+            mb: 2,
+            fontSize: "0.875rem",
+          }}
+        >
+          {error}
+        </Box>
+      )}
 
       {models.length === 0 ? (
-        <p className="empty-state">No models yet. Train one in the Train tab!</p>
+        <Typography color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
+          No models yet. Train one in the Train tab!
+        </Typography>
       ) : (
-        <div className="models-layout">
-          <div className="models-list">
+        <Box sx={{ display: "grid", gridTemplateColumns: "minmax(280px, 320px) 1fr", gap: 2, alignItems: "start" }}>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1, maxHeight: "min(60vh, 600px)", overflowY: "auto" }}>
             {models.map((model) => (
-              <div
+              <Paper
                 key={model.id}
-                className={`model-card ${selectedModel?.id === model.id ? 'selected' : ''}`}
+                variant="outlined"
                 onClick={() => handleSelectModel(model)}
+                sx={{
+                  p: 1.25,
+                  cursor: "pointer",
+                  borderColor: selectedModel?.id === model.id ? "primary.main" : "divider",
+                  "&:hover": { borderColor: "primary.main" },
+                }}
               >
-                <div className="model-card-header">
-                  <h3>{formatModelName(model.name)}</h3>
-                  <span className={`status-badge ${getStatusClass(model.status)}`}>
-                    {model.status}
-                  </span>
-                </div>
-                <div className="model-card-info">
-                  <span>{model.dataset.startsWith('custom:') ? 'Custom Dataset' : model.dataset}</span>
-                </div>
-                <div className="model-card-stats">
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 0.5, mb: 0.75 }}>
+                  <Typography variant="subtitle2" sx={{ wordBreak: "break-word" }}>
+                    {formatModelName(model.name)}
+                  </Typography>
+                  <Chip size="small" label={model.status} color={getStatusColor(model.status)} sx={{ textTransform: "uppercase", fontSize: "0.6875rem" }} />
+                </Box>
+                <Typography variant="body2" color="text.secondary" sx={{ fontSize: "0.75rem" }}>
+                  {model.dataset.startsWith("custom:") ? "Custom Dataset" : model.dataset}
+                </Typography>
+                <Box sx={{ display: "flex", gap: 1, mt: 0.75, fontSize: "0.8125rem", color: "text.secondary" }}>
                   <span>{model.epochs_trained} epochs</span>
                   <span>{model.best_accuracy.toFixed(2)}% acc</span>
-                </div>
-              </div>
+                </Box>
+              </Paper>
             ))}
-          </div>
+          </Box>
 
           {selectedModel && (
-            <div className="model-details">
-              <h3>{formatModelName(selectedModel.name)}</h3>
-
-              <div className="details-grid">
-                <div className="detail-item">
-                  <span className="label">ID</span>
-                  <span className="value">{selectedModel.id}</span>
-                </div>
-                <div className="detail-item">
-                  <span className="label">Dataset</span>
-                  <span className="value">{selectedModel.dataset}</span>
-                </div>
-                <div className="detail-item">
-                  <span className="label">Architecture</span>
-                  <span className="value">{selectedModel.architecture}</span>
-                </div>
-                <div className="detail-item">
-                  <span className="label">Created</span>
-                  <span className="value">{formatDate(selectedModel.created_at)}</span>
-                </div>
-                <div className="detail-item">
-                  <span className="label">Epochs Trained</span>
-                  <span className="value">{selectedModel.epochs_trained}</span>
-                </div>
-                <div className="detail-item">
-                  <span className="label">Best Accuracy</span>
-                  <span className="value">{selectedModel.best_accuracy.toFixed(2)}%</span>
-                </div>
-                <div className="detail-item">
-                  <span className="label">Status</span>
-                  <span className={`value ${getStatusClass(selectedModel.status)}`}>
-                    {selectedModel.status}
-                  </span>
-                </div>
-              </div>
+            <Paper variant="outlined" sx={{ p: 2, borderColor: "divider", minWidth: 0 }}>
+              <Typography variant="h3" sx={{ mb: 1.5 }}>
+                {formatModelName(selectedModel.name)}
+              </Typography>
+              <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1.5, mb: 1.5 }}>
+                <DetailItem label="ID" value={selectedModel.id} />
+                <DetailItem label="Dataset" value={selectedModel.dataset} />
+                <DetailItem label="Architecture" value={selectedModel.architecture} />
+                <DetailItem label="Created" value={formatDate(selectedModel.created_at)} />
+                <DetailItem label="Epochs Trained" value={String(selectedModel.epochs_trained)} />
+                <DetailItem label="Best Accuracy" value={`${selectedModel.best_accuracy.toFixed(2)}%`} />
+                <DetailItem label="Status" value={selectedModel.status} statusColor={getStatusColor(selectedModel.status)} />
+              </Box>
 
               {selectedModel.training_history.length > 0 && (
-                <div className="training-history">
-                  <h4>Training History</h4>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Epoch</th>
-                        <th>Loss</th>
-                        <th>Accuracy</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                <Box sx={{ mb: 1.5 }}>
+                  <Typography variant="overline" sx={{ color: "text.secondary" }}>
+                    Training History
+                  </Typography>
+                  <Table size="small" sx={{ mt: 0.5 }}>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Epoch</TableCell>
+                        <TableCell>Loss</TableCell>
+                        <TableCell>Accuracy</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
                       {selectedModel.training_history.map((h) => (
-                        <tr key={h.epoch}>
-                          <td>{h.epoch}</td>
-                          <td>{h.loss.toFixed(4)}</td>
-                          <td>{h.accuracy.toFixed(2)}%</td>
-                        </tr>
+                        <TableRow key={h.epoch}>
+                          <TableCell>{h.epoch}</TableCell>
+                          <TableCell sx={{ fontFamily: '"JetBrains Mono", monospace' }}>{h.loss.toFixed(4)}</TableCell>
+                          <TableCell sx={{ fontFamily: '"JetBrains Mono", monospace' }}>{h.accuracy.toFixed(2)}%</TableCell>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
+                    </TableBody>
+                  </Table>
+                </Box>
               )}
 
-              {selectedModel.status === 'completed' && isTextModel(selectedModel) && (
-                <div className="text-generation-section">
-                  <h4>Generate Text</h4>
-                  <div className="form-group">
-                    <label>Prompt</label>
-                    <textarea
-                      value={prompt}
-                      onChange={(e) => setPrompt(e.target.value)}
-                      placeholder="Enter a starting prompt... (e.g., 'HAMLET:\nTo be or not to be')"
-                      rows={3}
-                      disabled={generating}
-                    />
-                  </div>
-                  <div className="form-row">
-                    <div className="form-group half">
-                      <label>Temperature ({temperature})</label>
-                      <input
-                        type="range"
-                        min="0.1"
-                        max="1.5"
-                        step="0.1"
+              {selectedModel.status === "completed" && isTextModel(selectedModel) && (
+                <Box sx={{ mt: 2, p: 2, bgcolor: "background.default", borderRadius: 1, border: "1px solid", borderColor: "divider" }}>
+                  <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                    Generate Text
+                  </Typography>
+                  <TextField
+                    fullWidth
+                    multiline
+                    rows={3}
+                    placeholder="Enter a starting prompt..."
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    disabled={generating}
+                    sx={{ mb: 1 }}
+                  />
+                  <Box sx={{ display: "flex", gap: 2, alignItems: "center", mb: 1 }}>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="caption">Temperature: {temperature}</Typography>
+                      <Slider
+                        size="small"
+                        min={0.1}
+                        max={1.5}
+                        step={0.1}
                         value={temperature}
-                        onChange={(e) => setTemperature(parseFloat(e.target.value))}
+                        onChange={(_, v) => setTemperature(v as number)}
                         disabled={generating}
+                        valueLabelDisplay="auto"
                       />
-                    </div>
-                    <div className="form-group half">
-                      <label>Max Tokens</label>
-                      <input
-                        type="number"
-                        value={maxTokens}
-                        onChange={(e) => setMaxTokens(parseInt(e.target.value) || 100)}
-                        min={10}
-                        max={500}
-                        disabled={generating}
-                      />
-                    </div>
-                  </div>
-                  <button
-                    className="btn primary"
-                    onClick={handleGenerate}
-                    disabled={generating || !prompt.trim()}
-                  >
-                    {generating ? 'Generating...' : 'Generate'}
-                  </button>
-
+                    </Box>
+                    <TextField
+                      type="number"
+                      size="small"
+                      label="Max Tokens"
+                      value={maxTokens}
+                      onChange={(e) => setMaxTokens(parseInt(e.target.value) || 100)}
+                      inputProps={{ min: 10, max: 500 }}
+                      disabled={generating}
+                      sx={{ width: 100 }}
+                    />
+                  </Box>
+                  <Button variant="contained" onClick={handleGenerate} disabled={generating || !prompt.trim()}>
+                    {generating ? "Generating..." : "Generate"}
+                  </Button>
                   {generatedText && (
-                    <div className="generated-output">
-                      <h4>Generated Text</h4>
-                      <pre>{generatedText}</pre>
-                    </div>
+                    <Box sx={{ mt: 1.5, p: 1, bgcolor: "background.paper", borderRadius: 1, border: "1px solid", borderColor: "divider" }}>
+                      <Typography variant="caption" color="text.secondary">
+                        Generated Text
+                      </Typography>
+                      <Box component="pre" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: "0.875rem", whiteSpace: "pre-wrap", mt: 0.5 }}>
+                        {generatedText}
+                      </Box>
+                    </Box>
                   )}
-                </div>
+                </Box>
               )}
 
-              {selectedModel.status === 'completed' && !isTextModel(selectedModel) && (
+              {selectedModel.status === "completed" && !isTextModel(selectedModel) && (
                 <>
-                  <div className="api-endpoint">
-                    <h4>API Endpoint</h4>
-                    <div className="endpoint-row">
-                      <code>POST /api/{selectedModel.id}/predict</code>
-                      <button
-                        className="btn copy-btn"
-                        onClick={() => copyEndpoint(selectedModel.id)}
+                  <Box sx={{ mt: 1.5, pt: 1.5, borderTop: "1px solid", borderColor: "divider" }}>
+                    <Typography variant="overline" sx={{ color: "text.secondary" }}>
+                      API Endpoint
+                    </Typography>
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.5 }}>
+                      <Box
+                        component="code"
+                        sx={{
+                          flex: 1,
+                          fontSize: "0.8125rem",
+                          fontFamily: '"JetBrains Mono", monospace',
+                          p: 0.75,
+                          bgcolor: "action.hover",
+                          borderRadius: 1,
+                        }}
                       >
-                        {copied ? 'Copied!' : 'Copy URL'}
-                      </button>
-                    </div>
-                    <details className="curl-example">
-                      <summary>cURL Example</summary>
-                      <pre>curl -X POST -F "file=@image.jpg" \{'\n'}  http://localhost:8080/api/{selectedModel.id}/predict</pre>
+                        POST /api/{selectedModel.id}/predict
+                      </Box>
+                      <Button size="small" variant="outlined" onClick={() => copyEndpoint(selectedModel.id)}>
+                        {copied ? "Copied!" : "Copy URL"}
+                      </Button>
+                    </Box>
+                    <details style={{ marginTop: 8 }}>
+                      <summary style={{ cursor: "pointer", fontSize: "0.75rem", color: "rgba(255,255,255,0.5)" }}>
+                        cURL Example
+                      </summary>
+                      <Box
+                        component="pre"
+                        sx={{
+                          fontFamily: '"JetBrains Mono", monospace',
+                          fontSize: "0.75rem",
+                          p: 1,
+                          bgcolor: "action.hover",
+                          borderRadius: 1,
+                          mt: 0.5,
+                          overflow: "auto",
+                        }}
+                      >
+                        {`curl -X POST -F "file=@image.jpg" \\\n  http://localhost:8080/api/${selectedModel.id}/predict`}
+                      </Box>
                     </details>
-                  </div>
-                  <div className="deploy-section">
-                    <h4>Deploy to API</h4>
-                    <p className="deploy-desc">Run this model on a small EC2 instance with its own URL. Requires AWS credentials in Settings.</p>
-                    <button
-                      type="button"
-                      className="btn primary"
-                      onClick={() => setDeployModalOpen(true)}
-                    >
+                  </Box>
+                  <Box sx={{ mt: 1 }}>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                      Run this model on a small EC2 instance with its own URL. Requires AWS credentials in Settings.
+                    </Typography>
+                    <Button variant="contained" onClick={() => setDeployModalOpen(true)}>
                       Deploy to API
-                    </button>
-                  </div>
+                    </Button>
+                  </Box>
                 </>
               )}
 
-              <div className="model-actions">
-                {(selectedModel.status === 'failed' || selectedModel.status === 'cancelled') && (
-                  <button
-                    className="btn primary"
-                    onClick={() => handleResume(selectedModel.id)}
-                  >
+              <Box sx={{ mt: 2, pt: 1.5, borderTop: "1px solid", borderColor: "divider", display: "flex", gap: 1 }}>
+                {(selectedModel.status === "failed" || selectedModel.status === "cancelled") && (
+                  <Button variant="contained" onClick={() => handleResume(selectedModel.id)}>
                     Resume Training
-                  </button>
+                  </Button>
                 )}
-                <button
-                  className="btn danger"
-                  onClick={() => setDeleteConfirm(selectedModel.id)}
-                >
+                <Button variant="outlined" color="error" onClick={() => setDeleteConfirm(selectedModel.id)}>
                   Delete Model
-                </button>
-              </div>
-            </div>
+                </Button>
+              </Box>
+            </Paper>
           )}
-        </div>
+        </Box>
       )}
 
-      {deployModalOpen && selectedModel && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" onClick={() => !deploying && setDeployModalOpen(false)}>
-          <div className="modal-content deploy-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Deploy to API</h3>
-              <button type="button" className="modal-close" aria-label="Close" onClick={() => !deploying && setDeployModalOpen(false)} disabled={deploying}>×</button>
-            </div>
-            <p className="modal-model-name">{formatModelName(selectedModel.name)}</p>
-            {deployError && <div className="error deploy-err">{deployError}</div>}
-            {deployments.some((d) => d.status === 'live') ? (
-              <div className="deploy-live">
-                <p className="deploy-status-badge live">Live</p>
-                {deployments.filter((d) => d.status === 'live').map((d) => (
-                  <div key={d.id} className="deploy-endpoint-row">
-                    <code className="deploy-url">{d.endpoint_url}/predict</code>
-                    <button type="button" className="btn copy-btn" onClick={() => d.endpoint_url && copyDeployEndpoint(`${d.endpoint_url}/predict`)}>
-                      {copied ? 'Copied!' : 'Copy URL'}
-                    </button>
-                    <button type="button" className="btn danger" onClick={() => handleDeployTerminate(d.id)}>Undeploy</button>
-                  </div>
-                ))}
-                <p className="deploy-curl-hint">POST image file as <code>file</code> to the URL above.</p>
-              </div>
-            ) : deploying || deploymentPollId ? (
-              <div className="deploy-progress">
-                <p className="deploy-status-badge launching">Launching instance…</p>
-                <p className="deploy-hint">This usually takes 1–2 minutes. The page will update when the endpoint is ready.</p>
-              </div>
-            ) : (
-              <div className="deploy-form">
-                <label className="form-group">
-                  <span>Region</span>
-                  <select value={deployRegion} onChange={(e) => setDeployRegion(e.target.value)}>
-                    <option value="us-east-1">us-east-1</option>
-                    <option value="us-west-2">us-west-2</option>
-                  </select>
-                </label>
-                <button type="button" className="btn primary" onClick={handleDeployStart} disabled={!token}>
-                  Deploy to EC2
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      <Dialog
+        open={deployModalOpen && !!selectedModel}
+        onClose={() => !deploying && setDeployModalOpen(false)}
+        PaperProps={{
+          sx: {
+            bgcolor: "background.paper",
+            border: "1px solid",
+            borderColor: "divider",
+            maxWidth: 440,
+          },
+        }}
+      >
+        <DialogTitle sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          Deploy to API
+          <Button
+            size="small"
+            onClick={() => !deploying && setDeployModalOpen(false)}
+            disabled={deploying}
+            sx={{ minWidth: 32 }}
+          >
+            ×
+          </Button>
+        </DialogTitle>
+        <DialogContent>
+          {selectedModel && (
+            <>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                {formatModelName(selectedModel.name)}
+              </Typography>
+              {deployError && (
+                <Box
+                  sx={{
+                    border: "1px solid",
+                    borderColor: "error.main",
+                    color: "error.main",
+                    p: 1,
+                    borderRadius: 1,
+                    mb: 1,
+                    fontSize: "0.875rem",
+                  }}
+                >
+                  {deployError}
+                </Box>
+              )}
+              {deployments.some((d) => d.status === "live") ? (
+                <Box>
+                  <Chip size="small" label="Live" color="success" sx={{ mb: 1 }} />
+                  {deployments
+                    .filter((d) => d.status === "live")
+                    .map((d) => (
+                      <Box key={d.id} sx={{ display: "flex", alignItems: "center", gap: 0.5, flexWrap: "wrap", mb: 0.5 }}>
+                        <Box
+                          component="code"
+                          sx={{
+                            flex: 1,
+                            minWidth: 0,
+                            fontSize: "0.8rem",
+                            p: 0.5,
+                            bgcolor: "action.hover",
+                            borderRadius: 1,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {d.endpoint_url}/predict
+                        </Box>
+                        <Button size="small" onClick={() => d.endpoint_url && copyDeployEndpoint(`${d.endpoint_url}/predict`)}>
+                          {copied ? "Copied!" : "Copy"}
+                        </Button>
+                        <Button size="small" color="error" onClick={() => handleDeployTerminate(d.id)}>
+                          Undeploy
+                        </Button>
+                      </Box>
+                    ))}
+                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                    POST image file as <code>file</code> to the URL above.
+                  </Typography>
+                </Box>
+              ) : deploying || deploymentPollId ? (
+                <Box>
+                  <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
+                    Launching instance…
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    This usually takes 1–2 minutes. The page will update when the endpoint is ready.
+                  </Typography>
+                </Box>
+              ) : (
+                <Box sx={{ pt: 1 }}>
+                  <FormControl fullWidth size="small" sx={{ mb: 1 }}>
+                    <InputLabel>Region</InputLabel>
+                    <Select
+                      value={deployRegion}
+                      label="Region"
+                      onChange={(e) => setDeployRegion(e.target.value)}
+                    >
+                      <MenuItem value="us-east-1">us-east-1</MenuItem>
+                      <MenuItem value="us-west-2">us-west-2</MenuItem>
+                    </Select>
+                  </FormControl>
+                  <Button variant="contained" onClick={handleDeployStart} disabled={!token} fullWidth>
+                    Deploy to EC2
+                  </Button>
+                </Box>
+              )}
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <ConfirmDialog
         isOpen={deleteConfirm !== null}
@@ -523,6 +635,27 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
       />
 
       <Toast toasts={toast.toasts} onDismiss={toast.dismissToast} />
-    </div>
+    </Box>
+  );
+}
+
+function DetailItem({
+  label,
+  value,
+  statusColor,
+}: {
+  label: string;
+  value: string;
+  statusColor?: "success" | "error" | "default" | "warning";
+}) {
+  return (
+    <Box>
+      <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+        {label}
+      </Typography>
+      <Typography variant="body2" fontWeight={500} color={statusColor && statusColor !== "default" ? statusColor : "text.primary"}>
+        {value}
+      </Typography>
+    </Box>
   );
 }
