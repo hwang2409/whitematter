@@ -31,9 +31,12 @@ from model_format import (
 
 try:
     import whitematter as wm
-except ImportError as e:
-    logging.critical("whitematter module not found. Build with: pip install -e .")
-    raise SystemExit(1) from e
+except Exception as e:
+    logging.warning(
+        "whitematter extension could not be loaded; C++ model operations are disabled: %s",
+        e,
+    )
+    wm = None
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +98,11 @@ def list_all_models() -> list[ModelMetadata]:
 
 
 def get_loaded_model(model_id: str) -> "wm.Model":
+    if wm is None:
+        raise HTTPException(
+            status_code=503,
+            detail="whitematter extension is not available; model loading is disabled",
+        )
     if model_id in loaded_models:
         return loaded_models[model_id]
     metadata = load_model_metadata(model_id)

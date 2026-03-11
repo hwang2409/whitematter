@@ -1,5 +1,6 @@
+"use client";
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { getMe, getStoredToken, storeTokens, clearTokens } from "../services/auth";
+import { getMe, getStoredToken, storeTokens, clearTokens } from "@/services/auth";
 
 interface User {
   id: string;

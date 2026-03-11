@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE || "";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "";
 
 interface TokenResponse {
   access_token: string;
@@ -48,15 +48,18 @@ export async function getMe(token: string): Promise<UserResponse> {
 }
 
 export function getStoredToken(): string | null {
+  if (typeof window === "undefined") return null;
   return localStorage.getItem("access_token");
 }
 
 export function storeTokens(tokens: TokenResponse) {
+  if (typeof window === "undefined") return;
   localStorage.setItem("access_token", tokens.access_token);
   localStorage.setItem("refresh_token", tokens.refresh_token);
 }
 
 export function clearTokens() {
+  if (typeof window === "undefined") return;
   localStorage.removeItem("access_token");
   localStorage.removeItem("refresh_token");
 }
