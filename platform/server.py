@@ -25,6 +25,7 @@ from routes.auth import router as auth_router
 from routes.credentials import router as credentials_router
 from routes.storage import router as storage_router
 from routes.byoc_training import router as byoc_training_router
+from routes.deploy import router as deploy_router
 from routes.datasets import router as datasets_router
 from routes.design import router as design_router
 from routes.training import router as training_router
@@ -46,6 +47,7 @@ app.include_router(auth_router)
 app.include_router(credentials_router)
 app.include_router(storage_router)
 app.include_router(byoc_training_router)
+app.include_router(deploy_router)
 app.include_router(datasets_router)
 app.include_router(design_router)
 app.include_router(training_router)

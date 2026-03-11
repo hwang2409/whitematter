@@ -81,24 +81,23 @@ class DeploymentService:
         Returns None if model/dataset not suitable (e.g. not image custom model).
         """
         metadata = load_model_metadata(model_id)
-        if not metadata:
-            # Try DB model
-            with get_db_session() as db:
-                m = db.query(Model).filter_by(id=model_id).first()
-                if not m or m.status != ModelStatus.COMPLETED.value:
-                    return None
-                dataset_id = m.dataset_id
-                if not dataset_id:
-                    return None
-            config = self.get_config_for_model(model_id, dataset_id)
-        else:
+        dataset_id = None
+        if metadata:
             if metadata.status != TrainStatus.COMPLETED:
                 return None
             if not metadata.dataset.startswith("custom:"):
                 return None  # Only custom (image) models for now
             dataset_id = metadata.dataset.replace("custom:", "")
-            config = self.get_config_for_model(model_id, dataset_id)
+        else:
+            with get_db_session() as db:
+                m = db.query(Model).filter_by(id=model_id).first()
+                if not m or m.status != ModelStatus.COMPLETED.value:
+                    return None
+                dataset_id = m.dataset_id
+        if not dataset_id:
+            return None
 
+        config = self.get_config_for_model(model_id, dataset_id)
         if not config:
             return None
 
@@ -151,10 +150,8 @@ class DeploymentService:
             db.refresh(d)
             return d
 
-    def get_artifacts_and_consume_token(self, deployment_id: str, token: str) -> Optional[bytes]:
-        """
-        If token matches deployment, return tarball bytes and clear the token (one-time use).
-        """
+    def get_artifacts(self, deployment_id: str, token: str) -> Optional[bytes]:
+        """If token matches deployment, return tarball bytes. Token is consumed on set_live (callback)."""
         with get_db_session() as db:
             d = db.query(Deployment).filter_by(id=deployment_id).first()
             if not d or d.deployment_token is None or d.deployment_token != token:
@@ -162,19 +159,17 @@ class DeploymentService:
             tarball = self.build_artifact_tarball(d.model_id)
             if tarball is None:
                 return None
-            d.deployment_token = None
             d.status = DeploymentStatus.BOOTSTRAPPING.value
             db.commit()
             return tarball
 
     def set_live(self, deployment_id: str, token: str, endpoint_url: str) -> bool:
-        """Callback from EC2: set deployment to LIVE and store endpoint_url. Token must match."""
+        """Callback from EC2: set deployment to LIVE, store endpoint_url, and consume token."""
         with get_db_session() as db:
             d = db.query(Deployment).filter_by(id=deployment_id).first()
             if not d:
                 return False
-            # Accept callback even after token was consumed (instance has token in user-data)
-            if d.deployment_token is not None and d.deployment_token != token:
+            if d.deployment_token is None or d.deployment_token != token:
                 return False
             d.status = DeploymentStatus.LIVE.value
             d.endpoint_url = endpoint_url.rstrip("/")
