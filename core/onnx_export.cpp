@@ -237,11 +237,11 @@ bool convert_linear(Linear* layer, ONNXContext& ctx) {
 
     // Add weight initializer [in_features, out_features]
     std::vector<int64_t> weight_dims = {static_cast<int64_t>(in_features), static_cast<int64_t>(out_features)};
-    ctx.initializers.push_back(build_tensor_proto(weight_name, weight_dims, W->data.data(), W->data.size()));
+    ctx.initializers.push_back(build_tensor_proto(weight_name, weight_dims, W->data(), W->size()));
 
     // Add bias initializer [out_features]
     std::vector<int64_t> bias_dims = {static_cast<int64_t>(out_features)};
-    ctx.initializers.push_back(build_tensor_proto(bias_name, bias_dims, b->data.data(), b->data.size()));
+    ctx.initializers.push_back(build_tensor_proto(bias_name, bias_dims, b->data(), b->size()));
 
     // Create Gemm node: Y = alpha * A @ B + beta * C
     // A = input [batch, in], B = weight [in, out], C = bias [out]
@@ -271,11 +271,11 @@ bool convert_conv2d(Conv2d* layer, ONNXContext& ctx) {
     // Weight shape: [out_channels, in_channels, kH, kW]
     std::vector<int64_t> weight_dims;
     for (auto d : W->shape) weight_dims.push_back(static_cast<int64_t>(d));
-    ctx.initializers.push_back(build_tensor_proto(weight_name, weight_dims, W->data.data(), W->data.size()));
+    ctx.initializers.push_back(build_tensor_proto(weight_name, weight_dims, W->data(), W->size()));
 
     // Bias shape: [out_channels]
     std::vector<int64_t> bias_dims = {static_cast<int64_t>(b->shape[0])};
-    ctx.initializers.push_back(build_tensor_proto(bias_name, bias_dims, b->data.data(), b->data.size()));
+    ctx.initializers.push_back(build_tensor_proto(bias_name, bias_dims, b->data(), b->size()));
 
     // Conv attributes
     std::vector<ProtobufWriter> attrs;
@@ -398,10 +398,10 @@ bool convert_batchnorm2d(BatchNorm2d* layer, ONNXContext& ctx) {
     int64_t num_features = static_cast<int64_t>(layer->num_features);
     std::vector<int64_t> dims = {num_features};
 
-    ctx.initializers.push_back(build_tensor_proto(scale_name, dims, layer->gamma->data.data(), layer->gamma->data.size()));
-    ctx.initializers.push_back(build_tensor_proto(bias_name, dims, layer->beta->data.data(), layer->beta->data.size()));
-    ctx.initializers.push_back(build_tensor_proto(mean_name, dims, layer->running_mean->data.data(), layer->running_mean->data.size()));
-    ctx.initializers.push_back(build_tensor_proto(var_name, dims, layer->running_var->data.data(), layer->running_var->data.size()));
+    ctx.initializers.push_back(build_tensor_proto(scale_name, dims, layer->gamma->data(), layer->gamma->size()));
+    ctx.initializers.push_back(build_tensor_proto(bias_name, dims, layer->beta->data(), layer->beta->size()));
+    ctx.initializers.push_back(build_tensor_proto(mean_name, dims, layer->running_mean->data(), layer->running_mean->size()));
+    ctx.initializers.push_back(build_tensor_proto(var_name, dims, layer->running_var->data(), layer->running_var->size()));
 
     std::vector<ProtobufWriter> attrs;
     attrs.push_back(build_attr_float("epsilon", layer->eps));

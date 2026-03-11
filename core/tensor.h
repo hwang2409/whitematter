@@ -32,17 +32,31 @@ using TensorPtr = std::shared_ptr<Tensor>;
 
 class Tensor : public std::enable_shared_from_this<Tensor> {
 public:
-    std::vector<float> data;
-    std::vector<float> grad;
     std::vector<size_t> shape;
     bool requires_grad;
 
     std::function<void()> grad_fn;
     std::vector<TensorPtr> parents;
 
+    // Pool-backed storage accessors (shared_ptr; views share data_storage_)
+    float* data() { return data_storage_ ? data_storage_.get() : nullptr; }
+    const float* data() const { return data_storage_ ? data_storage_.get() : nullptr; }
+    size_t size() const { return data_size_; }
+    float* grad() { return grad_storage_ ? grad_storage_.get() : nullptr; }
+    const float* grad() const { return grad_storage_ ? grad_storage_.get() : nullptr; }
+    size_t grad_size() const { return grad_size_; }
+    bool grad_empty() const { return !grad_storage_; }
+
     Tensor();
+    ~Tensor();
+    Tensor(const Tensor&) = delete;
+    Tensor& operator=(const Tensor&) = delete;
     Tensor(const std::vector<size_t>& shape, bool requires_grad = false);
     Tensor(const std::vector<float>& data, const std::vector<size_t>& shape, bool requires_grad = false);
+
+    // View constructor: shares data_storage_, own grad. Used by reshape/squeeze/unsqueeze.
+    Tensor(std::shared_ptr<float> data_storage, size_t data_size,
+          const std::vector<size_t>& shape, bool requires_grad);
 
     static TensorPtr create(const std::vector<size_t>& shape, bool requires_grad = false);
     static TensorPtr create(const std::vector<float>& data, const std::vector<size_t>& shape, bool requires_grad = false);
@@ -57,7 +71,6 @@ public:
     // Stack tensors along a new dimension
     static TensorPtr stack(const std::vector<TensorPtr>& tensors, int dim = 0);
 
-    size_t size() const;
     size_t ndim() const;
     float item() const;
     void zero_grad();
@@ -132,6 +145,11 @@ public:
 private:
     void build_topo(std::vector<Tensor*>& topo, std::vector<Tensor*>& visited);
     bool should_track_grad() const;
+
+    std::shared_ptr<float> data_storage_;
+    size_t data_size_;
+    std::shared_ptr<float> grad_storage_;
+    size_t grad_size_;
 };
 
 TensorPtr operator*(float scalar, const TensorPtr& t);

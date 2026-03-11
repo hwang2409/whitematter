@@ -52,7 +52,7 @@ CIFAR10Dataset load_cifar10_batch(const std::string& filepath) {
         }
 
         // First byte is the label
-        dataset.labels->data[i] = static_cast<float>(buffer[0]);
+        dataset.labels->data()[i] = static_cast<float>(buffer[0]);
 
         // Next 3072 bytes are RGB data (channel-first: R, G, B)
         size_t img_offset = i * 3 * 32 * 32;
@@ -64,7 +64,7 @@ CIFAR10Dataset load_cifar10_batch(const std::string& filepath) {
 
                     // Normalize: (pixel/255 - mean) / std
                     float pixel = static_cast<float>(buffer[src_idx]) / 255.0f;
-                    dataset.images->data[dst_idx] = (pixel - CIFAR10_MEAN[c]) / CIFAR10_STD[c];
+                    dataset.images->data()[dst_idx] = (pixel - CIFAR10_MEAN[c]) / CIFAR10_STD[c];
                 }
             }
         }
@@ -94,12 +94,12 @@ CIFAR10Dataset load_cifar10_train(const std::string& data_dir) {
     size_t offset = 0;
     for (const auto& batch : batches) {
         // Copy images
-        std::copy(batch.images->data.begin(), batch.images->data.end(),
-                  dataset.images->data.begin() + offset * 3 * 32 * 32);
+        std::copy(batch.images->data(), batch.images->data() + batch.images->size(),
+                  dataset.images->data() + offset * 3 * 32 * 32);
 
         // Copy labels
-        std::copy(batch.labels->data.begin(), batch.labels->data.end(),
-                  dataset.labels->data.begin() + offset);
+        std::copy(batch.labels->data(), batch.labels->data() + batch.labels->size(),
+                  dataset.labels->data() + offset);
 
         offset += batch.num_samples;
     }
@@ -161,12 +161,12 @@ std::pair<TensorPtr, TensorPtr> CIFAR10DataLoader::next_batch() {
         size_t idx = indices[current_idx + i];
 
         // Copy image
-        std::copy(images->data.begin() + idx * img_size,
-                  images->data.begin() + (idx + 1) * img_size,
-                  batch_images->data.begin() + i * img_size);
+        std::copy(images->data() + idx * img_size,
+                  images->data() + (idx + 1) * img_size,
+                  batch_images->data() + i * img_size);
 
         // Copy label
-        batch_labels->data[i] = labels->data[idx];
+        batch_labels->data()[i] = labels->data()[idx];
     }
 
     current_idx += actual_batch_size;
@@ -310,12 +310,12 @@ AsyncCIFAR10DataLoader::Batch AsyncCIFAR10DataLoader::prepare_batch(size_t batch
         size_t idx = indices[start_idx + i];
 
         // Copy image
-        std::copy(images->data.begin() + idx * img_size,
-                  images->data.begin() + (idx + 1) * img_size,
-                  batch_images->data.begin() + i * img_size);
+        std::copy(images->data() + idx * img_size,
+                  images->data() + (idx + 1) * img_size,
+                  batch_images->data() + i * img_size);
 
         // Copy label
-        batch_labels->data[i] = labels->data[idx];
+        batch_labels->data()[i] = labels->data()[idx];
     }
 
     // Apply data augmentation

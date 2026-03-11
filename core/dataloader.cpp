@@ -148,13 +148,13 @@ Batch ThreadedDataLoader::create_batch(size_t start_idx, size_t end_idx) {
 
         // Copy sample data
         std::copy(
-            data_->data.begin() + idx * sample_size_,
-            data_->data.begin() + (idx + 1) * sample_size_,
-            batch_data->data.begin() + i * sample_size_
+            data_->data() + idx * sample_size_,
+            data_->data() + (idx + 1) * sample_size_,
+            batch_data->data() + i * sample_size_
         );
 
         // Copy label
-        batch_labels->data[i] = labels_->data[idx];
+        batch_labels->data()[i] = labels_->data()[idx];
     }
 
     return Batch{batch_data, batch_labels};

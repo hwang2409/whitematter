@@ -248,8 +248,8 @@ public:
         for (size_t b = 0; b < batch_size; b++) {
             size_t start = current_idx + b * seq_len;
             for (size_t t = 0; t < seq_len; t++) {
-                input->data[b * seq_len + t] = static_cast<float>(encoded_text[start + t]);
-                target->data[b * seq_len + t] = static_cast<float>(encoded_text[start + t + 1]);
+                input->data()[b * seq_len + t] = static_cast<float>(encoded_text[start + t]);
+                target->data()[b * seq_len + t] = static_cast<float>(encoded_text[start + t + 1]);
             }
         }
 
@@ -269,14 +269,14 @@ static std::mt19937 sample_rng(123);
 
 int sample_from_logits(const TensorPtr& logits, float temperature = 1.0f) {
     // logits: [vocab_size]
-    size_t vocab_size = logits->data.size();
+    size_t vocab_size = logits->size();
 
     // Apply temperature
     std::vector<float> scaled(vocab_size);
-    float max_val = *std::max_element(logits->data.begin(), logits->data.end());
+    float max_val = *std::max_element(logits->data(), logits->data() + logits->size());
 
     for (size_t i = 0; i < vocab_size; i++) {
-        scaled[i] = (logits->data[i] - max_val) / temperature;
+        scaled[i] = (logits->data()[i] - max_val) / temperature;
     }
 
     // Softmax
@@ -316,7 +316,7 @@ std::string generate_text(CharRNN& model, const Vocabulary& vocab,
         size_t ctx_len = context.size();
         auto input = Tensor::create({1, ctx_len}, false);
         for (size_t j = 0; j < ctx_len; j++) {
-            input->data[j] = static_cast<float>(context[j]);
+            input->data()[j] = static_cast<float>(context[j]);
         }
 
         // Forward pass
@@ -330,7 +330,7 @@ std::string generate_text(CharRNN& model, const Vocabulary& vocab,
         size_t vocab_size = vocab.vocab_size;
         auto last_logits = Tensor::create({vocab_size}, false);
         for (size_t v = 0; v < vocab_size; v++) {
-            last_logits->data[v] = logits->data[(ctx_len - 1) * vocab_size + v];
+            last_logits->data()[v] = logits->data()[(ctx_len - 1) * vocab_size + v];
         }
 
         // Sample next character
@@ -361,35 +361,35 @@ TensorPtr sequence_cross_entropy(const TensorPtr& logits, const TensorPtr& targe
 
     bool track = logits->requires_grad && GradMode::is_enabled();
     auto loss = Tensor::create({1}, track);
-    loss->data[0] = 0.0f;
+    loss->data()[0] = 0.0f;
 
     // Compute cross-entropy for each position
     for (size_t b = 0; b < batch; b++) {
         for (size_t t = 0; t < seq_len; t++) {
             // Get target class
-            int target_class = static_cast<int>(targets->data[b * seq_len + t]);
+            int target_class = static_cast<int>(targets->data()[b * seq_len + t]);
 
             // Compute log-softmax for this position
             float max_val = -1e30f;
             for (size_t v = 0; v < vocab_size; v++) {
                 size_t idx = b * seq_len * vocab_size + t * vocab_size + v;
-                max_val = std::max(max_val, logits->data[idx]);
+                max_val = std::max(max_val, logits->data()[idx]);
             }
 
             float sum_exp = 0.0f;
             for (size_t v = 0; v < vocab_size; v++) {
                 size_t idx = b * seq_len * vocab_size + t * vocab_size + v;
-                sum_exp += std::exp(logits->data[idx] - max_val);
+                sum_exp += std::exp(logits->data()[idx] - max_val);
             }
 
             size_t target_idx = b * seq_len * vocab_size + t * vocab_size + target_class;
-            float log_softmax = logits->data[target_idx] - max_val - std::log(sum_exp);
+            float log_softmax = logits->data()[target_idx] - max_val - std::log(sum_exp);
 
-            loss->data[0] -= log_softmax;
+            loss->data()[0] -= log_softmax;
         }
     }
 
-    loss->data[0] /= static_cast<float>(batch * seq_len);
+    loss->data()[0] /= static_cast<float>(batch * seq_len);
 
     if (track) {
         auto logits_ptr = logits;
@@ -397,24 +397,24 @@ TensorPtr sequence_cross_entropy(const TensorPtr& logits, const TensorPtr& targe
         loss->parents = {logits_ptr};
 
         loss->grad_fn = [logits_ptr, targets_ptr, loss, batch, seq_len, vocab_size]() {
-            float scale = loss->grad[0] / static_cast<float>(batch * seq_len);
+            float scale = loss->grad()[0] / static_cast<float>(batch * seq_len);
 
             for (size_t b = 0; b < batch; b++) {
                 for (size_t t = 0; t < seq_len; t++) {
-                    int target_class = static_cast<int>(targets_ptr->data[b * seq_len + t]);
+                    int target_class = static_cast<int>(targets_ptr->data()[b * seq_len + t]);
 
                     // Compute softmax for gradient
                     float max_val = -1e30f;
                     for (size_t v = 0; v < vocab_size; v++) {
                         size_t idx = b * seq_len * vocab_size + t * vocab_size + v;
-                        max_val = std::max(max_val, logits_ptr->data[idx]);
+                        max_val = std::max(max_val, logits_ptr->data()[idx]);
                     }
 
                     float sum_exp = 0.0f;
                     std::vector<float> softmax(vocab_size);
                     for (size_t v = 0; v < vocab_size; v++) {
                         size_t idx = b * seq_len * vocab_size + t * vocab_size + v;
-                        softmax[v] = std::exp(logits_ptr->data[idx] - max_val);
+                        softmax[v] = std::exp(logits_ptr->data()[idx] - max_val);
                         sum_exp += softmax[v];
                     }
 
@@ -425,7 +425,7 @@ TensorPtr sequence_cross_entropy(const TensorPtr& logits, const TensorPtr& targe
                         if (static_cast<int>(v) == target_class) {
                             grad -= 1.0f;
                         }
-                        logits_ptr->grad[idx] += scale * grad;
+                        logits_ptr->grad()[idx] += scale * grad;
                     }
                 }
             }
@@ -441,7 +441,7 @@ TensorPtr sequence_cross_entropy(const TensorPtr& logits, const TensorPtr& targe
 size_t count_params(Module* model) {
     size_t total = 0;
     for (auto& p : model->parameters()) {
-        total += p->data.size();
+        total += p->size();
     }
     return total;
 }

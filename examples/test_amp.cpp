@@ -34,11 +34,11 @@ int main() {
         auto t_back = ht.to_float();
 
         float max_err = 0.0f;
-        for (size_t i = 0; i < t->data.size(); i++) {
-            float err = std::abs(t->data[i] - t_back->data[i]);
+        for (size_t i = 0; i < t->size(); i++) {
+            float err = std::abs(t->data()[i] - t_back->data()[i]);
             max_err = std::max(max_err, err);
         }
-        printf("   Original: %zu bytes\n", t->data.size() * sizeof(float));
+        printf("   Original: %zu bytes\n", t->size() * sizeof(float));
         printf("   Half: %zu bytes\n", ht.data.size() * sizeof(uint16_t));
         printf("   Savings: %zu bytes (50%%)\n", ht.memory_saved());
         printf("   Max roundtrip error: %.6f\n", max_err);
@@ -54,7 +54,7 @@ int main() {
         // Scale a loss
         auto loss = Tensor::create({1.0f}, {1}, true);
         auto scaled_loss = scaler.scale(loss);
-        printf("   Loss 1.0 scaled: %.1f\n", scaled_loss->data[0]);
+        printf("   Loss 1.0 scaled: %.1f\n", scaled_loss->data()[0]);
 
         // Create a simple model and optimizer
         Sequential model({new Linear(10, 5)});
@@ -106,8 +106,8 @@ int main() {
             auto pred = model.forward(X);
             auto loss = criterion(pred, Y);
 
-            if (i == 0) initial_loss = loss->data[0];
-            if (i == 99) final_loss = loss->data[0];
+            if (i == 0) initial_loss = loss->data()[0];
+            if (i == 99) final_loss = loss->data()[0];
 
             // Backward with scaled loss
             auto scaled_loss = scaler.scale(loss);

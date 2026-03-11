@@ -173,7 +173,7 @@ void print_digit(const TensorPtr& img, [[maybe_unused]] int row_offset = 0) {
     for (size_t i = 0; i < h; i += 2) {  // Skip every other row for aspect ratio
         printf("    ");
         for (size_t j = 0; j < w; j++) {
-            float val = img->data[i * w + j];
+            float val = img->data()[i * w + j];
             int idx = static_cast<int>(val * (num_chars - 1));
             idx = std::max(0, std::min(num_chars - 1, idx));
             printf("%c", chars[idx]);
@@ -190,11 +190,11 @@ float reconstruction_error(Autoencoder& model, const TensorPtr& images) {
     auto recon = model.forward(images);
 
     float mse = 0.0f;
-    for (size_t i = 0; i < images->data.size(); i++) {
-        float diff = images->data[i] - recon->data[i];
+    for (size_t i = 0; i < images->size(); i++) {
+        float diff = images->data()[i] - recon->data()[i];
         mse += diff * diff;
     }
-    return mse / images->data.size();
+    return mse / images->size();
 }
 
 // =============================================================================
@@ -230,7 +230,7 @@ int main() {
     // Count parameters
     size_t total_params = 0;
     for (auto& p : model.parameters()) {
-        total_params += p->data.size();
+        total_params += p->size();
     }
     printf("Model Parameters: %zu\n\n", total_params);
 
@@ -323,7 +323,7 @@ int main() {
         // Extract single image
         auto single_img = Tensor::create({1, 1, 28, 28}, false);
         for (size_t j = 0; j < 784; j++) {
-            single_img->data[j] = test_images->data[i * 784 + j];
+            single_img->data()[j] = test_images->data()[i * 784 + j];
         }
 
         // Reconstruct
@@ -337,7 +337,7 @@ int main() {
         auto orig_flat = single_img->reshape({28, 28});
         auto recon_flat = recon->reshape({28, 28});
 
-        printf("\nExample %d (Label: %.0f)\n", i + 1, test_labels->data[i]);
+        printf("\nExample %d (Label: %.0f)\n", i + 1, test_labels->data()[i]);
         printf("Original:                    Reconstructed:\n");
 
         const char* chars = " .:-=+*#%@";
@@ -347,7 +347,7 @@ int main() {
             printf("    ");
             // Original
             for (size_t col = 0; col < 28; col++) {
-                float val = orig_flat->data[row * 28 + col];
+                float val = orig_flat->data()[row * 28 + col];
                 int idx = static_cast<int>(val * (num_chars - 1));
                 idx = std::max(0, std::min(num_chars - 1, idx));
                 printf("%c", chars[idx]);
@@ -355,7 +355,7 @@ int main() {
             printf("    ");
             // Reconstructed
             for (size_t col = 0; col < 28; col++) {
-                float val = recon_flat->data[row * 28 + col];
+                float val = recon_flat->data()[row * 28 + col];
                 int idx = static_cast<int>(val * (num_chars - 1));
                 idx = std::max(0, std::min(num_chars - 1, idx));
                 printf("%c", chars[idx]);
@@ -377,18 +377,18 @@ int main() {
     // Find two different digits
     int idx1 = 0, idx2 = 1;
     for (size_t i = 0; i < test_images->shape[0] && idx2 <= idx1; i++) {
-        if (test_labels->data[i] != test_labels->data[idx1]) {
+        if (test_labels->data()[i] != test_labels->data()[idx1]) {
             idx2 = i;
         }
     }
 
     for (size_t j = 0; j < 784; j++) {
-        img1->data[j] = test_images->data[idx1 * 784 + j];
-        img2->data[j] = test_images->data[idx2 * 784 + j];
+        img1->data()[j] = test_images->data()[idx1 * 784 + j];
+        img2->data()[j] = test_images->data()[idx2 * 784 + j];
     }
 
     printf("Interpolating between digit %.0f and digit %.0f:\n\n",
-           test_labels->data[idx1], test_labels->data[idx2]);
+           test_labels->data()[idx1], test_labels->data()[idx2]);
 
     TensorPtr z1, z2;
     {
@@ -407,7 +407,7 @@ int main() {
         // Linear interpolation in latent space
         auto z_interp = Tensor::create({1, latent_dim}, false);
         for (size_t i = 0; i < latent_dim; i++) {
-            z_interp->data[i] = (1.0f - alpha) * z1->data[i] + alpha * z2->data[i];
+            z_interp->data()[i] = (1.0f - alpha) * z1->data()[i] + alpha * z2->data()[i];
         }
 
         TensorPtr decoded;
@@ -426,7 +426,7 @@ int main() {
         printf("    ");
         for (int step = 0; step < num_steps; step++) {
             for (size_t col = 0; col < 28; col++) {
-                float val = interpolations[step]->data[row * 28 + col];
+                float val = interpolations[step]->data()[row * 28 + col];
                 int idx = static_cast<int>(val * (num_chars - 1));
                 idx = std::max(0, std::min(num_chars - 1, idx));
                 printf("%c", chars[idx]);

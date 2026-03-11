@@ -14,7 +14,7 @@ void test_mse_loss_zero() {
 
     auto l = loss(pred, target);
 
-    TEST_ASSERT_NEAR(l->data[0], 0.0f, 1e-6f);
+    TEST_ASSERT_NEAR(l->data()[0], 0.0f, 1e-6f);
 }
 
 void test_mse_loss_nonzero() {
@@ -25,7 +25,7 @@ void test_mse_loss_nonzero() {
     auto l = loss(pred, target);
 
     // MSE = mean((1-2)^2 + (2-3)^2 + (3-4)^2) = mean(1 + 1 + 1) = 1
-    TEST_ASSERT_NEAR(l->data[0], 1.0f, 1e-5f);
+    TEST_ASSERT_NEAR(l->data()[0], 1.0f, 1e-5f);
 }
 
 void test_mse_loss_gradient() {
@@ -38,8 +38,8 @@ void test_mse_loss_gradient() {
 
     // Verify gradients exist and point in the right direction
     // pred < target means gradient should be negative
-    TEST_ASSERT_EQ(pred->grad.size(), 3u);
-    TEST_ASSERT(pred->grad[0] < 0.0f);  // Should be negative since pred < target
+    TEST_ASSERT_EQ(pred->grad_size(), 3u);
+    TEST_ASSERT(pred->grad()[0] < 0.0f);  // Should be negative since pred < target
 }
 
 // =============================================================================
@@ -53,7 +53,7 @@ void test_l1_loss_zero() {
 
     auto l = loss(pred, target);
 
-    TEST_ASSERT_NEAR(l->data[0], 0.0f, 1e-6f);
+    TEST_ASSERT_NEAR(l->data()[0], 0.0f, 1e-6f);
 }
 
 void test_l1_loss_nonzero() {
@@ -64,7 +64,7 @@ void test_l1_loss_nonzero() {
     auto l = loss(pred, target);
 
     // L1 = mean(|1-2| + |2-4| + |3-6|) = mean(1 + 2 + 3) = 2
-    TEST_ASSERT_NEAR(l->data[0], 2.0f, 1e-5f);
+    TEST_ASSERT_NEAR(l->data()[0], 2.0f, 1e-5f);
 }
 
 // =============================================================================
@@ -81,7 +81,7 @@ void test_smooth_l1_loss() {
     // For |diff| < beta (0.5 < 1): 0.5 * diff^2 / beta = 0.5 * 0.25 / 1 = 0.125
     // For |diff| >= beta (2 >= 1): |diff| - 0.5 * beta = 2 - 0.5 = 1.5
     // Mean: (0.125 + 1.5) / 2 = 0.8125
-    TEST_ASSERT_NEAR(l->data[0], 0.8125f, 1e-4f);
+    TEST_ASSERT_NEAR(l->data()[0], 0.8125f, 1e-4f);
 }
 
 // =============================================================================
@@ -102,7 +102,7 @@ void test_cross_entropy_loss() {
     auto l = loss(pred, target);
 
     // CrossEntropy = -log(softmax(pred)[target])
-    TEST_ASSERT(l->data[0] > 0.0f);  // Loss should be positive
+    TEST_ASSERT(l->data()[0] > 0.0f);  // Loss should be positive
 }
 
 void test_cross_entropy_perfect_prediction() {
@@ -117,7 +117,7 @@ void test_cross_entropy_perfect_prediction() {
     auto l = loss(pred, target);
 
     // With very confident prediction, loss should be very small
-    TEST_ASSERT(l->data[0] < 0.1f);
+    TEST_ASSERT(l->data()[0] < 0.1f);
 }
 
 void test_cross_entropy_gradient() {
@@ -129,7 +129,7 @@ void test_cross_entropy_gradient() {
     l->backward();
 
     // Gradient should be softmax(pred) - one_hot(target)
-    TEST_ASSERT_EQ(pred->grad.size(), 3u);
+    TEST_ASSERT_EQ(pred->grad_size(), 3u);
 }
 
 // =============================================================================
@@ -148,7 +148,7 @@ void test_nll_loss() {
     auto l = loss(pred, target);
 
     // NLLLoss = -pred[target] = -log(0.7)
-    TEST_ASSERT_NEAR(l->data[0], -std::log(0.7f), 1e-4f);
+    TEST_ASSERT_NEAR(l->data()[0], -std::log(0.7f), 1e-4f);
 }
 
 // =============================================================================
@@ -165,7 +165,7 @@ void test_bce_loss() {
 
     // BCE = -mean(y*log(p) + (1-y)*log(1-p))
     float expected = -(std::log(0.8f) + std::log(0.8f)) / 2.0f;
-    TEST_ASSERT_NEAR(l->data[0], expected, 1e-4f);
+    TEST_ASSERT_NEAR(l->data()[0], expected, 1e-4f);
 }
 
 void test_bce_loss_perfect() {
@@ -175,7 +175,7 @@ void test_bce_loss_perfect() {
 
     // Clamp prevents log(0), so loss should be very small
     auto l = loss(pred, target);
-    TEST_ASSERT(l->data[0] < 0.1f);
+    TEST_ASSERT(l->data()[0] < 0.1f);
 }
 
 // =============================================================================
@@ -191,7 +191,7 @@ void test_bce_with_logits_loss() {
     auto l = loss(pred, target);
 
     // Sigmoid of 2.0 ~= 0.88, -2.0 ~= 0.12
-    TEST_ASSERT(l->data[0] > 0.0f);  // Loss should be positive
+    TEST_ASSERT(l->data()[0] > 0.0f);  // Loss should be positive
 }
 
 void test_bce_with_logits_gradient() {
@@ -203,8 +203,8 @@ void test_bce_with_logits_gradient() {
     l->backward();
 
     // At logit=0, sigmoid=0.5, grad = sigmoid - target = 0.5 - 1 = -0.5
-    TEST_ASSERT_EQ(pred->grad.size(), 1u);
-    TEST_ASSERT_NEAR(pred->grad[0], -0.5f, 1e-4f);
+    TEST_ASSERT_EQ(pred->grad_size(), 1u);
+    TEST_ASSERT_NEAR(pred->grad()[0], -0.5f, 1e-4f);
 }
 
 // =============================================================================
@@ -224,7 +224,7 @@ void test_kl_div_loss() {
     auto l = loss(pred, target);
 
     // KL should be >= 0 (Gibbs inequality)
-    TEST_ASSERT(l->data[0] >= -1e-5f);
+    TEST_ASSERT(l->data()[0] >= -1e-5f);
 }
 
 void test_kl_div_loss_same() {
@@ -237,7 +237,7 @@ void test_kl_div_loss_same() {
     auto l = loss(pred, target);
 
     // KL divergence with same distribution should be 0
-    TEST_ASSERT_NEAR(l->data[0], 0.0f, 1e-4f);
+    TEST_ASSERT_NEAR(l->data()[0], 0.0f, 1e-4f);
 }
 
 // =============================================================================
@@ -251,7 +251,7 @@ void test_focal_loss() {
 
     auto l = loss(pred, target);
 
-    TEST_ASSERT(l->data[0] > 0.0f);  // Loss should be positive
+    TEST_ASSERT(l->data()[0] > 0.0f);  // Loss should be positive
 }
 
 void test_focal_loss_confident() {
@@ -263,7 +263,7 @@ void test_focal_loss_confident() {
     auto l = loss(pred, target);
 
     // Focal loss should be very small for confident correct predictions
-    TEST_ASSERT(l->data[0] < 1e-5f);
+    TEST_ASSERT(l->data()[0] < 1e-5f);
 }
 
 // =============================================================================
@@ -277,7 +277,7 @@ void test_binary_focal_loss() {
 
     auto l = loss(pred, target);
 
-    TEST_ASSERT(l->data[0] > 0.0f);  // Loss should be positive
+    TEST_ASSERT(l->data()[0] > 0.0f);  // Loss should be positive
 }
 
 void test_binary_focal_loss_hard_example() {
@@ -293,7 +293,7 @@ void test_binary_focal_loss_hard_example() {
     auto l_easy = loss(pred_easy, target);
 
     // Hard example should have higher loss
-    TEST_ASSERT(l_hard->data[0] > l_easy->data[0]);
+    TEST_ASSERT(l_hard->data()[0] > l_easy->data()[0]);
 }
 
 // =============================================================================
@@ -318,7 +318,7 @@ void test_cross_entropy_batch() {
 
     // Set random class labels
     for (size_t i = 0; i < 32; i++) {
-        target->data[i] = static_cast<float>(i % 10);
+        target->data()[i] = static_cast<float>(i % 10);
     }
 
     auto l = loss(pred, target);
