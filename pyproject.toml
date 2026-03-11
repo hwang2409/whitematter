@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61", "pybind11>=2.10"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "whitematter"
+version = "0.1.0"
+description = "Lightweight neural network framework with GPU support"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [{ name = "Whitematter Contributors" }]
+keywords = ["neural-network", "machine-learning", "cpp", "autograd"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = ["pybind11>=2.10"]
+
+[project.urls]
+Homepage = "https://github.com/hwang2409/whitematter"
+Repository = "https://github.com/hwang2409/whitematter"
+
+[tool.setuptools.packages.find]
+where = ["."]
+# No pure Python packages; extension is built in setup.py

@@ -62,6 +62,10 @@ class RefineRequest(BaseModel):
     architecture: Dict[str, Any]
     feedback: str
 
+class PreviewCodeRequest(BaseModel):
+    dataset_id: str
+    architecture: Dict[str, Any]
+
 class CustomTrainRequest(BaseModel):
     dataset_id: str
     architecture: Dict[str, Any]

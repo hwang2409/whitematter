@@ -508,6 +508,27 @@ export async function refineArchitecture(
   return res.json();
 }
 
+export interface PreviewCodeResponse {
+  train_cpp: string;
+  infer_cpp: string;
+}
+
+export async function previewGeneratedCode(
+  datasetId: string,
+  architecture: Architecture
+): Promise<PreviewCodeResponse> {
+  const res = await fetchWithTimeout(`${API_BASE}/design/preview-code`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ dataset_id: datasetId, architecture }),
+  }, 30000);
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || 'Preview failed');
+  }
+  return res.json();
+}
+
 // Custom training API
 export async function startCustomTraining(
   datasetId: string,
@@ -581,6 +602,45 @@ export async function uploadTextDataset(
   if (!res.ok) {
     const error = await res.json();
     throw new Error(error.detail || 'Upload failed');
+  }
+  return res.json();
+}
+
+/** Import a dataset from a public HTTPS URL (ZIP or TXT). */
+export async function importDatasetFromUrl(
+  url: string,
+  name?: string | null
+): Promise<CustomDataset> {
+  const res = await fetchWithTimeout(`${API_BASE}/datasets/import/url`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, name: name || null }),
+  }, 120000);
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.detail || 'Import failed');
+  }
+  return res.json();
+}
+
+/** Import a dataset from Hugging Face Hub (e.g. "username/dataset-name"). */
+export async function importDatasetFromHuggingFace(
+  datasetId: string,
+  options?: { name?: string | null; config?: string | null; split?: string }
+): Promise<CustomDataset> {
+  const res = await fetchWithTimeout(`${API_BASE}/datasets/import/huggingface`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      dataset_id: datasetId,
+      name: options?.name ?? null,
+      config: options?.config ?? null,
+      split: options?.split ?? 'train',
+    }),
+  }, 120000);
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.detail || 'Import failed');
   }
   return res.json();
 }

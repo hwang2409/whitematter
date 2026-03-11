@@ -29,6 +29,8 @@ def store_credentials(req: AWSCredentialRequest,
         encrypted_secret_key=cred_service.encrypt(req.secret_key),
         default_region=req.default_region,
         default_instance_type=req.default_instance_type,
+        endpoint_url=req.endpoint_url or None,
+        provider=req.provider or None,
     )
     db.add(cred)
     db.commit()
@@ -38,6 +40,8 @@ def store_credentials(req: AWSCredentialRequest,
         has_credentials=True,
         default_region=cred.default_region,
         default_instance_type=cred.default_instance_type,
+        endpoint_url=cred.endpoint_url,
+        provider=cred.provider,
         created_at=cred.created_at.isoformat(),
     )
 
@@ -52,6 +56,8 @@ def get_credentials(user: User = Depends(get_current_user),
         has_credentials=True,
         default_region=cred.default_region,
         default_instance_type=cred.default_instance_type,
+        endpoint_url=getattr(cred, "endpoint_url", None),
+        provider=getattr(cred, "provider", None),
         created_at=cred.created_at.isoformat(),
     )
 
@@ -69,6 +75,8 @@ def update_credentials(req: AWSCredentialRequest,
     cred.encrypted_secret_key = cred_service.encrypt(req.secret_key)
     cred.default_region = req.default_region
     cred.default_instance_type = req.default_instance_type
+    cred.endpoint_url = req.endpoint_url or None
+    cred.provider = req.provider or None
     db.commit()
     db.refresh(cred)
 
@@ -76,6 +84,8 @@ def update_credentials(req: AWSCredentialRequest,
         has_credentials=True,
         default_region=cred.default_region,
         default_instance_type=cred.default_instance_type,
+        endpoint_url=cred.endpoint_url,
+        provider=cred.provider,
         created_at=cred.created_at.isoformat(),
     )
 

@@ -26,6 +26,13 @@ export default function DatasetsTab({ onDatasetSelect, onUpdate }: Props) {
   const [textPreview, setTextPreview] = useState<api.TextPreview | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Import from URL / Hugging Face
+  const [importUrl, setImportUrl] = useState('');
+  const [importHfId, setImportHfId] = useState('');
+  const [importName, setImportName] = useState('');
+  const [importHfSplit, setImportHfSplit] = useState<'train' | 'validation' | 'test'>('train');
+  const [importing, setImporting] = useState(false);
+
   // Confirm dialog state
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
@@ -125,6 +132,71 @@ export default function DatasetsTab({ onDatasetSelect, onUpdate }: Props) {
     e.preventDefault();
   }
 
+  async function handleImportFromUrl() {
+    const url = importUrl.trim();
+    if (!url) {
+      setError('Enter a URL');
+      return;
+    }
+    setImporting(true);
+    setError('');
+    try {
+      const dataset = await api.importDatasetFromUrl(url, importName.trim() || undefined);
+      setDatasets((prev) => [dataset, ...prev]);
+      setImportUrl('');
+      setImportName('');
+      setUploadedDataset(dataset);
+      setSelectedDataset(dataset);
+      try {
+        const previewData = await api.getDatasetPreview(dataset.id);
+        setUploadPreview(previewData.samples || []);
+        if (dataset.data_type === 'text' && (previewData as any).text_preview) {
+          setTextPreview((previewData as any).text_preview);
+        }
+      } catch {
+        setUploadPreview([]);
+      }
+    } catch (e: any) {
+      setError(e.message || 'Import failed');
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function handleImportFromHf() {
+    const id = importHfId.trim();
+    if (!id) {
+      setError('Enter a Hugging Face dataset ID (e.g. username/dataset-name)');
+      return;
+    }
+    setImporting(true);
+    setError('');
+    try {
+      const dataset = await api.importDatasetFromHuggingFace(id, {
+        name: importName.trim() || undefined,
+        split: importHfSplit,
+      });
+      setDatasets((prev) => [dataset, ...prev]);
+      setImportHfId('');
+      setImportName('');
+      setUploadedDataset(dataset);
+      setSelectedDataset(dataset);
+      try {
+        const previewData = await api.getDatasetPreview(dataset.id);
+        setUploadPreview(previewData.samples || []);
+        if (dataset.data_type === 'text' && (previewData as any).text_preview) {
+          setTextPreview((previewData as any).text_preview);
+        }
+      } catch {
+        setUploadPreview([]);
+      }
+    } catch (e: any) {
+      setError(e.message || 'Import failed');
+    } finally {
+      setImporting(false);
+    }
+  }
+
   async function handleUpload() {
     if (!file) {
       setError('Please select a file');
@@ -219,9 +291,88 @@ export default function DatasetsTab({ onDatasetSelect, onUpdate }: Props) {
 
       {error && <div className="error">{error}</div>}
 
+      {/* Import from URL */}
+      <div className="import-section">
+        <h3>Import from URL</h3>
+        <p className="help-text">
+          Public HTTPS link to a ZIP (images) or TXT (text) file. Max 1 GB.
+        </p>
+        <div className="form-row import-row">
+          <input
+            type="url"
+            value={importUrl}
+            onChange={(e) => setImportUrl(e.target.value)}
+            placeholder="https://example.com/dataset.zip"
+            disabled={importing}
+            className="import-url-input"
+          />
+          <input
+            type="text"
+            value={importName}
+            onChange={(e) => setImportName(e.target.value)}
+            placeholder="Dataset name (optional)"
+            disabled={importing}
+            className="import-name-input"
+          />
+          <button
+            type="button"
+            className="btn secondary"
+            onClick={handleImportFromUrl}
+            disabled={!importUrl.trim() || importing}
+          >
+            {importing ? 'Importing...' : 'Import'}
+          </button>
+        </div>
+      </div>
+
+      {/* Import from Hugging Face */}
+      <div className="import-section">
+        <h3>Import from Hugging Face</h3>
+        <p className="help-text">
+          Dataset ID from the Hub (e.g. <code>username/dataset-name</code>). Image (image + label) or text datasets. Limits: 50k image rows, 100k text rows.
+        </p>
+        <div className="form-row import-row">
+          <input
+            type="text"
+            value={importHfId}
+            onChange={(e) => setImportHfId(e.target.value)}
+            placeholder="username/dataset-name"
+            disabled={importing}
+            className="import-url-input"
+          />
+          <input
+            type="text"
+            value={importName}
+            onChange={(e) => setImportName(e.target.value)}
+            placeholder="Dataset name (optional)"
+            disabled={importing}
+            className="import-name-input"
+          />
+          <select
+            value={importHfSplit}
+            onChange={(e) => setImportHfSplit(e.target.value as 'train' | 'validation' | 'test')}
+            disabled={importing}
+            className="import-split-select"
+            title="Split"
+          >
+            <option value="train">train</option>
+            <option value="validation">validation</option>
+            <option value="test">test</option>
+          </select>
+          <button
+            type="button"
+            className="btn secondary"
+            onClick={handleImportFromHf}
+            disabled={!importHfId.trim() || importing}
+          >
+            {importing ? 'Importing...' : 'Import'}
+          </button>
+        </div>
+      </div>
+
       {/* Upload Section */}
       <div className="upload-section">
-        <h3>Upload New Dataset</h3>
+        <h3>Upload from device</h3>
         <p className="help-text">
           Upload a ZIP file for images, or a TXT file for text/language model training.
         </p>
