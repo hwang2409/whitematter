@@ -1,3 +1,4 @@
+"use client";
 import { Component, ReactNode } from 'react';
 
 interface Props {

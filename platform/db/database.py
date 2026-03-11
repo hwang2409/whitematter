@@ -23,15 +23,15 @@ DATA_DIR = Path(os.environ.get("WHITEMATTER_DATA_DIR", DEFAULT_DATA_DIR))
 # Ensure data directory exists
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-# Database URL
+# Database URL (defaults to SQLite for dev)
 DATABASE_URL = os.environ.get(
-    "WHITEMATTER_DATABASE_URL",
+    "DATABASE_URL",
     f"sqlite:///{DATA_DIR / 'whitematter.db'}"
 )
 
 # Create engine
 # For SQLite, we need special settings for thread safety
-if DATABASE_URL.startswith("sqlite"):
+if DATABASE_URL.startswith("sqlite://"):
     engine = create_engine(
         DATABASE_URL,
         connect_args={"check_same_thread": False},

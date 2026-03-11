@@ -1,8 +1,6 @@
-// API base URL - empty string uses relative URLs which works with:
-// 1. Vite dev server proxy (configured in vite.config.ts)
-// 2. Nginx proxy in Docker
-// Set VITE_API_BASE environment variable to override
-const API_BASE = import.meta.env.VITE_API_BASE || '';
+// API base URL - empty string uses relative URLs (Next.js rewrites to backend)
+// Set NEXT_PUBLIC_API_BASE environment variable to override
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "";
 
 // Request timeout in milliseconds (30 seconds)
 const REQUEST_TIMEOUT = 30000;
