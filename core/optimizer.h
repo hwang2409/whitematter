@@ -266,7 +266,8 @@ public:
           best_(baseline),
           best_epoch_(-1),
           stopped_epoch_(-1),
-          should_stop_(false) {
+          should_stop_(false),
+          first_step_(std::isnan(baseline)) {
         // Adjust min_delta sign based on mode
         if (!mode_min_) {
             min_delta_ = -min_delta_;
@@ -278,8 +279,9 @@ public:
     bool step(float metric) {
         if (should_stop_) return true;
 
-        // Initialize best on first call if not set
-        if (std::isnan(best_)) {
+        // Initialize best on first call when no baseline was provided (avoids NaN check under -ffast-math)
+        if (first_step_) {
+            first_step_ = false;
             best_ = metric;
             best_epoch_ = 0;
             return false;
@@ -315,6 +317,7 @@ public:
         best_epoch_ = -1;
         stopped_epoch_ = -1;
         should_stop_ = false;
+        first_step_ = true;
     }
 
     // Getters
@@ -337,6 +340,7 @@ private:
     int best_epoch_;
     int stopped_epoch_;
     bool should_stop_;
+    bool first_step_;  // true until first step() when no baseline was provided
 };
 
 // =============================================================================
