@@ -218,4 +218,86 @@ This file records plans I implemented in the whitematter project. Add new entrie
 
 ---
 
+## 10. Dataset import (URL, Hugging Face) and S3-compatible storage (R2/B2)
+
+**Summary:** Users can import datasets from a public HTTPS URL (ZIP or TXT), from Hugging Face Hub by dataset ID, and can connect Cloudflare R2 or Backblaze B2 (and other S3-compatible storage) in addition to AWS S3.
+
+### Backend
+
+- **Import from URL** (`POST /datasets/import/url`)
+  - `services/url_fetcher.py`: Secure fetch (HTTPS only, 1 GB max, timeout). Returns content, content-type, suggested filename.
+  - Route: fetch URL → if ZIP use legacy dataset_manager path; if TXT use dataset_service.upload_text. Name from request or inferred from URL/filename.
+- **Import from Hugging Face** (`POST /datasets/import/huggingface`)
+  - `services/huggingface_import.py`: Load via `datasets`; auto-detect image (image + label columns) or text. Image: build folder-per-class ZIP in memory → dataset_service.upload_zip. Text: concatenate text column → dataset_service.upload_text. Limits: 50k image rows, 100k text rows, 10M text chars.
+  - Schemas: `schemas/import_schemas.py` (ImportFromUrlRequest, ImportFromHuggingFaceRequest).
+- **S3-compatible storage**
+  - `db/auth_models.py`: AWSCredential extended with optional `endpoint_url` and `provider` (aws|r2|b2|custom).
+  - Migration `d58bb00add0e_add_s3_compatible_endpoint.py`: add columns to aws_credentials.
+  - `services/s3_service.py`: All methods accept optional `endpoint_url`; boto3 client uses it when set (R2, B2, MinIO). create_bucket skips LocationConstraint when endpoint_url is set.
+  - `routes/storage.py`: Pass `cred.endpoint_url` into every S3Service call.
+  - `routes/credentials.py` + `schemas/credential_schemas.py`: Request/response include endpoint_url and provider.
+
+### Frontend
+
+- **Data page:** Route `/data` has two tabs: **Datasets** (import + upload) and **S3 Storage** (buckets/objects). `DataPage.tsx` wraps `DatasetsTab` and `S3ManagerPage`.
+- **Datasets tab:** “Import from URL” (URL input, optional name, Import); “Import from Hugging Face” (dataset ID, optional name, split: train/validation/test, Import). Same loading/error/success and preview as upload. API: 120s timeout for both imports.
+- **Settings (AWS):** Provider dropdown: AWS S3, Cloudflare R2, Backblaze B2, Other S3-compatible. When not AWS, show Endpoint URL field with placeholder. Credential payload sends endpoint_url and provider.
+- **API:** `importDatasetFromUrl(url, name?)`, `importDatasetFromHuggingFace(datasetId, options?)`. `aws.CredentialData` and store/update pass endpoint_url and provider.
+
+### Dependencies
+
+- `platform/requirements.txt`: added `datasets>=2.18.0`, `huggingface_hub>=0.21.0`.
+
+### Tests
+
+- `platform/tests/test_url_fetcher.py`: Rejects HTTP, rejects invalid URL.
+
+---
+
+## 11. Minimal, friendly UI with Material UI (Apple-inspired)
+
+**Summary:** The frontend was updated to use Material UI (MUI) with a minimal, friendly, Apple-inspired dark theme. Login, Register, home loading, authenticated layout (header + tabs), and Dashboard were rebuilt with MUI components for consistent typography, spacing, and accessibility.
+
+### Changes
+
+- **Dependencies:** Added `@mui/material`, `@emotion/react`, `@emotion/styled`, `@mui/icons-material`.
+- **Theme (`frontend/src/theme.ts`):** New file. Dark palette, 12px border radius, system font stack, refined Button/TextField/Paper/AppBar/Card overrides; no heavy shadows, subtle borders.
+- **Providers (`frontend/src/app/providers.tsx`):** Wrapped app with MUI `ThemeProvider` and `CssBaseline`.
+- **Auth pages (`frontend/src/views/LoginPage.tsx`, `RegisterPage.tsx`):** Rebuilt with MUI `Paper`, `TextField` (with icon adornments), `Button`, `Alert`, `Link` (with Next.js `NextLink`); centered card layout, clear hierarchy. Removed dependency on `AuthPages.css` for layout (CSS file left in repo).
+- **Authenticated layout (`frontend/src/app/(authenticated)/layout.tsx`):** Replaced custom header/nav with MUI `AppBar`, `Toolbar`, `Tabs`, `Tab` (with Next.js `Link` for routing), `Chip` for model count; loading state uses `CircularProgress`.
+- **Dashboard (`frontend/src/views/DashboardPage.tsx`):** Rebuilt with MUI `Card`, `CardActionArea`, `CardContent`, `Stack`, icons (Dataset, School, Psychology, Settings), short sublabels per action.
+- **Home page (`frontend/src/app/page.tsx`):** Loading state uses MUI `Box` and `CircularProgress`.
+
+Existing views (Data, Train, Models, Predict, Settings) and `App.css` unchanged; they render inside the new MUI layout and paper content area.
+
+### Verification
+
+- `npm run build` in `frontend` completes successfully.
+
+---
+
+## 12. Viral Product Polish: Distribution and UX
+
+**Summary:** Implemented the three-phase Viral Product Polish plan: (1) distribution and one-line boot — root `pyproject.toml`/`setup.py` for `pip install whitematter`, root `CMakeLists.txt` (FetchContent-friendly), `install.sh` and README updates; (2) viral UX — architecture graph with `@xyflow/react` and code sandbox preview (`POST /design/preview-code` + frontend viewer); (3) edit-and-sync — editable layer params in the Train tab so Refine, Preview code, and Train all use the edited architecture.
+
+### Changes
+
+- **Phase 1 — Friction layer**
+  - **Root Python package:** `setup.py` and `pyproject.toml` at repo root build the C++ extension from `core/` and `bindings/`; Dockerfile python-builder stage now copies root `setup.py`, `pyproject.toml`, `core/`, `bindings/` and runs `pip wheel .`.
+  - **CMake:** `CMakeLists.txt` at root builds static library `whitematter` from core + datasets, optional Metal/CUDA (OFF by default), OpenMP when found; install targets for FetchContent consumers.
+  - **One-line boot:** `install.sh` checks Docker and Docker Compose, runs `docker compose up -d` from repo or clones repo then runs; README “Distribution” section documents pip, CMake, and curl \| bash one-liner.
+
+- **Phase 2 — Viral UX**
+  - **Architecture graph:** New `frontend/src/components/ArchitectureGraph.tsx` using `@xyflow/react`: one node per layer (label from type + key params), edges in sequence; integrated above the layer list in TrainTab with `.architecture-graph-section` styles.
+  - **Code preview:** Backend `POST /design/preview-code` in `platform/routes/design.py` (body: `dataset_id`, `architecture`); resolves `dataset_config` from processed blobs or dataset metadata, calls `code_generator.generate` into a temp dir, returns `train_cpp`/`infer_cpp` strings. Frontend `api.previewGeneratedCode`, “Preview generated code” button and expandable read-only panels for `train.cpp`/`infer.cpp` in TrainTab. Schema `PreviewCodeRequest` in `platform/schemas/__init__.py`.
+
+- **Phase 3 — Edit-and-sync**
+  - **Editable layers:** TrainTab layer list replaced with editable rows: each layer shows type (read-only) and per-param inputs; `handleLayerParamChange` updates `architecture` state so Refine, Preview code, and Start Training use the edited architecture. Hint text: “Edits here are included when you Refine, Preview code, or Train.” CSS: `.layers-list-editable`, `.layer-item-editable`, `.layer-params-editable`, `.layer-param-field`.
+
+### Verification
+
+- Frontend `npm run build` succeeds. Platform `from schemas import PreviewCodeRequest` and `from routes.design import preview_code` import successfully.
+
+---
+
 *When you implement another plan, add a new numbered section above this line.*
