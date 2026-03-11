@@ -1,0 +1,54 @@
+.aws-setup-page {
+  max-width: 480px;
+}
+
+.aws-setup-page h2 {
+  margin-bottom: 0.5rem;
+}
+
+.aws-setup-desc,
+.aws-setup-status {
+  color: var(--gray-400);
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+}
+
+.aws-setup-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.aws-setup-form input,
+.aws-setup-form select {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--gray-600);
+  border-radius: 6px;
+  background: var(--gray-900);
+  color: var(--white);
+}
+
+.aws-setup-message {
+  font-size: 0.875rem;
+  color: var(--gray-300);
+}
+
+.aws-setup-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.aws-setup-buttons button {
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  border: none;
+  background: var(--blue-500);
+  color: white;
+  cursor: pointer;
+}
+
+.aws-setup-delete {
+  background: transparent !important;
+  border: 1px solid var(--gray-600) !important;
+  color: var(--gray-400) !important;
+}

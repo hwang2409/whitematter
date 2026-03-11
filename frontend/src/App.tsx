@@ -8,11 +8,14 @@ import PredictTab from './components/PredictTab';
 import { useAuth } from './context/AuthContext';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
+import DashboardPage from './pages/DashboardPage';
+import S3ManagerPage from './pages/S3ManagerPage';
+import AWSSetupPage from './pages/AWSSetupPage';
 import { getCustomDatasets, getModels } from './api';
 import type { CustomDataset, Model, Architecture } from './api';
 import './App.css';
 
-type Step = 'data' | 'train' | 'models' | 'predict';
+type Step = 'dashboard' | 'data' | 'train' | 'models' | 'predict' | 'settings';
 
 interface DesignHelperContext {
   datasetType?: string;
@@ -26,7 +29,7 @@ interface ChatMessage {
 
 function App() {
   const { user, loading, logout } = useAuth();
-  const [activeStep, setActiveStep] = useState<Step>('data');
+  const [activeStep, setActiveStep] = useState<Step>('dashboard');
   const [datasets, setDatasets] = useState<CustomDataset[]>([]);
   const [models, setModels] = useState<Model[]>([]);
   const [selectedDataset, setSelectedDataset] = useState<string | null>(null);
@@ -61,7 +64,7 @@ function App() {
     if (step === activeStep) return 'active';
     switch (step) {
       case 'data':
-        return readyDatasets.length > 0 ? 'complete' : 'pending';
+        return 'pending';
       case 'train':
         return completedModels.length > 0 ? 'complete' : 'pending';
       case 'models':
@@ -109,59 +112,53 @@ function App() {
       {/* Workflow Navigation */}
       <nav className="workflow-nav">
         <button
+          className={`workflow-step ${getStepStatus('dashboard')}`}
+          onClick={() => setActiveStep('dashboard')}
+        >
+          <span className="step-label">Dashboard</span>
+        </button>
+        <button
           className={`workflow-step ${getStepStatus('data')}`}
           onClick={() => setActiveStep('data')}
         >
-          <span className="step-num">{getStepStatus('data') === 'complete' ? '✓' : '1'}</span>
-          <span className="step-label">Data</span>
-          {readyDatasets.length > 0 && (
-            <span className="step-badge">{readyDatasets.length}</span>
-          )}
+          <span className="step-label">Data (S3)</span>
         </button>
-
-        <div className="workflow-connector" />
-
         <button
           className={`workflow-step ${getStepStatus('train')}`}
           onClick={() => setActiveStep('train')}
         >
-          <span className="step-num">{getStepStatus('train') === 'complete' ? '✓' : '2'}</span>
+          <span className="step-num">{getStepStatus('train') === 'complete' ? '✓' : ''}</span>
           <span className="step-label">Train</span>
         </button>
-
-        <div className="workflow-connector" />
-
         <button
           className={`workflow-step ${getStepStatus('models')}`}
           onClick={() => setActiveStep('models')}
         >
-          <span className="step-num">{completedModels.length > 0 ? '✓' : '3'}</span>
+          <span className="step-num">{completedModels.length > 0 ? '✓' : ''}</span>
           <span className="step-label">Models</span>
           {completedModels.length > 0 && (
             <span className="step-badge">{completedModels.length}</span>
           )}
         </button>
-
-        <div className="workflow-connector" />
-
         <button
           className={`workflow-step ${getStepStatus('predict')}`}
           onClick={() => setActiveStep('predict')}
         >
-          <span className="step-num">4</span>
           <span className="step-label">Predict</span>
+        </button>
+        <button
+          className={`workflow-step ${getStepStatus('settings')}`}
+          onClick={() => setActiveStep('settings')}
+        >
+          <span className="step-label">Settings</span>
         </button>
       </nav>
 
       <div className="app-body">
         {/* Main Content */}
         <main className="content">
-          {activeStep === 'data' && (
-            <DatasetsTab
-              onDatasetSelect={(id) => setSelectedDataset(id)}
-              onUpdate={loadData}
-            />
-          )}
+          {activeStep === 'dashboard' && <DashboardPage />}
+          {activeStep === 'data' && <S3ManagerPage />}
           {activeStep === 'train' && (
             <TrainTab
               datasets={readyDatasets}
@@ -186,6 +183,7 @@ function App() {
               onModelChange={setSelectedModel}
             />
           )}
+          {activeStep === 'settings' && <AWSSetupPage />}
         </main>
 
         {/* Design Helper Sidebar */}
