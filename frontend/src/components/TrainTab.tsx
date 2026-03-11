@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import * as api from '@/api';
 import TrainingChart from './TrainingChart';
+import ArchitectureGraph from './ArchitectureGraph';
 
 type TrainMode = 'quick' | 'custom';
 
@@ -67,6 +68,8 @@ export default function TrainTab({
   const [feedback, setFeedback] = useState('');
   const [generating, setGenerating] = useState(false);
   const [refining, setRefining] = useState(false);
+  const [codePreview, setCodePreview] = useState<api.PreviewCodeResponse | null>(null);
+  const [codePreviewLoading, setCodePreviewLoading] = useState(false);
 
   // Shared training state
   const [training, setTraining] = useState(false);
@@ -285,6 +288,44 @@ export default function TrainTab({
     } finally {
       setRefining(false);
     }
+  }
+
+  async function handlePreviewCode() {
+    if (!selectedDatasetId || !architecture) return;
+    setCodePreviewLoading(true);
+    setCodePreview(null);
+    setError('');
+    try {
+      const result = await api.previewGeneratedCode(selectedDatasetId, architecture);
+      setCodePreview(result);
+    } catch (e: any) {
+      setError(e.message || 'Failed to preview code');
+    } finally {
+      setCodePreviewLoading(false);
+    }
+  }
+
+  function handleLayerParamChange(
+    layerIndex: number,
+    paramKey: string,
+    value: string | number
+  ) {
+    if (!architecture) return;
+    const prev = architecture.layers[layerIndex].params[paramKey];
+    const isNumericParam = typeof prev === 'number';
+    const paramValue =
+      isNumericParam && typeof value === 'string'
+        ? (value === '' ? 0 : parseFloat(value))
+        : value;
+    const final = isNumericParam && typeof paramValue === 'number' && Number.isNaN(paramValue) ? prev : paramValue;
+    setArchitecture({
+      ...architecture,
+      layers: architecture.layers.map((layer, i) =>
+        i === layerIndex
+          ? { ...layer, params: { ...layer.params, [paramKey]: final } }
+          : layer
+      ),
+    });
   }
 
   // Training handlers
@@ -739,19 +780,43 @@ export default function TrainTab({
                 </div>
               )}
 
-              {/* Layer Summary */}
+              {/* Architecture graph */}
+              <div className="architecture-graph-section">
+                <h4>Architecture</h4>
+                <ArchitectureGraph architecture={architecture} />
+              </div>
+
+              {/* Layer Summary (editable); edits are used by Refine, Preview code, and Train */}
               <div className="layers-section">
                 <h4>Layers ({architecture.layers.length})</h4>
-                <div className="layers-list">
+                <p className="help-text layers-edit-hint">Edits here are included when you Refine, Preview code, or Train.</p>
+                <div className="layers-list layers-list-editable">
                   {architecture.layers.map((layer, i) => (
-                    <div key={i} className="layer-item">
-                      <span className="layer-index">{i + 1}</span>
-                      <span className="layer-type">{layer.type}</span>
-                      <span className="layer-params">
-                        {Object.entries(layer.params)
-                          .map(([k, v]) => `${k}=${v}`)
-                          .join(', ')}
-                      </span>
+                    <div key={i} className="layer-item layer-item-editable">
+                      <div className="layer-item-header">
+                        <span className="layer-index">{i + 1}</span>
+                        <span className="layer-type">{layer.type}</span>
+                      </div>
+                      <div className="layer-params-editable">
+                        {Object.entries(layer.params).map(([k, v]) => (
+                          <label key={k} className="layer-param-field">
+                            <span className="layer-param-label">{k}</span>
+                            <input
+                              type={typeof v === 'number' ? 'number' : 'text'}
+                              value={v}
+                              onChange={(e) =>
+                                handleLayerParamChange(
+                                  i,
+                                  k,
+                                  typeof v === 'number' ? e.target.value : e.target.value
+                                )
+                              }
+                              disabled={training}
+                              step={typeof v === 'number' && !Number.isInteger(v) ? 'any' : 1}
+                            />
+                          </label>
+                        ))}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -787,6 +852,33 @@ export default function TrainTab({
                 <summary>View Full JSON</summary>
                 <pre className="json-view">{JSON.stringify(architecture, null, 2)}</pre>
               </details>
+
+              {/* Code preview */}
+              <div className="code-preview-section">
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={handlePreviewCode}
+                  disabled={codePreviewLoading || training || (validation !== null && !validation.valid)}
+                >
+                  {codePreviewLoading ? 'Generating...' : 'Preview generated code'}
+                </button>
+                {codePreview && (
+                  <details className="code-preview-details" open>
+                    <summary>Generated C++ (read-only)</summary>
+                    <div className="code-preview-panels">
+                      <div className="code-preview-panel">
+                        <h5>train.cpp</h5>
+                        <pre className="code-preview-pre">{codePreview.train_cpp}</pre>
+                      </div>
+                      <div className="code-preview-panel">
+                        <h5>infer.cpp</h5>
+                        <pre className="code-preview-pre">{codePreview.infer_cpp}</pre>
+                      </div>
+                    </div>
+                  </details>
+                )}
+              </div>
 
               {/* Refinement */}
               <div className="refinement-section">

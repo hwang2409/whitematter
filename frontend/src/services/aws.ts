@@ -4,10 +4,16 @@ function authHeaders(token: string) {
   return { Authorization: `Bearer ${token}` };
 }
 
-export async function storeCredentials(
-  token: string,
-  data: { access_key: string; secret_key: string; default_region?: string; default_instance_type?: string }
-) {
+export type CredentialData = {
+  access_key: string;
+  secret_key: string;
+  default_region?: string;
+  default_instance_type?: string;
+  endpoint_url?: string | null;
+  provider?: string | null;
+};
+
+export async function storeCredentials(token: string, data: CredentialData) {
   const res = await fetch(`${API_BASE}/credentials/aws`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...authHeaders(token) },
@@ -26,10 +32,7 @@ export async function getCredentials(token: string) {
   return res.json();
 }
 
-export async function updateCredentials(
-  token: string,
-  data: { access_key: string; secret_key: string; default_region?: string; default_instance_type?: string }
-) {
+export async function updateCredentials(token: string, data: CredentialData) {
   const res = await fetch(`${API_BASE}/credentials/aws`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", ...authHeaders(token) },
