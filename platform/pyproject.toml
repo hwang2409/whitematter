@@ -1,16 +1,14 @@
 [build-system]
-requires = ["setuptools>=61.0", "pybind11>=2.10"]
+requires = ["setuptools>=68.0", "pybind11>=2.11.0"]
 build-backend = "setuptools.build_meta"
 
-[project]
-name = "whitematter"
-version = "0.1.0"
-description = "Whitematter ML inference module"
-requires-python = ">=3.8"
-dependencies = [
-    "pybind11>=2.10",
-]
+[tool.cibuildwheel]
+build = "cp311-* cp312-*"
+skip = "*-win* *-musllinux*"
+test-command = "python -c \"import whitematter; print('OK')\""
 
-[tool.setuptools]
-py-modules = []
-packages = []
+[tool.cibuildwheel.linux]
+before-build = "yum install -y libomp-devel || apt-get install -y libomp-dev"
+
+[tool.cibuildwheel.macos]
+before-build = "brew install libomp"
