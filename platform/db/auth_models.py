@@ -1,4 +1,3 @@
-"""Auth and BYOC database models."""
 import enum
 import uuid
 from datetime import datetime
@@ -41,6 +40,9 @@ class AWSCredential(Base):
     encrypted_secret_key = Column(LargeBinary, nullable=False)
     default_region = Column(String(30), default="us-east-1")
     default_instance_type = Column(String(30), default="g4dn.xlarge")
+    # S3-compatible storage: when set, use this endpoint (R2, B2, MinIO, etc.)
+    endpoint_url = Column(String(512), nullable=True)
+    provider = Column(String(20), nullable=True)  # 'aws' | 'r2' | 'b2' | 'custom'
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

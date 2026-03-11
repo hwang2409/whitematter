@@ -20,6 +20,42 @@ gunzip *.gz && cd ..
 ./build/ml
 ```
 
+## Distribution
+
+**Python (pip install from repo root)**
+
+```bash
+pip install .
+# or for development: pip install -e .
+import whitematter as wm
+```
+
+To publish to PyPI: build with `python -m build`, upload with `twine upload dist/*`.
+
+**C++ (CMake / FetchContent)**
+
+From another CMake project:
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(whitematter
+  GIT_REPOSITORY https://github.com/hwang2409/whitematter
+  GIT_TAG main
+)
+FetchContent_MakeAvailable(whitematter)
+target_link_libraries(your_app PRIVATE whitematter)
+```
+
+Build options: `-DWHITEMATTER_METAL=ON` (macOS), `-DWHITEMATTER_CUDA=ON` (GPU).
+
+**One-line platform boot (Docker)**
+
+```bash
+curl -sSL https://raw.githubusercontent.com/hwang2409/whitematter/main/install.sh | bash
+```
+
+Or from a clone: `./install.sh`. Requires Docker and Docker Compose. API: http://localhost:8080, Frontend: http://localhost:5173. Optional: `ANTHROPIC_API_KEY=sk-... ./install.sh` for LLM features.
+
 ## Framework Structure
 
 ```
@@ -1506,6 +1542,10 @@ The React frontend uses a CSS design system with semantic tokens for consistent 
 | `/api/{model_id}/info` | GET | Get model metadata |
 
 ### Running the Platform
+
+**Option A — One command (Docker):** From repo root run `./install.sh`, or use the [one-line install](#distribution) (curl \| bash).
+
+**Option B — Local dev:**
 
 ```bash
 # Build the C++ framework first

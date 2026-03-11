@@ -1,6 +1,6 @@
 "use client";
-import S3ManagerPage from "@/views/S3ManagerPage";
+import DataPage from "@/views/DataPage";
 
 export default function DataRoute() {
-  return <S3ManagerPage />;
+  return <DataPage />;
 }
