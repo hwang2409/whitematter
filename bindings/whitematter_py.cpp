@@ -34,18 +34,17 @@ static TensorPtr tensor_from_numpy_int_labels(py::array arr, bool requires_grad 
     size_t n = static_cast<size_t>(buf.shape[0]);
     auto t = Tensor::create({n}, requires_grad);
     float* out = t->data();
-    if (buf.format == py::format_descriptor<float>::format()) {
+    if (buf.itemsize == sizeof(float)) {
         const float* ptr = static_cast<const float*>(buf.ptr);
         std::copy(ptr, ptr + n, out);
-    } else if (buf.format == py::format_descriptor<int>::format() ||
-               buf.format == py::format_descriptor<int32_t>::format()) {
+    } else if (buf.itemsize == sizeof(int32_t)) {
         const int32_t* ptr = static_cast<const int32_t*>(buf.ptr);
         for (size_t i = 0; i < n; i++) out[i] = static_cast<float>(ptr[i]);
-    } else if (buf.format == py::format_descriptor<int64_t>::format()) {
+    } else if (buf.itemsize == sizeof(int64_t)) {
         const int64_t* ptr = static_cast<const int64_t*>(buf.ptr);
         for (size_t i = 0; i < n; i++) out[i] = static_cast<float>(ptr[i]);
     } else {
-        throw std::runtime_error("Label array must be float, int32, or int64");
+        throw std::runtime_error("Label array must be float (4 bytes), int32 (4 bytes), or int64 (8 bytes); got itemsize " + std::to_string(buf.itemsize));
     }
     return t;
 }
@@ -344,16 +343,16 @@ PYBIND11_MODULE(whitematter, m) {
     m.def("grad_enabled", &GradMode::is_enabled, "Return True if gradient tracking is enabled.");
     m.def("set_grad_enabled", &GradMode::set_enabled, py::arg("enabled"), "Set gradient tracking on/off.");
 
-    // ============== Module & Layers (use unique_ptr so layers can be transferred into Sequential) ==============
-    py::class_<Module>(m, "Module", "Base class for all layers and models.")
-        .def("forward", [](Module& m, const TensorPtr& x) { return m.forward(x); })
-        .def("parameters", [](Module& m) { return m.parameters(); })
-        .def("__call__", [](Module& m, const TensorPtr& x) { return m.forward(x); });
+    // ============== Module & Layers (shared_ptr so Python and Sequential share ownership) ==============
+    py::class_<Module, std::shared_ptr<Module>>(m, "Module", "Base class for all layers and models.")
+        .def("forward", [](Module& mod, const TensorPtr& x) { return mod.forward(x); })
+        .def("parameters", [](Module& mod) { return mod.parameters(); })
+        .def("__call__", [](Module& mod, const TensorPtr& x) { return mod.forward(x); });
 
-    py::class_<Sequential, Module, std::unique_ptr<Sequential>>(m, "Sequential", "Container that runs layers in sequence; use add() to build a model.")
+    py::class_<Sequential, Module, std::shared_ptr<Sequential>>(m, "Sequential", "Container that runs layers in sequence; use add() to build a model.")
         .def(py::init<>())
-        .def("add", [](Sequential& s, std::unique_ptr<Module> mod) { s.add(mod.release()); }, py::arg("module"),
-            "Add a layer (ownership is transferred; do not use the layer object after adding).")
+        .def("add", [](Sequential& s, std::shared_ptr<Module> mod) { s.add(mod); }, py::arg("module"),
+            "Add a layer to the sequence.")
         .def("forward", [](Sequential& s, const TensorPtr& x) { return s.forward(x); })
         .def("parameters", [](Sequential& s) { return s.parameters(); })
         .def("train", [](Sequential& s) { s.train(); })
@@ -366,21 +365,21 @@ PYBIND11_MODULE(whitematter, m) {
             s.summary(shape);
         }, py::arg("input_shape") = py::none(), "Print model summary (optional input_shape, e.g. [1,1,28,28] for MNIST).");
 
-    py::class_<Linear, Module, std::unique_ptr<Linear>>(m, "Linear", "Fully connected layer: in_features -> out_features.")
+    py::class_<Linear, Module, std::shared_ptr<Linear>>(m, "Linear", "Fully connected layer: in_features -> out_features.")
         .def(py::init<size_t, size_t>(), py::arg("in_features"), py::arg("out_features"));
 
-    py::class_<Conv2d, Module, std::unique_ptr<Conv2d>>(m, "Conv2d", "2D convolution.")
+    py::class_<Conv2d, Module, std::shared_ptr<Conv2d>>(m, "Conv2d", "2D convolution.")
         .def(py::init<size_t, size_t, size_t, size_t, size_t>(),
              py::arg("in_channels"), py::arg("out_channels"), py::arg("kernel_size"),
              py::arg("stride") = 1, py::arg("padding") = 0);
 
-    py::class_<ReLU, Module, std::unique_ptr<ReLU>>(m, "ReLU").def(py::init<>());
-    py::class_<Flatten, Module, std::unique_ptr<Flatten>>(m, "Flatten").def(py::init<>());
-    py::class_<Dropout, Module, std::unique_ptr<Dropout>>(m, "Dropout", "Dropout with probability p.")
+    py::class_<ReLU, Module, std::shared_ptr<ReLU>>(m, "ReLU").def(py::init<>());
+    py::class_<Flatten, Module, std::shared_ptr<Flatten>>(m, "Flatten").def(py::init<>());
+    py::class_<Dropout, Module, std::shared_ptr<Dropout>>(m, "Dropout", "Dropout with probability p.")
         .def(py::init<float>(), py::arg("p") = 0.5f);
-    py::class_<BatchNorm2d, Module, std::unique_ptr<BatchNorm2d>>(m, "BatchNorm2d")
+    py::class_<BatchNorm2d, Module, std::shared_ptr<BatchNorm2d>>(m, "BatchNorm2d")
         .def(py::init<size_t, float, float>(), py::arg("num_features"), py::arg("eps") = 1e-5f, py::arg("momentum") = 0.1f);
-    py::class_<MaxPool2d, Module, std::unique_ptr<MaxPool2d>>(m, "MaxPool2d")
+    py::class_<MaxPool2d, Module, std::shared_ptr<MaxPool2d>>(m, "MaxPool2d")
         .def(py::init<size_t, size_t>(), py::arg("kernel_size"), py::arg("stride") = 0);
 
     // ============== Optimizers ==============
