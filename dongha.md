@@ -313,4 +313,39 @@ Existing views (Data, Train, Models, Predict, Settings) and `App.css` unchanged;
 - **README.md**
   - Added CI status badge linking to the workflow.
 
+---
+
+## Frontend redesign: “Terminal meets observatory” (MUI + single accent)
+
+**Summary:** Unified the whitematter frontend under one design system (MUI + theme.ts). Removed App.css; migrated all legacy components to MUI sx/styled/theme. Rebuilt navigation as a narrow vertical sidebar, dashboard as a command center, training page with 60/40 design layout and custom ArchitectureGraph, model cards, and predict playground with animated confidence bars.
+
+### Changes
+
+- **Phase 1 — Design system**
+  - Deleted `frontend/src/App.css`. Migrated TrainTab, DatasetsTab, ModelsTab, PredictTab, DesignHelper, TrainingChart, ConfirmDialog, Toast, ErrorBoundary to MUI (Box, Paper, Typography, Button, TextField, etc.) with theme tokens.
+  - `theme.ts`: primary set to accent `#7EB8FF`, secondary palette, JetBrains Mono loaded in globals.css; component overrides for Card, Chip, Table, Paper, Button, TextField.
+  - Vertical sidebar (60px): icon-only nav with tooltips, “wm” monogram at top, active item with accent + left border; top bar with user email and Log out.
+  - `globals.css`: minimal (box-sizing, body bg `#0a0a0a`, font smoothing, JetBrains Mono import). Layout no longer imports App.css.
+
+- **Phase 2 — Dashboard**
+  - Three stat cards: Datasets (ready count), Models (trained count), Training (active jobs or “Idle”), with large accent number and bottom border.
+  - Recent Activity: timeline from getCustomDatasets + getModels (upload/completed events); empty state with “Upload Dataset” CTA.
+  - Quick Actions: Upload Dataset, New Training Run, Try Prediction (outlined cards, accent on hover).
+
+- **Phase 3 — Training page**
+  - Custom design mode: 60/40 grid — left = dataset, command-bar prompt (monospace, accent focus), generate, validation, layers, config, refinement, train; right = ArchitectureGraph (sticky).
+  - ArchitectureGraph: custom “layer” nodes (rounded rect, accent left border, `#1a1a1a` bg, type + short params), smoothstep edges at 30% accent, no MiniMap, dark Controls.
+  - Train page layout and Design Helper sidebar use MUI Paper/Box.
+
+- **Phase 4 — Model cards**
+  - Selected model shown as a full-width card: model name (large) top left, accuracy % (large accent) top right, architecture as horizontal pills with arrows, metadata row (epochs, final loss, dataset, created), action row: Predict, Export ONNX (placeholder), View Training Curves, Delete.
+
+- **Phase 5 — Predict playground**
+  - Results panel fades in after prediction. Confidence bars animate from 0 to final width over 300ms ease-out (ProbBar state + useEffect).
+  - Drag-drop zone and layout already MUI; no App.css.
+
+### Verification
+
+- `npm run build` (frontend) succeeds. All pages (dashboard, data, train, models, predict, settings) build. No imports of App.css remain.
+
 *When you implement another plan, add a new numbered section above this line.*

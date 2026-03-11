@@ -261,6 +261,11 @@ export default function PredictTab({
             borderRadius: 1,
             border: "1px solid",
             borderColor: "divider",
+            animation: "predictResultIn 0.25s ease-out",
+            "@keyframes predictResultIn": {
+              from: { opacity: 0 },
+              to: { opacity: 1 },
+            },
           }}
         >
           <Typography variant="h3" sx={{ mb: 2 }}>
@@ -307,6 +312,14 @@ export default function PredictTab({
 
 function ProbBar({ label, value }: { label: string; value: number }) {
   const pct = value * 100;
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    setWidth(0);
+    const t = requestAnimationFrame(() => {
+      setWidth(pct);
+    });
+    return () => cancelAnimationFrame(t);
+  }, [pct]);
   return (
     <Box
       sx={{
@@ -338,10 +351,10 @@ function ProbBar({ label, value }: { label: string; value: number }) {
         <Box
           sx={{
             height: "100%",
-            width: `${pct}%`,
+            width: `${width}%`,
             bgcolor: "primary.main",
             borderRadius: 1,
-            transition: "width 0.3s ease-out",
+            transition: "width 300ms ease-out",
           }}
         />
       </Box>

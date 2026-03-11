@@ -287,9 +287,138 @@ public:
 };
 
 PYBIND11_MODULE(whitematter, m) {
-    m.doc() = "Whitematter ML inference module";
+    m.doc() = "Whitematter ML library: inference and training (Tensor, Sequential, Linear, Conv2d, optimizers, losses).";
 
-    py::class_<ModelWrapper>(m, "Model")
+    // ============== Tensor (training API) ==============
+    py::class_<Tensor, TensorPtr>(m, "Tensor", "Differentiable tensor; supports backward() and numpy conversion.")
+        .def(py::init([](py::array_t<float> arr, bool requires_grad) {
+            return tensor_from_numpy(arr, requires_grad);
+        }), py::arg("array"), py::arg("requires_grad") = false,
+        "Create tensor from numpy array (float32).")
+        .def_static("from_numpy", &tensor_from_numpy, py::arg("array"), py::arg("requires_grad") = false,
+                    "Create tensor from numpy array (float32).")
+        .def_static("create", [](const std::vector<size_t>& shape, bool requires_grad) {
+            return Tensor::create(shape, requires_grad);
+        }, py::arg("shape"), py::arg("requires_grad") = false)
+        .def_static("zeros", [](const std::vector<size_t>& shape, bool requires_grad) {
+            return Tensor::zeros(shape, requires_grad);
+        }, py::arg("shape"), py::arg("requires_grad") = false)
+        .def_static("ones", [](const std::vector<size_t>& shape, bool requires_grad) {
+            return Tensor::ones(shape, requires_grad);
+        }, py::arg("shape"), py::arg("requires_grad") = false)
+        .def_static("randn", [](const std::vector<size_t>& shape, bool requires_grad) {
+            return Tensor::randn(shape, requires_grad);
+        }, py::arg("shape"), py::arg("requires_grad") = false)
+        .def("numpy", &tensor_to_numpy, "Return tensor as numpy array (float32).")
+        .def("shape", [](const TensorPtr& t) {
+            return t->shape;
+        })
+        .def("size", [](const TensorPtr& t) { return t->size(); })
+        .def_property_readonly("requires_grad", [](const TensorPtr& t) { return t->requires_grad; })
+        .def("backward", [](const TensorPtr& t) { t->backward(); })
+        .def("zero_grad", [](const TensorPtr& t) { t->zero_grad(); })
+        .def("item", [](const TensorPtr& t) { return t->item(); })
+        .def("__repr__", [](const TensorPtr& t) {
+            std::ostringstream os;
+            os << "Tensor(shape=" << t->shape.size() << "D, size=" << t->size() << ")";
+            return os.str();
+        })
+        // Operations needed for training
+        .def("__add__", [](const TensorPtr& a, const TensorPtr& b) { return a->add(b); })
+        .def("__sub__", [](const TensorPtr& a, const TensorPtr& b) { return a->sub(b); })
+        .def("__mul__", [](const TensorPtr& a, const TensorPtr& b) { return a->mul(b); })
+        .def("__mul__", [](const TensorPtr& a, float s) { return a->mul(s); })
+        .def("__truediv__", [](const TensorPtr& a, const TensorPtr& b) { return a->div(b); })
+        .def("matmul", [](const TensorPtr& a, const TensorPtr& b) { return a->matmul(b); })
+        .def("relu", [](const TensorPtr& t) { return t->relu(); })
+        .def("flatten", [](const TensorPtr& t, size_t start_dim) { return t->flatten(start_dim); }, py::arg("start_dim") = 1)
+        .def("log_softmax", [](const TensorPtr& t, int dim) { return t->log_softmax(dim); }, py::arg("dim") = -1)
+        .def("reshape", [](const TensorPtr& t, const std::vector<size_t>& shape) { return t->reshape(shape); });
+
+    // ============== Grad mode (no_grad for inference) ==============
+    py::class_<NoGradGuard>(m, "NoGradGuard", "Context guard that disables gradient tracking (e.g. for inference).")
+        .def(py::init<>())
+        .def("__enter__", [](py::object self) { return self; })
+        .def("__exit__", [](NoGradGuard&, py::object, py::object, py::object) { return false; });
+    m.def("no_grad", []() { return NoGradGuard(); }, "Return a context manager that disables gradient tracking.");
+    m.def("grad_enabled", &GradMode::is_enabled, "Return True if gradient tracking is enabled.");
+    m.def("set_grad_enabled", &GradMode::set_enabled, py::arg("enabled"), "Set gradient tracking on/off.");
+
+    // ============== Module & Layers (use unique_ptr so layers can be transferred into Sequential) ==============
+    py::class_<Module>(m, "Module", "Base class for all layers and models.")
+        .def("forward", [](Module& m, const TensorPtr& x) { return m.forward(x); })
+        .def("parameters", [](Module& m) { return m.parameters(); })
+        .def("__call__", [](Module& m, const TensorPtr& x) { return m.forward(x); });
+
+    py::class_<Sequential, Module, std::unique_ptr<Sequential>>(m, "Sequential", "Container that runs layers in sequence; use add() to build a model.")
+        .def(py::init<>())
+        .def("add", [](Sequential& s, std::unique_ptr<Module> mod) { s.add(mod.release()); }, py::arg("module"),
+            "Add a layer (ownership is transferred; do not use the layer object after adding).")
+        .def("forward", [](Sequential& s, const TensorPtr& x) { return s.forward(x); })
+        .def("parameters", [](Sequential& s) { return s.parameters(); })
+        .def("train", [](Sequential& s) { s.train(); })
+        .def("eval", [](Sequential& s) { s.eval(); })
+        .def("summary", [](const Sequential& s, py::object input_shape) {
+            std::vector<size_t> shape;
+            if (!input_shape.is_none()) {
+                for (auto item : input_shape) shape.push_back(py::cast<size_t>(item));
+            }
+            s.summary(shape);
+        }, py::arg("input_shape") = py::none(), "Print model summary (optional input_shape, e.g. [1,1,28,28] for MNIST).");
+
+    py::class_<Linear, Module, std::unique_ptr<Linear>>(m, "Linear", "Fully connected layer: in_features -> out_features.")
+        .def(py::init<size_t, size_t>(), py::arg("in_features"), py::arg("out_features"));
+
+    py::class_<Conv2d, Module, std::unique_ptr<Conv2d>>(m, "Conv2d", "2D convolution.")
+        .def(py::init<size_t, size_t, size_t, size_t, size_t>(),
+             py::arg("in_channels"), py::arg("out_channels"), py::arg("kernel_size"),
+             py::arg("stride") = 1, py::arg("padding") = 0);
+
+    py::class_<ReLU, Module, std::unique_ptr<ReLU>>(m, "ReLU").def(py::init<>());
+    py::class_<Flatten, Module, std::unique_ptr<Flatten>>(m, "Flatten").def(py::init<>());
+    py::class_<Dropout, Module, std::unique_ptr<Dropout>>(m, "Dropout", "Dropout with probability p.")
+        .def(py::init<float>(), py::arg("p") = 0.5f);
+    py::class_<BatchNorm2d, Module, std::unique_ptr<BatchNorm2d>>(m, "BatchNorm2d")
+        .def(py::init<size_t, float, float>(), py::arg("num_features"), py::arg("eps") = 1e-5f, py::arg("momentum") = 0.1f);
+    py::class_<MaxPool2d, Module, std::unique_ptr<MaxPool2d>>(m, "MaxPool2d")
+        .def(py::init<size_t, size_t>(), py::arg("kernel_size"), py::arg("stride") = 0);
+
+    // ============== Optimizers ==============
+    py::class_<Optimizer>(m, "Optimizer", "Base optimizer; use SGD or Adam.")
+        .def("step", [](Optimizer& o) { o.step(); })
+        .def("zero_grad", [](Optimizer& o) { o.zero_grad(); })
+        .def_readwrite("lr", &Optimizer::lr);
+
+    py::class_<SGD, Optimizer>(m, "SGD", "SGD optimizer (optional momentum).")
+        .def(py::init<const std::vector<TensorPtr>&, float, float>(),
+             py::arg("params"), py::arg("lr"), py::arg("momentum") = 0.0f);
+
+    py::class_<Adam, Optimizer>(m, "Adam", "Adam optimizer.")
+        .def(py::init<const std::vector<TensorPtr>&, float, float, float, float>(),
+             py::arg("params"), py::arg("lr") = 0.001f, py::arg("beta1") = 0.9f, py::arg("beta2") = 0.999f, py::arg("eps") = 1e-8f);
+
+    // ============== Losses ==============
+    py::class_<CrossEntropyLoss, std::unique_ptr<CrossEntropyLoss>>(m, "CrossEntropyLoss",
+        "Cross-entropy loss for classification. prediction: [N, C], target: [N] class indices (int or float).")
+        .def(py::init<>())
+        .def("forward", [](CrossEntropyLoss& c, const TensorPtr& pred, const TensorPtr& target) { return c.forward(pred, target); })
+        .def("__call__", [](CrossEntropyLoss& c, const TensorPtr& pred, const TensorPtr& target) { return c.forward(pred, target); });
+
+    // Convenience: loss from numpy labels (target as int or float 1D array)
+    m.def("cross_entropy", [](const TensorPtr& prediction, py::array labels) {
+        TensorPtr target = tensor_from_numpy_int_labels(labels, false);
+        CrossEntropyLoss crit;
+        return crit.forward(prediction, target);
+    }, py::arg("prediction"), py::arg("target"),
+       "Cross-entropy loss. prediction: Tensor [N,C], target: 1D array of class indices (int or float).");
+
+    // ============== Save / Load ==============
+    m.def("save_model", &save_model, py::arg("module"), py::arg("path"), "Save model parameters to file.");
+    m.def("load_model", &load_model, py::arg("module"), py::arg("path"), "Load model parameters from file.");
+
+    // ============== Inference-only Model (backward compatible) ==============
+    py::class_<ModelWrapper>(m, "Model",
+        "Legacy inference-only model: load(path) then predict(input). For training, use Sequential, Tensor, Adam, CrossEntropyLoss.")
         .def(py::init<>())
         .def("load", &ModelWrapper::load, "Load model from file",
              py::arg("path"), py::arg("arch") = "auto")

@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import * as api from "@/api";
 import { useAuth } from "@/context/AuthContext";
 import * as deployService from "@/services/deploy";
@@ -347,22 +348,74 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
           </Box>
 
           {selectedModel && (
-            <Paper variant="outlined" sx={{ p: 2, borderColor: "divider", minWidth: 0 }}>
-              <Typography variant="h3" sx={{ mb: 1.5 }}>
-                {formatModelName(selectedModel.name)}
-              </Typography>
-              <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1.5, mb: 1.5 }}>
-                <DetailItem label="ID" value={selectedModel.id} />
-                <DetailItem label="Dataset" value={selectedModel.dataset} />
-                <DetailItem label="Architecture" value={selectedModel.architecture} />
-                <DetailItem label="Created" value={formatDate(selectedModel.created_at)} />
-                <DetailItem label="Epochs Trained" value={String(selectedModel.epochs_trained)} />
-                <DetailItem label="Best Accuracy" value={`${selectedModel.best_accuracy.toFixed(2)}%`} />
-                <DetailItem label="Status" value={selectedModel.status} statusColor={getStatusColor(selectedModel.status)} />
+            <Paper
+              variant="outlined"
+              sx={{
+                p: 3,
+                borderColor: "divider",
+                minWidth: 0,
+                borderBottom: "2px solid",
+                borderBottomColor: "primary.main",
+              }}
+            >
+              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 2, mb: 2 }}>
+                <Typography variant="h2" sx={{ fontSize: "1.5rem", fontWeight: 700 }}>
+                  {formatModelName(selectedModel.name)}
+                </Typography>
+                {selectedModel.status === "completed" && (
+                  <Typography
+                    sx={{
+                      fontFamily: '"JetBrains Mono", monospace',
+                      fontSize: "2.5rem",
+                      fontWeight: 700,
+                      color: "primary.main",
+                      lineHeight: 1,
+                    }}
+                  >
+                    {selectedModel.best_accuracy.toFixed(1)}%
+                  </Typography>
+                )}
+              </Box>
+
+              <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 0.5, mb: 2 }}>
+                {selectedModel.architecture
+                  .replace(/_/g, " ")
+                  .split(/[\s,-]+/)
+                  .filter(Boolean)
+                  .map((part, i) => (
+                    <Box key={i} sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                      <Chip
+                        size="small"
+                        label={part}
+                        sx={{
+                          fontFamily: '"JetBrains Mono", monospace',
+                          fontSize: "0.6875rem",
+                          bgcolor: "action.hover",
+                          border: "1px solid",
+                          borderColor: "divider",
+                        }}
+                      />
+                      {i < selectedModel.architecture.replace(/_/g, " ").split(/[\s,-]+/).filter(Boolean).length - 1 && (
+                        <Typography component="span" color="text.secondary" sx={{ fontSize: "0.75rem" }}>
+                          →
+                        </Typography>
+                      )}
+                    </Box>
+                  ))}
+              </Box>
+
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mb: 2, color: "text.secondary", fontSize: "0.8125rem" }}>
+                <span>{selectedModel.epochs_trained} epochs</span>
+                <span>·</span>
+                <span>{selectedModel.training_history?.[selectedModel.training_history.length - 1]?.loss != null ? `${selectedModel.training_history[selectedModel.training_history.length - 1].loss.toFixed(4)} final loss` : "—"}</span>
+                <span>·</span>
+                <span>{selectedModel.dataset.startsWith("custom:") ? "Custom dataset" : selectedModel.dataset}</span>
+                <span>·</span>
+                <span>{formatDate(selectedModel.created_at)}</span>
               </Box>
 
               {selectedModel.training_history.length > 0 && (
-                <Box sx={{ mb: 1.5 }}>
+                <Box id="training-history-table" sx={{ mb: 1.5 }}>
                   <Typography variant="overline" sx={{ color: "text.secondary" }}>
                     Training History
                   </Typography>
@@ -498,14 +551,27 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
                 </>
               )}
 
-              <Box sx={{ mt: 2, pt: 1.5, borderTop: "1px solid", borderColor: "divider", display: "flex", gap: 1 }}>
+              <Box sx={{ mt: 2, pt: 1.5, borderTop: "1px solid", borderColor: "divider", display: "flex", flexWrap: "wrap", gap: 1 }}>
+                {selectedModel.status === "completed" && (
+                  <>
+                    <Button variant="outlined" component={Link} href="/predict" sx={{ textDecoration: "none" }}>
+                      Predict
+                    </Button>
+                    <Button variant="outlined" disabled sx={{ color: "text.secondary" }}>
+                      Export ONNX
+                    </Button>
+                    <Button variant="outlined" size="small" onClick={() => document.getElementById("training-history-table")?.scrollIntoView({ behavior: "smooth" })}>
+                      View Training Curves
+                    </Button>
+                  </>
+                )}
                 {(selectedModel.status === "failed" || selectedModel.status === "cancelled") && (
                   <Button variant="contained" onClick={() => handleResume(selectedModel.id)}>
                     Resume Training
                   </Button>
                 )}
                 <Button variant="outlined" color="error" onClick={() => setDeleteConfirm(selectedModel.id)}>
-                  Delete Model
+                  Delete
                 </Button>
               </Box>
             </Paper>
