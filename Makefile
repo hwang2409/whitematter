@@ -33,6 +33,9 @@ LDFLAGS = $(OPENMP_LIBS)
 # Metal backend: METAL=1 on macOS enables Metal; default is CPU-only (Linux-friendly)
 METAL ?= 0
 
+# CUDA backend: CUDA=1 enables CUDA/cuBLAS for cloud/Linux GPU; default is CPU-only
+CUDA ?= 0
+
 # Core library objects
 CORE_SRCS = $(CORE_DIR)/memory_pool.cpp $(CORE_DIR)/tensor.cpp $(CORE_DIR)/layer.cpp $(CORE_DIR)/loss.cpp \
             $(CORE_DIR)/optimizer.cpp $(CORE_DIR)/serialize.cpp $(CORE_DIR)/dataloader.cpp \
@@ -52,6 +55,20 @@ ifeq ($(METAL),1)
   endif
 else
   CORE_OBJS += $(BUILD_DIR)/metal_stub.o
+endif
+
+# CUDA: use stub (returns false) unless CUDA=1 and nvcc available
+ifeq ($(CUDA),1)
+  CORE_OBJS += $(BUILD_DIR)/cuda_backend.o
+  CXXFLAGS += -DWHITEMATTER_CUDA
+  LDFLAGS += -lcudart -lcublas
+  ifneq ($(CUDA_PATH),)
+    LDFLAGS += -L$(CUDA_PATH)/lib64
+    NVCC_PREFIX = $(CUDA_PATH)/bin/
+  endif
+  NVCC = $(NVCC_PREFIX)nvcc
+else
+  CORE_OBJS += $(BUILD_DIR)/cuda_stub.o
 endif
 
 # Dataset objects
@@ -124,6 +141,12 @@ $(BUILD_DIR)/metal_stub.o: $(CORE_DIR)/metal/metal_stub.cpp $(CORE_DIR)/device.h
 
 $(BUILD_DIR)/metal_backend.o: $(CORE_DIR)/metal/metal_backend.mm $(CORE_DIR)/metal/metal_backend.h $(CORE_DIR)/device.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -I$(CORE_DIR)/metal -c -o $@ $<
+
+$(BUILD_DIR)/cuda_stub.o: $(CORE_DIR)/cuda/cuda_stub.cpp $(CORE_DIR)/device.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -I$(CORE_DIR) -c -o $@ $<
+
+$(BUILD_DIR)/cuda_backend.o: $(CORE_DIR)/cuda/cuda_backend.cu $(CORE_DIR)/cuda/cuda_backend.h $(CORE_DIR)/device.h | $(BUILD_DIR)
+	$(NVCC) -std=c++17 -O3 -I$(CORE_DIR) -I$(CORE_DIR)/cuda -c -o $@ $<
 
 # Dataset compilation
 $(BUILD_DIR)/mnist.o: $(DATASETS_DIR)/mnist.cpp $(DATASETS_DIR)/mnist.h $(CORE_DIR)/tensor.h | $(BUILD_DIR)

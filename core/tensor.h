@@ -127,7 +127,7 @@ public:
     TensorPtr unsqueeze(int dim) const;         // Add dimension of size 1
     TensorPtr permute(const std::vector<int>& dims) const;  // Reorder dimensions
 
-    // Device placement (CPU or METAL). to(METAL) uses GPU for supported ops when available.
+    // Device placement (CPU, METAL, or CUDA). to(METAL)/to(CUDA) use GPU for supported ops when available.
     TensorPtr to(whitematter::DeviceType d) const;
 
     // Data augmentation (for images: [N,C,H,W] or [C,H,W])

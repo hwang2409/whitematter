@@ -4,6 +4,9 @@
 #if defined(WHITEMATTER_METAL) && defined(__APPLE__)
 #include "metal/metal_backend.h"
 #endif
+#if defined(WHITEMATTER_CUDA)
+#include "cuda/cuda_backend.h"
+#endif
 #include <algorithm>
 #include <numeric>
 #include <stdexcept>
@@ -882,6 +885,41 @@ TensorPtr Tensor::matmul(const TensorPtr& other) const {
     }
 #endif
 
+#if defined(WHITEMATTER_CUDA)
+    if (device == whitematter::DeviceType::CUDA && other->device == whitematter::DeviceType::CUDA &&
+        whitematter::cuda_backend_available()) {
+        whitematter::CUDABackend::instance().matmul(data(), other->data(), result->data(),
+            static_cast<int>(m), static_cast<int>(n), static_cast<int>(k));
+        if (track) {
+            auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
+            auto other_ptr = other;
+            result->parents = {self_ptr, other_ptr};
+            result->grad_fn = [self_ptr, other_ptr, result, m, k, n]() {
+                if (self_ptr->requires_grad) {
+                    for (size_t i = 0; i < m; i++) {
+                        for (size_t l = 0; l < k; l++) {
+                            self_ptr->grad()[i * k + l] += simd_dot(
+                                &result->grad()[i * n], &other_ptr->data()[l * n], n);
+                        }
+                    }
+                }
+                if (other_ptr->requires_grad) {
+                    for (size_t l = 0; l < k; l++) {
+                        for (size_t j = 0; j < n; j++) {
+                            float sum = 0.0f;
+                            for (size_t i = 0; i < m; i++) {
+                                sum += self_ptr->data()[i * k + l] * result->grad()[i * n + j];
+                            }
+                            other_ptr->grad()[l * n + j] += sum;
+                        }
+                    }
+                }
+            };
+        }
+        return result;
+    }
+#endif
+
     matmul_blocked(result->data(), data(), other->data(), m, k, n);
 
     if (track) {
@@ -928,18 +966,64 @@ TensorPtr Tensor::bmm(const TensorPtr& other) const {
 
     bool track = (requires_grad || other->requires_grad) && GradMode::is_enabled();
     auto result = create({batch, m, n}, track);
+    result->device = device;
 
-    // Perform batched matmul
     size_t a_batch_stride = m * k;
     size_t b_batch_stride = k * n;
     size_t c_batch_stride = m * n;
 
+#if defined(WHITEMATTER_CUDA)
+    if (device == whitematter::DeviceType::CUDA && other->device == whitematter::DeviceType::CUDA &&
+        whitematter::cuda_backend_available()) {
+        whitematter::CUDABackend::instance().bmm(data(), other->data(), result->data(),
+            static_cast<int>(batch), static_cast<int>(m), static_cast<int>(k), static_cast<int>(n));
+        if (track) {
+            auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
+            auto other_ptr = other;
+            result->parents = {self_ptr, other_ptr};
+            result->grad_fn = [self_ptr, other_ptr, result, batch, m, k, n,
+                              a_batch_stride, b_batch_stride, c_batch_stride]() {
+                for (size_t b_idx = 0; b_idx < batch; b_idx++) {
+                    if (self_ptr->requires_grad) {
+                        float* a_grad = &self_ptr->grad()[b_idx * a_batch_stride];
+                        const float* c_grad = &result->grad()[b_idx * c_batch_stride];
+                        const float* b_data = &other_ptr->data()[b_idx * b_batch_stride];
+                        for (size_t i = 0; i < m; i++) {
+                            for (size_t l = 0; l < k; l++) {
+                                float sum = 0.0f;
+                                for (size_t j = 0; j < n; j++) {
+                                    sum += c_grad[i * n + j] * b_data[l * n + j];
+                                }
+                                a_grad[i * k + l] += sum;
+                            }
+                        }
+                    }
+                    if (other_ptr->requires_grad) {
+                        const float* a_data = &self_ptr->data()[b_idx * a_batch_stride];
+                        const float* c_grad = &result->grad()[b_idx * c_batch_stride];
+                        float* b_grad = &other_ptr->grad()[b_idx * b_batch_stride];
+                        for (size_t l = 0; l < k; l++) {
+                            for (size_t j = 0; j < n; j++) {
+                                float sum = 0.0f;
+                                for (size_t i = 0; i < m; i++) {
+                                    sum += a_data[i * k + l] * c_grad[i * n + j];
+                                }
+                                b_grad[l * n + j] += sum;
+                            }
+                        }
+                    }
+                }
+            };
+        }
+        return result;
+    }
+#endif
+
+    // Perform batched matmul (CPU)
     for (size_t b_idx = 0; b_idx < batch; b_idx++) {
         const float* a_ptr = &data()[b_idx * a_batch_stride];
         const float* b_ptr = &other->data()[b_idx * b_batch_stride];
         float* c_ptr = &result->data()[b_idx * c_batch_stride];
-
-        // Use blocked matmul for each batch
         matmul_blocked(c_ptr, a_ptr, b_ptr, m, k, n);
     }
 

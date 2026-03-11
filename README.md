@@ -1278,12 +1278,16 @@ Typical MNIST training: ~18 seconds/epoch on Apple M1.
 ## Build Options
 
 ```bash
-make            # Build optimized release
+make            # Build optimized release (CPU-only)
 make debug      # Build with debug symbols
 make clean      # Remove build artifacts
 make run        # Build and run
 make test       # Run unit tests
 ```
+
+**GPU backends (optional):**
+- **Metal** (macOS / Apple Silicon): `make METAL=1` — uses Metal for matmul when tensors are on `.to(Device::metal())`.
+- **CUDA** (Linux / cloud): `make CUDA=1` — uses cuBLAS for matmul and batched matmul when tensors are on `.to(Device::cuda())`. Requires nvcc and CUDA toolkit; set `CUDA_PATH` if needed. Default build is CPU-only and does not require CUDA.
 
 ## Unit Tests
 
@@ -1604,7 +1608,7 @@ Future improvements to make this framework more extensive:
 - [x] Early stopping (EarlyStopping, ModelCheckpoint)
 
 ### Infrastructure
-- [ ] GPU support (CUDA/Metal)
+- [x] GPU support (CUDA/Metal; optional: `make METAL=1` on macOS, `make CUDA=1` with nvcc)
 - [x] Model summary / parameter count (summary(), ModelSummary, format utilities)
 - [x] TensorBoard-style logging (TrainingLogger, MetricTracker, CSV/JSON export)
 - [x] ONNX export
