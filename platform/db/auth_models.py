@@ -26,6 +26,7 @@ class User(Base):
     aws_credentials = relationship("AWSCredential", back_populates="user", uselist=False)
     byoc_jobs = relationship("ByocTrainingJob", back_populates="user")
     architectures = relationship("ModelArchitecture", back_populates="user")
+    deployments = relationship("Deployment", back_populates="user")
 
     __table_args__ = (
         UniqueConstraint("oauth_provider", "oauth_id", name="uq_oauth"),
@@ -40,6 +41,9 @@ class AWSCredential(Base):
     encrypted_secret_key = Column(LargeBinary, nullable=False)
     default_region = Column(String(30), default="us-east-1")
     default_instance_type = Column(String(30), default="g4dn.xlarge")
+    # S3-compatible storage: when set, use this endpoint (R2, B2, MinIO, etc.)
+    endpoint_url = Column(String(512), nullable=True)
+    provider = Column(String(20), nullable=True)  # 'aws' | 'r2' | 'b2' | 'custom'
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -84,3 +88,31 @@ class ModelArchitecture(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     user = relationship("User", back_populates="architectures")
+
+
+class DeploymentStatus(str, enum.Enum):
+    PENDING = "pending"
+    LAUNCHING = "launching"
+    BOOTSTRAPPING = "bootstrapping"
+    LIVE = "live"
+    FAILED = "failed"
+    TERMINATED = "terminated"
+
+
+class Deployment(Base):
+    """One-click deploy: model + infer binary on EC2 inference instance."""
+    __tablename__ = "deployments"
+    id = Column(String(32), primary_key=True, default=gen_uuid)
+    user_id = Column(String(32), ForeignKey("users.id"), nullable=False)
+    model_id = Column(String(32), nullable=False)  # Platform model id (no FK to support file-based models)
+    target_type = Column(String(20), default="ec2")
+    status = Column(String(20), default=DeploymentStatus.PENDING.value)
+    instance_id = Column(String(30), nullable=True)
+    endpoint_url = Column(String(512), nullable=True)  # e.g. http://1.2.3.4:8080
+    region = Column(String(30), default="us-east-1")
+    deployment_token = Column(String(128), nullable=True)  # One-time token for artifact fetch; cleared after use
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", back_populates="deployments")
