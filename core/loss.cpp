@@ -2,7 +2,7 @@
 #include <cmath>
 
 TensorPtr MSELoss::forward(const TensorPtr& prediction, const TensorPtr& target) {
-    assert(prediction->data.size() == target->data.size());
+    assert(prediction->size() == target->size());
 
     auto diff = prediction->sub(target);
     auto sq = diff->mul(diff);
@@ -11,7 +11,7 @@ TensorPtr MSELoss::forward(const TensorPtr& prediction, const TensorPtr& target)
 
 TensorPtr L1Loss::forward(const TensorPtr& prediction, const TensorPtr& target) {
     // L1 Loss (Mean Absolute Error): mean(|prediction - target|)
-    assert(prediction->data.size() == target->data.size());
+    assert(prediction->size() == target->size());
 
     auto diff = prediction->sub(target);
     auto abs_diff = diff->abs();
@@ -23,22 +23,22 @@ TensorPtr SmoothL1Loss::forward(const TensorPtr& prediction, const TensorPtr& ta
     // If |x| < beta: 0.5 * x^2 / beta
     // Otherwise: |x| - 0.5 * beta
     // Where x = prediction - target
-    assert(prediction->data.size() == target->data.size());
+    assert(prediction->size() == target->size());
 
-    size_t n = prediction->data.size();
+    size_t n = prediction->size();
     auto result = Tensor::create({1}, prediction->requires_grad);
-    result->data[0] = 0.0f;
+    result->data()[0] = 0.0f;
 
     for (size_t i = 0; i < n; i++) {
-        float diff = prediction->data[i] - target->data[i];
+        float diff = prediction->data()[i] - target->data()[i];
         float abs_diff = std::fabs(diff);
         if (abs_diff < beta) {
-            result->data[0] += 0.5f * diff * diff / beta;
+            result->data()[0] += 0.5f * diff * diff / beta;
         } else {
-            result->data[0] += abs_diff - 0.5f * beta;
+            result->data()[0] += abs_diff - 0.5f * beta;
         }
     }
-    result->data[0] /= static_cast<float>(n);
+    result->data()[0] /= static_cast<float>(n);
 
     if (result->requires_grad) {
         auto pred_ptr = prediction;
@@ -46,16 +46,16 @@ TensorPtr SmoothL1Loss::forward(const TensorPtr& prediction, const TensorPtr& ta
         float beta_val = beta;
         result->parents = {pred_ptr};
         result->grad_fn = [pred_ptr, target_ptr, result, n, beta_val]() {
-            float scale = result->grad[0] / static_cast<float>(n);
+            float scale = result->grad()[0] / static_cast<float>(n);
             for (size_t i = 0; i < n; i++) {
-                float diff = pred_ptr->data[i] - target_ptr->data[i];
+                float diff = pred_ptr->data()[i] - target_ptr->data()[i];
                 float abs_diff = std::fabs(diff);
                 if (abs_diff < beta_val) {
                     // Gradient: x / beta
-                    pred_ptr->grad[i] += scale * diff / beta_val;
+                    pred_ptr->grad()[i] += scale * diff / beta_val;
                 } else {
                     // Gradient: sign(x)
-                    pred_ptr->grad[i] += scale * (diff > 0 ? 1.0f : -1.0f);
+                    pred_ptr->grad()[i] += scale * (diff > 0 ? 1.0f : -1.0f);
                 }
             }
         };
@@ -74,21 +74,21 @@ TensorPtr CrossEntropyLoss::forward(const TensorPtr& prediction, const TensorPtr
     auto log_probs = prediction->log_softmax(-1);
 
     auto result = Tensor::create({1}, prediction->requires_grad);
-    result->data[0] = 0.0f;
+    result->data()[0] = 0.0f;
 
     for (size_t i = 0; i < batch_size; i++) {
-        size_t label = static_cast<size_t>(target->data[i]);
-        result->data[0] -= log_probs->data[i * num_classes + label];
+        size_t label = static_cast<size_t>(target->data()[i]);
+        result->data()[0] -= log_probs->data()[i * num_classes + label];
     }
-    result->data[0] /= static_cast<float>(batch_size);
+    result->data()[0] /= static_cast<float>(batch_size);
 
     if (result->requires_grad) {
         result->parents = {log_probs};
         result->grad_fn = [log_probs, target, result, batch_size, num_classes]() {
-            float scale = result->grad[0] / static_cast<float>(batch_size);
+            float scale = result->grad()[0] / static_cast<float>(batch_size);
             for (size_t i = 0; i < batch_size; i++) {
-                size_t label = static_cast<size_t>(target->data[i]);
-                log_probs->grad[i * num_classes + label] -= scale;
+                size_t label = static_cast<size_t>(target->data()[i]);
+                log_probs->grad()[i * num_classes + label] -= scale;
             }
         };
     }
@@ -104,22 +104,22 @@ TensorPtr NLLLoss::forward(const TensorPtr& prediction, const TensorPtr& target)
     size_t num_classes = prediction->shape[1];
 
     auto result = Tensor::create({1}, prediction->requires_grad);
-    result->data[0] = 0.0f;
+    result->data()[0] = 0.0f;
 
     for (size_t i = 0; i < batch_size; i++) {
-        size_t label = static_cast<size_t>(target->data[i]);
-        result->data[0] -= prediction->data[i * num_classes + label];
+        size_t label = static_cast<size_t>(target->data()[i]);
+        result->data()[0] -= prediction->data()[i * num_classes + label];
     }
-    result->data[0] /= static_cast<float>(batch_size);
+    result->data()[0] /= static_cast<float>(batch_size);
 
     if (result->requires_grad) {
         auto pred_ptr = prediction;
         result->parents = {pred_ptr};
         result->grad_fn = [pred_ptr, target, result, batch_size, num_classes]() {
-            float scale = result->grad[0] / static_cast<float>(batch_size);
+            float scale = result->grad()[0] / static_cast<float>(batch_size);
             for (size_t i = 0; i < batch_size; i++) {
-                size_t label = static_cast<size_t>(target->data[i]);
-                pred_ptr->grad[i * num_classes + label] -= scale;
+                size_t label = static_cast<size_t>(target->data()[i]);
+                pred_ptr->grad()[i * num_classes + label] -= scale;
             }
         };
     }
@@ -130,32 +130,32 @@ TensorPtr NLLLoss::forward(const TensorPtr& prediction, const TensorPtr& target)
 TensorPtr BCELoss::forward(const TensorPtr& prediction, const TensorPtr& target) {
     // Binary Cross Entropy: -[y * log(p) + (1-y) * log(1-p)]
     // Prediction should already be probabilities (e.g., after sigmoid)
-    assert(prediction->data.size() == target->data.size());
+    assert(prediction->size() == target->size());
 
-    size_t n = prediction->data.size();
+    size_t n = prediction->size();
     float eps = 1e-7f;  // For numerical stability
 
     auto result = Tensor::create({1}, prediction->requires_grad);
-    result->data[0] = 0.0f;
+    result->data()[0] = 0.0f;
 
     for (size_t i = 0; i < n; i++) {
-        float p = std::max(std::min(prediction->data[i], 1.0f - eps), eps);
-        float y = target->data[i];
-        result->data[0] -= y * std::log(p) + (1.0f - y) * std::log(1.0f - p);
+        float p = std::max(std::min(prediction->data()[i], 1.0f - eps), eps);
+        float y = target->data()[i];
+        result->data()[0] -= y * std::log(p) + (1.0f - y) * std::log(1.0f - p);
     }
-    result->data[0] /= static_cast<float>(n);
+    result->data()[0] /= static_cast<float>(n);
 
     if (result->requires_grad) {
         auto pred_ptr = prediction;
         auto target_ptr = target;
         result->parents = {pred_ptr};
         result->grad_fn = [pred_ptr, target_ptr, result, n, eps]() {
-            float scale = result->grad[0] / static_cast<float>(n);
+            float scale = result->grad()[0] / static_cast<float>(n);
             for (size_t i = 0; i < n; i++) {
-                float p = std::max(std::min(pred_ptr->data[i], 1.0f - eps), eps);
-                float y = target_ptr->data[i];
+                float p = std::max(std::min(pred_ptr->data()[i], 1.0f - eps), eps);
+                float y = target_ptr->data()[i];
                 // d/dp[-y*log(p) - (1-y)*log(1-p)] = -y/p + (1-y)/(1-p)
-                pred_ptr->grad[i] += scale * (-y / p + (1.0f - y) / (1.0f - p));
+                pred_ptr->grad()[i] += scale * (-y / p + (1.0f - y) / (1.0f - p));
             }
         };
     }
@@ -166,34 +166,34 @@ TensorPtr BCELoss::forward(const TensorPtr& prediction, const TensorPtr& target)
 TensorPtr BCEWithLogitsLoss::forward(const TensorPtr& prediction, const TensorPtr& target) {
     // Numerically stable BCE with built-in sigmoid
     // loss = max(x, 0) - x*y + log(1 + exp(-|x|))
-    assert(prediction->data.size() == target->data.size());
+    assert(prediction->size() == target->size());
 
-    size_t n = prediction->data.size();
+    size_t n = prediction->size();
 
     auto result = Tensor::create({1}, prediction->requires_grad);
-    result->data[0] = 0.0f;
+    result->data()[0] = 0.0f;
 
     for (size_t i = 0; i < n; i++) {
-        float x = prediction->data[i];
-        float y = target->data[i];
+        float x = prediction->data()[i];
+        float y = target->data()[i];
         // Numerically stable formulation
         float max_val = std::max(x, 0.0f);
-        result->data[0] += max_val - x * y + std::log(1.0f + std::exp(-std::abs(x)));
+        result->data()[0] += max_val - x * y + std::log(1.0f + std::exp(-std::abs(x)));
     }
-    result->data[0] /= static_cast<float>(n);
+    result->data()[0] /= static_cast<float>(n);
 
     if (result->requires_grad) {
         auto pred_ptr = prediction;
         auto target_ptr = target;
         result->parents = {pred_ptr};
         result->grad_fn = [pred_ptr, target_ptr, result, n]() {
-            float scale = result->grad[0] / static_cast<float>(n);
+            float scale = result->grad()[0] / static_cast<float>(n);
             for (size_t i = 0; i < n; i++) {
-                float x = pred_ptr->data[i];
-                float y = target_ptr->data[i];
+                float x = pred_ptr->data()[i];
+                float y = target_ptr->data()[i];
                 // Gradient: sigmoid(x) - y
                 float sigmoid_x = 1.0f / (1.0f + std::exp(-x));
-                pred_ptr->grad[i] += scale * (sigmoid_x - y);
+                pred_ptr->grad()[i] += scale * (sigmoid_x - y);
             }
         };
     }
@@ -206,34 +206,34 @@ TensorPtr KLDivLoss::forward(const TensorPtr& prediction, const TensorPtr& targe
     // prediction: log probabilities (e.g., output of log_softmax)
     // target: probabilities (or log probabilities if log_target=true)
     // loss = sum(target * (log(target) - prediction)) / batch_size
-    assert(prediction->data.size() == target->data.size());
+    assert(prediction->size() == target->size());
     assert(prediction->shape.size() >= 1);
 
-    size_t n = prediction->data.size();
+    size_t n = prediction->size();
     size_t batch_size = prediction->shape[0];
 
     auto result = Tensor::create({1}, prediction->requires_grad);
-    result->data[0] = 0.0f;
+    result->data()[0] = 0.0f;
 
     for (size_t i = 0; i < n; i++) {
-        float t = target->data[i];
-        float log_p = prediction->data[i];
+        float t = target->data()[i];
+        float log_p = prediction->data()[i];
 
         if (log_target) {
             // target is already log probabilities
             float log_t = t;
             float t_prob = std::exp(log_t);
             if (t_prob > 0) {
-                result->data[0] += t_prob * (log_t - log_p);
+                result->data()[0] += t_prob * (log_t - log_p);
             }
         } else {
             // target is probabilities
             if (t > 0) {
-                result->data[0] += t * (std::log(t) - log_p);
+                result->data()[0] += t * (std::log(t) - log_p);
             }
         }
     }
-    result->data[0] /= static_cast<float>(batch_size);
+    result->data()[0] /= static_cast<float>(batch_size);
 
     if (result->requires_grad) {
         auto pred_ptr = prediction;
@@ -241,14 +241,14 @@ TensorPtr KLDivLoss::forward(const TensorPtr& prediction, const TensorPtr& targe
         bool log_t = log_target;
         result->parents = {pred_ptr};
         result->grad_fn = [pred_ptr, target_ptr, result, n, batch_size, log_t]() {
-            float scale = result->grad[0] / static_cast<float>(batch_size);
+            float scale = result->grad()[0] / static_cast<float>(batch_size);
             for (size_t i = 0; i < n; i++) {
-                float t = target_ptr->data[i];
+                float t = target_ptr->data()[i];
                 // Gradient: -target (or -exp(target) if log_target)
                 if (log_t) {
-                    pred_ptr->grad[i] += scale * (-std::exp(t));
+                    pred_ptr->grad()[i] += scale * (-std::exp(t));
                 } else {
-                    pred_ptr->grad[i] += scale * (-t);
+                    pred_ptr->grad()[i] += scale * (-t);
                 }
             }
         };
@@ -271,20 +271,20 @@ TensorPtr FocalLoss::forward(const TensorPtr& prediction, const TensorPtr& targe
     auto probs = prediction->softmax(-1);
 
     auto result = Tensor::create({1}, prediction->requires_grad);
-    result->data[0] = 0.0f;
+    result->data()[0] = 0.0f;
 
     float eps = 1e-7f;
     for (size_t i = 0; i < batch_size; i++) {
-        size_t label = static_cast<size_t>(target->data[i]);
-        float p_t = std::max(probs->data[i * num_classes + label], eps);
+        size_t label = static_cast<size_t>(target->data()[i]);
+        float p_t = std::max(probs->data()[i * num_classes + label], eps);
         float focal_weight = std::pow(1.0f - p_t, gamma);
         float loss_i = -focal_weight * std::log(p_t);
         if (alpha >= 0) {
             loss_i *= alpha;
         }
-        result->data[0] += loss_i;
+        result->data()[0] += loss_i;
     }
-    result->data[0] /= static_cast<float>(batch_size);
+    result->data()[0] /= static_cast<float>(batch_size);
 
     if (result->requires_grad) {
         auto pred_ptr = prediction;
@@ -294,14 +294,14 @@ TensorPtr FocalLoss::forward(const TensorPtr& prediction, const TensorPtr& targe
         float alpha_val = alpha;
         result->parents = {pred_ptr};
         result->grad_fn = [pred_ptr, probs_ptr, target_ptr, result, batch_size, num_classes, gamma_val, alpha_val, eps]() {
-            float scale = result->grad[0] / static_cast<float>(batch_size);
+            float scale = result->grad()[0] / static_cast<float>(batch_size);
             for (size_t i = 0; i < batch_size; i++) {
-                size_t label = static_cast<size_t>(target_ptr->data[i]);
-                float p_t = std::max(probs_ptr->data[i * num_classes + label], eps);
+                size_t label = static_cast<size_t>(target_ptr->data()[i]);
+                float p_t = std::max(probs_ptr->data()[i * num_classes + label], eps);
                 float one_minus_pt = 1.0f - p_t;
 
                 for (size_t c = 0; c < num_classes; c++) {
-                    float p_c = probs_ptr->data[i * num_classes + c];
+                    float p_c = probs_ptr->data()[i * num_classes + c];
                     float grad_val;
 
                     if (c == label) {
@@ -321,7 +321,7 @@ TensorPtr FocalLoss::forward(const TensorPtr& prediction, const TensorPtr& targe
                     if (alpha_val >= 0) {
                         grad_val *= alpha_val;
                     }
-                    pred_ptr->grad[i * num_classes + c] += scale * grad_val;
+                    pred_ptr->grad()[i * num_classes + c] += scale * grad_val;
                 }
             }
         };
@@ -335,17 +335,17 @@ TensorPtr BinaryFocalLoss::forward(const TensorPtr& prediction, const TensorPtr&
     // FL(p_t) = -alpha_t * (1 - p_t)^gamma * log(p_t)
     // prediction: logits (will apply sigmoid internally)
     // target: binary labels (0 or 1)
-    assert(prediction->data.size() == target->data.size());
+    assert(prediction->size() == target->size());
 
-    size_t n = prediction->data.size();
+    size_t n = prediction->size();
     float eps = 1e-7f;
 
     auto result = Tensor::create({1}, prediction->requires_grad);
-    result->data[0] = 0.0f;
+    result->data()[0] = 0.0f;
 
     for (size_t i = 0; i < n; i++) {
-        float x = prediction->data[i];
-        float y = target->data[i];
+        float x = prediction->data()[i];
+        float y = target->data()[i];
 
         // Numerically stable sigmoid
         float p = 1.0f / (1.0f + std::exp(-x));
@@ -361,9 +361,9 @@ TensorPtr BinaryFocalLoss::forward(const TensorPtr& prediction, const TensorPtr&
             alpha_t = y * alpha + (1.0f - y) * (1.0f - alpha);
         }
 
-        result->data[0] -= alpha_t * focal_weight * std::log(p_t);
+        result->data()[0] -= alpha_t * focal_weight * std::log(p_t);
     }
-    result->data[0] /= static_cast<float>(n);
+    result->data()[0] /= static_cast<float>(n);
 
     if (result->requires_grad) {
         auto pred_ptr = prediction;
@@ -372,10 +372,10 @@ TensorPtr BinaryFocalLoss::forward(const TensorPtr& prediction, const TensorPtr&
         float alpha_val = alpha;
         result->parents = {pred_ptr};
         result->grad_fn = [pred_ptr, target_ptr, result, n, gamma_val, alpha_val, eps]() {
-            float scale = result->grad[0] / static_cast<float>(n);
+            float scale = result->grad()[0] / static_cast<float>(n);
             for (size_t i = 0; i < n; i++) {
-                float x = pred_ptr->data[i];
-                float y = target_ptr->data[i];
+                float x = pred_ptr->data()[i];
+                float y = target_ptr->data()[i];
 
                 float p = 1.0f / (1.0f + std::exp(-x));
                 p = std::max(std::min(p, 1.0f - eps), eps);
@@ -409,7 +409,7 @@ TensorPtr BinaryFocalLoss::forward(const TensorPtr& prediction, const TensorPtr&
                     focal_grad = -alpha_t * dp_t_dx * std::pow(one_minus_pt, gamma_val - 1.0f) * bracket;
                 }
 
-                pred_ptr->grad[i] += scale * focal_grad;
+                pred_ptr->grad()[i] += scale * focal_grad;
             }
         };
     }

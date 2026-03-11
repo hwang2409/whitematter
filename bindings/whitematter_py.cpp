@@ -159,7 +159,7 @@ public:
 
         // Create tensor and copy data
         auto tensor = Tensor::create(shape, false);
-        std::copy(ptr, ptr + tensor->size(), tensor->data.begin());
+        std::copy(ptr, ptr + tensor->size(), tensor->data());
 
         // Forward pass
         auto output = model->forward(tensor);
@@ -173,7 +173,7 @@ public:
         auto result = py::array_t<float>(out_shape);
         auto result_buf = result.request();
         float* result_ptr = static_cast<float*>(result_buf.ptr);
-        std::copy(output->data.begin(), output->data.end(), result_ptr);
+        std::copy(output->data(), output->data() + output->size(), result_ptr);
 
         return result;
     }

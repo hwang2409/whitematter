@@ -32,15 +32,25 @@ using TensorPtr = std::shared_ptr<Tensor>;
 
 class Tensor : public std::enable_shared_from_this<Tensor> {
 public:
-    std::vector<float> data;
-    std::vector<float> grad;
     std::vector<size_t> shape;
     bool requires_grad;
 
     std::function<void()> grad_fn;
     std::vector<TensorPtr> parents;
 
+    // Pool-backed storage accessors (replaces std::vector<float> data and grad)
+    float* data() { return data_ptr_; }
+    const float* data() const { return data_ptr_; }
+    size_t size() const { return data_size_; }
+    float* grad() { return grad_ptr_; }
+    const float* grad() const { return grad_ptr_; }
+    size_t grad_size() const { return grad_size_; }
+    bool grad_empty() const { return grad_ptr_ == nullptr; }
+
     Tensor();
+    ~Tensor();
+    Tensor(const Tensor&) = delete;
+    Tensor& operator=(const Tensor&) = delete;
     Tensor(const std::vector<size_t>& shape, bool requires_grad = false);
     Tensor(const std::vector<float>& data, const std::vector<size_t>& shape, bool requires_grad = false);
 
@@ -57,7 +67,6 @@ public:
     // Stack tensors along a new dimension
     static TensorPtr stack(const std::vector<TensorPtr>& tensors, int dim = 0);
 
-    size_t size() const;
     size_t ndim() const;
     float item() const;
     void zero_grad();
@@ -132,6 +141,11 @@ public:
 private:
     void build_topo(std::vector<Tensor*>& topo, std::vector<Tensor*>& visited);
     bool should_track_grad() const;
+
+    float* data_ptr_;
+    size_t data_size_;
+    float* grad_ptr_;
+    size_t grad_size_;
 };
 
 TensorPtr operator*(float scalar, const TensorPtr& t);

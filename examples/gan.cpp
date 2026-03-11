@@ -163,8 +163,8 @@ static std::mt19937 gan_rng(42);
 TensorPtr sample_noise(size_t batch_size, size_t latent_dim) {
     auto z = Tensor::create({batch_size, latent_dim}, true);
     std::normal_distribution<float> dist(0.0f, 1.0f);
-    for (auto& v : z->data) {
-        v = dist(gan_rng);
+    for (size_t i = 0; i < z->size(); i++) {
+        z->data()[i] = dist(gan_rng);
     }
     return z;
 }
@@ -185,7 +185,7 @@ void print_samples(const TensorPtr& images, int num_cols = 5) {
         for (size_t img = 0; img < num_to_show; img++) {
             for (size_t col = 0; col < 28; col++) {
                 size_t idx = img * 28 * 28 + row * 28 + col;
-                float val = images->data[idx];
+                float val = images->data()[idx];
                 int char_idx = static_cast<int>(val * (num_chars - 1));
                 char_idx = std::max(0, std::min(num_chars - 1, char_idx));
                 printf("%c", chars[char_idx]);
@@ -202,7 +202,7 @@ void print_samples(const TensorPtr& images, int num_cols = 5) {
 size_t count_params(Module* model) {
     size_t total = 0;
     for (auto& p : model->parameters()) {
-        total += p->data.size();
+        total += p->size();
     }
     return total;
 }
@@ -288,8 +288,8 @@ int main() {
             auto real_labels = Tensor::create({current_batch, 1}, false);
             auto fake_labels = Tensor::create({current_batch, 1}, false);
             for (size_t i = 0; i < current_batch; i++) {
-                real_labels->data[i] = 0.9f;  // Label smoothing
-                fake_labels->data[i] = 0.0f;
+                real_labels->data()[i] = 0.9f;  // Label smoothing
+                fake_labels->data()[i] = 0.0f;
             }
 
             // =====================================================
@@ -321,8 +321,8 @@ int main() {
             // Track D accuracy
             float d_real_mean = 0.0f, d_fake_mean = 0.0f;
             for (size_t i = 0; i < current_batch; i++) {
-                d_real_mean += d_real_output->data[i];
-                d_fake_mean += d_fake_output->data[i];
+                d_real_mean += d_real_output->data()[i];
+                d_fake_mean += d_fake_output->data()[i];
             }
             d_real_mean /= current_batch;
             d_fake_mean /= current_batch;
@@ -426,7 +426,7 @@ int main() {
 
         auto z_interp = Tensor::create({1, latent_dim}, false);
         for (size_t i = 0; i < latent_dim; i++) {
-            z_interp->data[i] = (1.0f - alpha) * z1->data[i] + alpha * z2->data[i];
+            z_interp->data()[i] = (1.0f - alpha) * z1->data()[i] + alpha * z2->data()[i];
         }
 
         TensorPtr sample;
@@ -445,7 +445,7 @@ int main() {
         printf("    ");
         for (int step = 0; step < num_steps; step++) {
             for (size_t col = 0; col < 28; col++) {
-                float val = interpolations[step]->data[row * 28 + col];
+                float val = interpolations[step]->data()[row * 28 + col];
                 int idx = static_cast<int>(val * (num_chars - 1));
                 idx = std::max(0, std::min(num_chars - 1, idx));
                 printf("%c", chars[idx]);
@@ -473,7 +473,7 @@ int main() {
     // Print second row
     auto second_row = Tensor::create({5, 28, 28}, false);
     for (size_t i = 0; i < 5 * 28 * 28; i++) {
-        second_row->data[i] = diverse_samples->data[5 * 28 * 28 + i];
+        second_row->data()[i] = diverse_samples->data()[5 * 28 * 28 + i];
     }
     print_samples(second_row, 5);
 
