@@ -2,16 +2,24 @@
 #define MEMORY_POOL_H
 
 #include <cstddef>
+#include <memory>
+
+namespace memory_pool_detail { struct ThreadCache; }
 
 // Thread-safe memory pool for float buffers using size-class buckets
 // (next power of 2). Used by Tensor for data and grad storage.
 class MemoryPool {
+    friend struct memory_pool_detail::ThreadCache;
 public:
     static MemoryPool& instance();
 
     // Acquire a buffer of at least n floats. Returns pointer to n floats (actual
     // allocation may be larger due to size class). Caller must not free; use release().
     float* acquire(size_t n);
+
+    // Acquire shared ownership of a buffer. Memory is returned to the pool when
+    // the last shared_ptr is destroyed (custom deleter calls release).
+    std::shared_ptr<float> acquire_shared(size_t n);
 
     // Return a buffer previously obtained from acquire(original_n).
     // original_n must be the same value passed to acquire (used for bucket lookup).
