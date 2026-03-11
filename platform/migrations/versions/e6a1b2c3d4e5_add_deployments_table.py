@@ -1,7 +1,7 @@
 """add deployments table for one-click deploy to API
 
 Revision ID: e6a1b2c3d4e5
-Revises: d58bb00add0e
+Revises: d54aa7c96d7c
 Create Date: 2026-03-11
 
 """
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 revision: str = "e6a1b2c3d4e5"
-down_revision: Union[str, Sequence[str], None] = "d58bb00add0e"
+down_revision: Union[str, Sequence[str], None] = "d54aa7c96d7c"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

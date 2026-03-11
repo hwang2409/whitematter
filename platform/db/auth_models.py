@@ -1,4 +1,3 @@
-"""Auth and BYOC database models."""
 import enum
 import uuid
 from datetime import datetime
@@ -104,13 +103,13 @@ class Deployment(Base):
     __tablename__ = "deployments"
     id = Column(String(32), primary_key=True, default=gen_uuid)
     user_id = Column(String(32), ForeignKey("users.id"), nullable=False)
-    model_id = Column(String(32), nullable=False)  # Platform model id (no FK to support file-based models)
+    model_id = Column(String(32), nullable=False)
     target_type = Column(String(20), default="ec2")
     status = Column(String(20), default=DeploymentStatus.PENDING.value)
     instance_id = Column(String(30), nullable=True)
-    endpoint_url = Column(String(512), nullable=True)  # e.g. http://1.2.3.4:8080
+    endpoint_url = Column(String(512), nullable=True)
     region = Column(String(30), default="us-east-1")
-    deployment_token = Column(String(128), nullable=True)  # One-time token for artifact fetch; cleared after use
+    deployment_token = Column(String(128), nullable=True)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

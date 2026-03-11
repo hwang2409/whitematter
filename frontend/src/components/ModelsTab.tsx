@@ -1,6 +1,8 @@
 "use client";
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import * as api from '@/api';
+import { useAuth } from '@/context/AuthContext';
+import * as deployService from '@/services/deploy';
 import ConfirmDialog from './ConfirmDialog';
 import Toast, { useToast } from './Toast';
 
@@ -9,7 +11,10 @@ interface Props {
   onUpdate?: () => void;
 }
 
+const DEPLOY_POLL_INTERVAL_MS = 3000;
+
 export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
+  const { token } = useAuth();
   const [models, setModels] = useState<api.Model[]>([]);
   const [selectedModel, setSelectedModel] = useState<api.Model | null>(null);
   const [loading, setLoading] = useState(true);
@@ -26,12 +31,102 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
   // Confirm dialog state
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
+  // Deploy to API state
+  const [deployModalOpen, setDeployModalOpen] = useState(false);
+  const [deployRegion, setDeployRegion] = useState('us-east-1');
+  const [deploying, setDeploying] = useState(false);
+  const [deploymentPollId, setDeploymentPollId] = useState<string | null>(null);
+  const [deployments, setDeployments] = useState<deployService.Deployment[]>([]);
+  const [deployError, setDeployError] = useState('');
+
   // Toast notifications
   const toast = useToast();
 
   useEffect(() => {
     loadModels();
   }, []);
+
+  // Load deployments when deploy modal opens for selected model
+  const loadDeployments = useCallback(async () => {
+    if (!token || !selectedModel) return;
+    try {
+      const list = await deployService.listDeployments(token, selectedModel.id);
+      setDeployments(list);
+    } catch {
+      setDeployments([]);
+    }
+  }, [token, selectedModel]);
+
+  useEffect(() => {
+    if (deployModalOpen && selectedModel && token) {
+      loadDeployments();
+      setDeployError('');
+    }
+  }, [deployModalOpen, selectedModel?.id, token, loadDeployments]);
+
+  // Poll deployment status until live or failed
+  useEffect(() => {
+    if (!deploymentPollId || !token) return;
+    const t = setInterval(async () => {
+      try {
+        const d = await deployService.getDeployment(token, deploymentPollId);
+        setDeployments((prev) => {
+          const idx = prev.findIndex((x) => x.id === d.id);
+          const next = idx >= 0 ? [...prev.slice(0, idx), d, ...prev.slice(idx + 1)] : [d, ...prev];
+          return next;
+        });
+        if (d.status === 'live' || d.status === 'failed') {
+          setDeploymentPollId(null);
+          setDeploying(false);
+          if (d.status === 'live') toast.success('Deployment live! Your API is ready.');
+          if (d.status === 'failed') toast.error(d.error_message || 'Deployment failed.');
+        }
+      } catch {
+        setDeploymentPollId(null);
+        setDeploying(false);
+      }
+    }, DEPLOY_POLL_INTERVAL_MS);
+    return () => clearInterval(t);
+  }, [deploymentPollId, token, toast]);
+
+  async function handleDeployStart() {
+    if (!token || !selectedModel) return;
+    setDeploying(true);
+    setDeployError('');
+    try {
+      const res = await deployService.createDeployment(token, {
+        model_id: selectedModel.id,
+        region: deployRegion,
+      });
+      setDeploymentPollId(res.deployment_id);
+      setDeployments((prev) => [{ id: res.deployment_id, model_id: selectedModel.id, target_type: 'ec2', status: res.status, instance_id: null, endpoint_url: null, region: deployRegion, error_message: null, created_at: null, updated_at: null }, ...prev]);
+    } catch (e: unknown) {
+      setDeploying(false);
+      setDeployError(e instanceof Error ? e.message : 'Failed to start deployment');
+    }
+  }
+
+  async function handleDeployTerminate(deploymentId: string) {
+    if (!token) return;
+    try {
+      await deployService.terminateDeployment(token, deploymentId);
+      await loadDeployments();
+      toast.success('Deployment terminated.');
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Failed to terminate');
+    }
+  }
+
+  async function copyDeployEndpoint(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      toast.success('Endpoint URL copied.');
+    } catch {
+      toast.error('Failed to copy');
+    }
+  }
 
   async function loadModels() {
     setLoading(true);
@@ -318,22 +413,35 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
               )}
 
               {selectedModel.status === 'completed' && !isTextModel(selectedModel) && (
-                <div className="api-endpoint">
-                  <h4>API Endpoint</h4>
-                  <div className="endpoint-row">
-                    <code>POST /api/{selectedModel.id}/predict</code>
+                <>
+                  <div className="api-endpoint">
+                    <h4>API Endpoint</h4>
+                    <div className="endpoint-row">
+                      <code>POST /api/{selectedModel.id}/predict</code>
+                      <button
+                        className="btn copy-btn"
+                        onClick={() => copyEndpoint(selectedModel.id)}
+                      >
+                        {copied ? 'Copied!' : 'Copy URL'}
+                      </button>
+                    </div>
+                    <details className="curl-example">
+                      <summary>cURL Example</summary>
+                      <pre>curl -X POST -F "file=@image.jpg" \{'\n'}  http://localhost:8080/api/{selectedModel.id}/predict</pre>
+                    </details>
+                  </div>
+                  <div className="deploy-section">
+                    <h4>Deploy to API</h4>
+                    <p className="deploy-desc">Run this model on a small EC2 instance with its own URL. Requires AWS credentials in Settings.</p>
                     <button
-                      className="btn copy-btn"
-                      onClick={() => copyEndpoint(selectedModel.id)}
+                      type="button"
+                      className="btn primary"
+                      onClick={() => setDeployModalOpen(true)}
                     >
-                      {copied ? 'Copied!' : 'Copy URL'}
+                      Deploy to API
                     </button>
                   </div>
-                  <details className="curl-example">
-                    <summary>cURL Example</summary>
-                    <pre>curl -X POST -F "file=@image.jpg" \{'\n'}  http://localhost:8080/api/{selectedModel.id}/predict</pre>
-                  </details>
-                </div>
+                </>
               )}
 
               <div className="model-actions">
@@ -354,6 +462,52 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {deployModalOpen && selectedModel && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" onClick={() => !deploying && setDeployModalOpen(false)}>
+          <div className="modal-content deploy-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Deploy to API</h3>
+              <button type="button" className="modal-close" aria-label="Close" onClick={() => !deploying && setDeployModalOpen(false)} disabled={deploying}>×</button>
+            </div>
+            <p className="modal-model-name">{formatModelName(selectedModel.name)}</p>
+            {deployError && <div className="error deploy-err">{deployError}</div>}
+            {deployments.some((d) => d.status === 'live') ? (
+              <div className="deploy-live">
+                <p className="deploy-status-badge live">Live</p>
+                {deployments.filter((d) => d.status === 'live').map((d) => (
+                  <div key={d.id} className="deploy-endpoint-row">
+                    <code className="deploy-url">{d.endpoint_url}/predict</code>
+                    <button type="button" className="btn copy-btn" onClick={() => d.endpoint_url && copyDeployEndpoint(`${d.endpoint_url}/predict`)}>
+                      {copied ? 'Copied!' : 'Copy URL'}
+                    </button>
+                    <button type="button" className="btn danger" onClick={() => handleDeployTerminate(d.id)}>Undeploy</button>
+                  </div>
+                ))}
+                <p className="deploy-curl-hint">POST image file as <code>file</code> to the URL above.</p>
+              </div>
+            ) : deploying || deploymentPollId ? (
+              <div className="deploy-progress">
+                <p className="deploy-status-badge launching">Launching instance…</p>
+                <p className="deploy-hint">This usually takes 1–2 minutes. The page will update when the endpoint is ready.</p>
+              </div>
+            ) : (
+              <div className="deploy-form">
+                <label className="form-group">
+                  <span>Region</span>
+                  <select value={deployRegion} onChange={(e) => setDeployRegion(e.target.value)}>
+                    <option value="us-east-1">us-east-1</option>
+                    <option value="us-west-2">us-west-2</option>
+                  </select>
+                </label>
+                <button type="button" className="btn primary" onClick={handleDeployStart} disabled={!token}>
+                  Deploy to EC2
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
