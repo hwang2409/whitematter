@@ -7,6 +7,8 @@ from sqlalchemy import pool
 from alembic import context
 
 from db.models import Base
+# Import auth models so they are included in autogenerate
+from db import auth_models  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
