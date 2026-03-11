@@ -1325,6 +1325,10 @@ make test       # Run unit tests
 - **Metal** (macOS / Apple Silicon): `make METAL=1` — uses Metal for matmul when tensors are on `.to(Device::metal())`.
 - **CUDA** (Linux / cloud): `make CUDA=1` — uses cuBLAS for matmul and batched matmul when tensors are on `.to(Device::cuda())`. Requires nvcc and CUDA toolkit; set `CUDA_PATH` if needed. Default build is CPU-only and does not require CUDA.
 
+**Device auto-selection:** Use `Device::auto_()` or `Device::default_device()` to pick the best available backend (Metal on macOS when built with `METAL=1`, else CUDA when built with `CUDA=1`, else CPU) so you don’t need to hard-code backend or remember make flags.
+
+**ONNX:** Export with `export_onnx(model, path, input_shape)`; import with `load_onnx(path)` for the same op set (Gemm, Conv, Relu, Sigmoid, Tanh, Softmax, Flatten, MaxPool, AveragePool, BatchNormalization, Identity). Set `ONNXExportOptions::export_fp16 = true` to export initializers in Float16 for smaller, edge-friendly models. For memory-efficient inference in C++, use `HalfTensor` and fp16 helpers in `core/amp.h`.
+
 ## Unit Tests
 
 Comprehensive unit tests are provided in the `tests/` directory:

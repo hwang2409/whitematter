@@ -15,6 +15,8 @@ struct ONNXExportOptions {
     std::string producer_version = "1.0";
     std::vector<size_t> input_shape;  // Required: e.g., {1, 1, 28, 28} for MNIST CNN
     bool verbose = false;
+    /// If true, export initializers in Float16 (smaller file, edge-friendly).
+    bool export_fp16 = false;
 };
 
 // Export a Sequential model to ONNX format

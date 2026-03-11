@@ -5,7 +5,16 @@ namespace whitematter {
 Device Device::cpu() { return Device(DeviceType::CPU); }
 Device Device::metal() { return Device(DeviceType::METAL); }
 Device Device::cuda() { return Device(DeviceType::CUDA); }
-Device Device::default_device() { return cpu(); }
+
+Device Device::auto_() {
+#if defined(__APPLE__)
+    if (metal_backend_available()) return Device(DeviceType::METAL);
+#endif
+    if (cuda_backend_available()) return Device(DeviceType::CUDA);
+    return Device(DeviceType::CPU);
+}
+
+Device Device::default_device() { return auto_(); }
 
 bool Device::is_available() const {
     if (type_ == DeviceType::CPU) return true;

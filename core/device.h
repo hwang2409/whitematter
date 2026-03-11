@@ -10,6 +10,8 @@ public:
     static Device cpu();
     static Device metal();
     static Device cuda();
+    /// Selects best available backend: Metal on macOS (if built), else CUDA (if built), else CPU.
+    static Device auto_();
     static Device default_device();
 
     DeviceType type() const { return type_; }
