@@ -31,8 +31,9 @@ Your task is to design neural network architectures based on user requirements a
 
 ### Sequence Layers (for text)
 - embedding: Embedding(num_embeddings, embedding_dim)
-- lstm: LSTM(input_size, hidden_size)
-- gru: GRU(input_size, hidden_size)
+- multihead_attention: MultiHeadAttention(embed_dim, num_heads) - for Transformers
+- lstm: LSTM(input_size, hidden_size) - legacy, prefer Transformer
+- gru: GRU(input_size, hidden_size) - legacy, prefer Transformer
 
 ## Available Optimizers
 - sgd: SGD with momentum (default: lr=0.01, momentum=0.9)
@@ -54,7 +55,20 @@ Your task is to design neural network architectures based on user requirements a
 
 ### For Text Classification:
 1. Input: [batch, seq_len] (token indices)
-2. Embedding -> LSTM/GRU -> Linear(num_classes)
+2. Embedding -> Transformer/LSTM -> Linear(num_classes)
+
+### For Language Modeling (Text Generation) - USE TRANSFORMER:
+1. Input: [batch, seq_len] (token indices)
+2. Output: [batch, seq_len, vocab_size] (next token probabilities)
+3. **PREFERRED**: Transformer architecture with causal attention
+4. Pattern: Embedding + PositionalEncoding -> TransformerBlocks -> LayerNorm -> Linear(vocab_size)
+5. For character-level: vocab_size = number of unique characters
+6. For word-level: vocab_size = vocabulary size
+7. Use embedding_dim of 128-256 for character-level
+8. Use 4-8 attention heads (embed_dim must be divisible by num_heads)
+9. Use 4-6 transformer layers for good context modeling
+10. Dropout of 0.1 for regularization
+11. Higher learning rate (0.001-0.003) with warmup helps Transformers
 
 ### For Tabular Data:
 1. Input: [batch, num_features]

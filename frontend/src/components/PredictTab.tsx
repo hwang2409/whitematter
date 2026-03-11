@@ -1,9 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
 import * as api from '../api';
 
-export default function PredictTab() {
-  const [models, setModels] = useState<api.Model[]>([]);
-  const [selectedModelId, setSelectedModelId] = useState('');
+interface Props {
+  models?: api.Model[];
+  selectedModel?: string | null;
+  onModelChange?: (id: string) => void;
+}
+
+export default function PredictTab({ models: propModels, selectedModel, onModelChange }: Props) {
+  const [localModels, setLocalModels] = useState<api.Model[]>([]);
+  const models = propModels?.length ? propModels : localModels;
+  const [selectedModelId, setSelectedModelId] = useState(selectedModel || '');
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [result, setResult] = useState<api.PredictResult | null>(null);
@@ -15,17 +22,38 @@ export default function PredictTab() {
     loadModels();
   }, []);
 
+  useEffect(() => {
+    if (selectedModel && selectedModel !== selectedModelId) {
+      setSelectedModelId(selectedModel);
+    }
+  }, [selectedModel]);
+
+  // Auto-select first model if none selected
+  useEffect(() => {
+    if (models.length > 0 && !selectedModelId) {
+      const firstId = models[0].id;
+      setSelectedModelId(firstId);
+      onModelChange?.(firstId);
+    }
+  }, [models]);
+
   async function loadModels() {
+    if (propModels?.length) return; // Skip if models passed as props
     try {
       const data = await api.getModels();
       const completedModels = data.filter((m) => m.status === 'completed');
-      setModels(completedModels);
+      setLocalModels(completedModels);
       if (completedModels.length > 0 && !selectedModelId) {
         setSelectedModelId(completedModels[0].id);
       }
     } catch (e) {
       setError('Failed to load models');
     }
+  }
+
+  function handleModelChange(id: string) {
+    setSelectedModelId(id);
+    onModelChange?.(id);
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -92,7 +120,7 @@ export default function PredictTab() {
     }
   }
 
-  const selectedModel = models.find((m) => m.id === selectedModelId);
+  const currentModel = models.find((m) => m.id === selectedModelId);
 
   return (
     <div className="predict-tab">
@@ -104,7 +132,7 @@ export default function PredictTab() {
         <label>Model</label>
         <select
           value={selectedModelId}
-          onChange={(e) => setSelectedModelId(e.target.value)}
+          onChange={(e) => handleModelChange(e.target.value)}
           disabled={loading}
         >
           {models.length === 0 ? (
@@ -117,9 +145,9 @@ export default function PredictTab() {
             ))
           )}
         </select>
-        {selectedModel && (
+        {currentModel && (
           <p className="help-text">
-            {selectedModel.architecture} trained on {selectedModel.dataset}
+            {currentModel.architecture} trained on {currentModel.dataset}
           </p>
         )}
       </div>

@@ -1,64 +1,190 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import ErrorBoundary from './components/ErrorBoundary';
 import DatasetsTab from './components/DatasetsTab';
-import DesignTab from './components/DesignTab';
 import TrainTab from './components/TrainTab';
+import DesignHelper from './components/DesignHelper';
 import ModelsTab from './components/ModelsTab';
 import PredictTab from './components/PredictTab';
+import { getCustomDatasets, getModels } from './api';
+import type { CustomDataset, Model, Architecture } from './api';
 import './App.css';
 
-type Tab = 'datasets' | 'design' | 'train' | 'models' | 'predict';
+type Step = 'data' | 'train' | 'models' | 'predict';
+
+interface DesignHelperContext {
+  datasetType?: string;
+  architecture?: Architecture | null;
+}
+
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
 
 function App() {
-  const [activeTab, setActiveTab] = useState<Tab>('datasets');
+  const [activeStep, setActiveStep] = useState<Step>('data');
+  const [datasets, setDatasets] = useState<CustomDataset[]>([]);
+  const [models, setModels] = useState<Model[]>([]);
+  const [selectedDataset, setSelectedDataset] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  const [designHelperOpen, setDesignHelperOpen] = useState(false);
+  const [designHelperContext, setDesignHelperContext] = useState<DesignHelperContext>({});
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      const [datasetsData, modelsData] = await Promise.all([
+        getCustomDatasets(),
+        getModels()
+      ]);
+      setDatasets(datasetsData);
+      setModels(modelsData);
+    } catch (err) {
+      console.error('Failed to load data:', err);
+    }
+  };
+
+  const readyDatasets = datasets.filter(d => d.status === 'ready');
+  const completedModels = models.filter(m => m.status === 'completed');
+
+  const getStepStatus = (step: Step): 'complete' | 'active' | 'pending' => {
+    if (step === activeStep) return 'active';
+    switch (step) {
+      case 'data':
+        return readyDatasets.length > 0 ? 'complete' : 'pending';
+      case 'train':
+        return completedModels.length > 0 ? 'complete' : 'pending';
+      case 'models':
+        return completedModels.length > 0 ? 'complete' : 'pending';
+      case 'predict':
+        return 'pending';
+      default:
+        return 'pending';
+    }
+  };
+
+  // Close sidebar when switching away from train tab
+  useEffect(() => {
+    if (activeStep !== 'train') {
+      setDesignHelperOpen(false);
+    }
+  }, [activeStep]);
 
   return (
-    <div className="app">
+    <ErrorBoundary>
+    <div className={`app ${designHelperOpen ? 'with-sidebar' : ''}`}>
       <header className="header">
         <h1>whitematter</h1>
-        <p className="subtitle">Custom ML Training Platform</p>
       </header>
 
-      <nav className="tabs">
+      {/* Workflow Navigation */}
+      <nav className="workflow-nav">
         <button
-          className={`tab ${activeTab === 'datasets' ? 'active' : ''}`}
-          onClick={() => setActiveTab('datasets')}
+          className={`workflow-step ${getStepStatus('data')}`}
+          onClick={() => setActiveStep('data')}
         >
-          Datasets
+          <span className="step-num">{getStepStatus('data') === 'complete' ? '✓' : '1'}</span>
+          <span className="step-label">Data</span>
+          {readyDatasets.length > 0 && (
+            <span className="step-badge">{readyDatasets.length}</span>
+          )}
         </button>
+
+        <div className="workflow-connector" />
+
         <button
-          className={`tab ${activeTab === 'design' ? 'active' : ''}`}
-          onClick={() => setActiveTab('design')}
+          className={`workflow-step ${getStepStatus('train')}`}
+          onClick={() => setActiveStep('train')}
         >
-          Design
+          <span className="step-num">{getStepStatus('train') === 'complete' ? '✓' : '2'}</span>
+          <span className="step-label">Train</span>
         </button>
+
+        <div className="workflow-connector" />
+
         <button
-          className={`tab ${activeTab === 'train' ? 'active' : ''}`}
-          onClick={() => setActiveTab('train')}
+          className={`workflow-step ${getStepStatus('models')}`}
+          onClick={() => setActiveStep('models')}
         >
-          Presets
+          <span className="step-num">{completedModels.length > 0 ? '✓' : '3'}</span>
+          <span className="step-label">Models</span>
+          {completedModels.length > 0 && (
+            <span className="step-badge">{completedModels.length}</span>
+          )}
         </button>
+
+        <div className="workflow-connector" />
+
         <button
-          className={`tab ${activeTab === 'models' ? 'active' : ''}`}
-          onClick={() => setActiveTab('models')}
+          className={`workflow-step ${getStepStatus('predict')}`}
+          onClick={() => setActiveStep('predict')}
         >
-          Models
-        </button>
-        <button
-          className={`tab ${activeTab === 'predict' ? 'active' : ''}`}
-          onClick={() => setActiveTab('predict')}
-        >
-          Predict
+          <span className="step-num">4</span>
+          <span className="step-label">Predict</span>
         </button>
       </nav>
 
-      <main className="content">
-        {activeTab === 'datasets' && <DatasetsTab />}
-        {activeTab === 'design' && <DesignTab />}
-        {activeTab === 'train' && <TrainTab />}
-        {activeTab === 'models' && <ModelsTab />}
-        {activeTab === 'predict' && <PredictTab />}
-      </main>
+      <div className="app-body">
+        {/* Main Content */}
+        <main className="content">
+          {activeStep === 'data' && (
+            <DatasetsTab
+              onDatasetSelect={(id) => setSelectedDataset(id)}
+              onUpdate={loadData}
+            />
+          )}
+          {activeStep === 'train' && (
+            <TrainTab
+              datasets={readyDatasets}
+              selectedDataset={selectedDataset}
+              onDatasetChange={setSelectedDataset}
+              onTrainingComplete={loadData}
+              helperOpen={designHelperOpen}
+              onHelperToggle={setDesignHelperOpen}
+              onHelperContextChange={setDesignHelperContext}
+            />
+          )}
+          {activeStep === 'models' && (
+            <ModelsTab
+              onModelSelect={(id) => setSelectedModel(id)}
+              onUpdate={loadData}
+            />
+          )}
+          {activeStep === 'predict' && (
+            <PredictTab
+              models={completedModels}
+              selectedModel={selectedModel}
+              onModelChange={setSelectedModel}
+            />
+          )}
+        </main>
+
+        {/* Design Helper Sidebar */}
+        {designHelperOpen && (
+          <aside className="app-sidebar">
+            <div className="sidebar-header">
+              <h3>AI Design Assistant</h3>
+              <button className="sidebar-close" onClick={() => setDesignHelperOpen(false)}>
+                &times;
+              </button>
+            </div>
+            <div className="sidebar-body">
+              <DesignHelper
+                datasetType={designHelperContext.datasetType}
+                currentArchitecture={designHelperContext.architecture}
+                messages={chatMessages}
+                onMessagesChange={setChatMessages}
+              />
+            </div>
+          </aside>
+        )}
+      </div>
     </div>
+    </ErrorBoundary>
   );
 }
 

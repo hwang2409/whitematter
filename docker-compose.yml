@@ -1,0 +1,44 @@
+# Whitematter ML Platform
+#
+# All data is stored in a single SQLite database - no separate file storage.
+# The volume only contains the database file (whitematter.db).
+
+version: '3.8'
+
+services:
+  whitematter:
+    build: .
+    ports:
+      - "8080:8080"   # API server
+      - "5173:5173"   # Frontend
+    volumes:
+      - whitematter-db:/data   # Only contains SQLite database
+    environment:
+      - WHITEMATTER_DATA_DIR=/data
+      - WORKERS=2
+      # Uncomment and set your API key for LLM features
+      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Optional: Run additional workers as separate containers
+  # Workers share the same database for job coordination
+  # worker:
+  #   build: .
+  #   command: python -u platform/run_worker.py --count 4
+  #   volumes:
+  #     - whitematter-db:/data
+  #   environment:
+  #     - WHITEMATTER_DATA_DIR=/data
+  #   depends_on:
+  #     - whitematter
+  #   restart: unless-stopped
+
+volumes:
+  whitematter-db:
+    driver: local

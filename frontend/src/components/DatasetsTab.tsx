@@ -1,7 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import * as api from '../api';
+import ConfirmDialog from './ConfirmDialog';
 
-export default function DatasetsTab() {
+interface Props {
+  onDatasetSelect?: (id: string | null) => void;
+  onUpdate?: () => void;
+}
+
+export default function DatasetsTab({ onDatasetSelect, onUpdate }: Props) {
   const [datasets, setDatasets] = useState<api.CustomDataset[]>([]);
   const [selectedDataset, setSelectedDataset] = useState<api.CustomDataset | null>(null);
   const [preview, setPreview] = useState<api.DatasetPreviewSample[]>([]);
@@ -13,7 +19,14 @@ export default function DatasetsTab() {
   const [error, setError] = useState('');
   const [datasetName, setDatasetName] = useState('');
   const [file, setFile] = useState<File | null>(null);
+  const [fileType, setFileType] = useState<'zip' | 'text'>('zip');
+  const [tokenizerType, setTokenizerType] = useState<'character' | 'word'>('character');
+  const [seqLength, setSeqLength] = useState(128);
+  const [textPreview, setTextPreview] = useState<api.TextPreview | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Confirm dialog state
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   useEffect(() => {
     loadDatasets();
@@ -32,9 +45,16 @@ export default function DatasetsTab() {
     try {
       const data = await api.getDatasetPreview(datasetId);
       setPreview(data.samples || []);
+      // Handle text preview
+      if ((data as any).text_preview) {
+        setTextPreview((data as any).text_preview);
+      } else {
+        setTextPreview(null);
+      }
     } catch (e) {
       console.error('Failed to load preview:', e);
       setPreview([]);
+      setTextPreview(null);
     } finally {
       setLoadingPreview(false);
     }
@@ -45,6 +65,7 @@ export default function DatasetsTab() {
     try {
       const data = await api.getCustomDatasets();
       setDatasets(data);
+      onUpdate?.();
     } catch (e) {
       setError('Failed to load datasets');
     } finally {
@@ -52,15 +73,27 @@ export default function DatasetsTab() {
     }
   }
 
+  function handleSelectDataset(dataset: api.CustomDataset) {
+    setSelectedDataset(dataset);
+    onDatasetSelect?.(dataset.id);
+  }
+
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
     if (f) {
       setFile(f);
       setError('');
-      // Auto-fill name from filename
-      if (!datasetName) {
-        const name = f.name.replace(/\.zip$/i, '');
-        setDatasetName(name);
+      // Detect file type and auto-fill name
+      if (f.name.endsWith('.txt')) {
+        setFileType('text');
+        if (!datasetName) {
+          setDatasetName(f.name.replace(/\.txt$/i, ''));
+        }
+      } else if (f.name.endsWith('.zip')) {
+        setFileType('zip');
+        if (!datasetName) {
+          setDatasetName(f.name.replace(/\.zip$/i, ''));
+        }
       }
     }
   }
@@ -68,15 +101,22 @@ export default function DatasetsTab() {
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
     const f = e.dataTransfer.files[0];
-    if (f && f.name.endsWith('.zip')) {
+    if (f && (f.name.endsWith('.zip') || f.name.endsWith('.txt'))) {
       setFile(f);
       setError('');
-      if (!datasetName) {
-        const name = f.name.replace(/\.zip$/i, '');
-        setDatasetName(name);
+      if (f.name.endsWith('.txt')) {
+        setFileType('text');
+        if (!datasetName) {
+          setDatasetName(f.name.replace(/\.txt$/i, ''));
+        }
+      } else {
+        setFileType('zip');
+        if (!datasetName) {
+          setDatasetName(f.name.replace(/\.zip$/i, ''));
+        }
       }
     } else {
-      setError('Please upload a ZIP file');
+      setError('Please upload a ZIP or TXT file');
     }
   }
 
@@ -98,10 +138,19 @@ export default function DatasetsTab() {
     setError('');
 
     try {
-      const dataset = await api.uploadDataset(file, datasetName.trim());
+      let dataset: api.CustomDataset;
+      if (fileType === 'text') {
+        dataset = await api.uploadTextDataset(file, datasetName.trim(), {
+          tokenizer_type: tokenizerType,
+          seq_length: seqLength,
+        });
+      } else {
+        dataset = await api.uploadDataset(file, datasetName.trim());
+      }
       setDatasets((prev) => [dataset, ...prev]);
       setFile(null);
       setDatasetName('');
+      setFileType('zip');
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -113,6 +162,10 @@ export default function DatasetsTab() {
       try {
         const previewData = await api.getDatasetPreview(dataset.id);
         setUploadPreview(previewData.samples || []);
+        // For text datasets, also get text preview
+        if (dataset.data_type === 'text' && (previewData as any).text_preview) {
+          setTextPreview((previewData as any).text_preview);
+        }
       } catch (e) {
         console.error('Failed to load upload preview:', e);
         setUploadPreview([]);
@@ -124,9 +177,7 @@ export default function DatasetsTab() {
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm('Are you sure you want to delete this dataset?')) return;
-
+  async function confirmDelete(id: string) {
     try {
       await api.deleteCustomDataset(id);
       setDatasets(datasets.filter((d) => d.id !== id));
@@ -135,6 +186,8 @@ export default function DatasetsTab() {
       }
     } catch (e) {
       setError('Failed to delete dataset');
+    } finally {
+      setDeleteConfirm(null);
     }
   }
 
@@ -169,7 +222,7 @@ export default function DatasetsTab() {
       <div className="upload-section">
         <h3>Upload New Dataset</h3>
         <p className="help-text">
-          Upload a ZIP file with folders for each class. Each folder name becomes a class label.
+          Upload a ZIP file for images, or a TXT file for text/language model training.
         </p>
 
         <div className="form-group">
@@ -193,11 +246,13 @@ export default function DatasetsTab() {
             <div className="file-info">
               <span className="file-name">{file.name}</span>
               <span className="file-size">({(file.size / 1024 / 1024).toFixed(2)} MB)</span>
+              <span className="file-type">{fileType === 'text' ? 'Text' : 'Images'}</span>
               <button
                 className="clear-btn"
                 onClick={(e) => {
                   e.stopPropagation();
                   setFile(null);
+                  setFileType('zip');
                   if (fileInputRef.current) fileInputRef.current.value = '';
                 }}
               >
@@ -206,18 +261,52 @@ export default function DatasetsTab() {
             </div>
           ) : (
             <div className="drop-zone-content">
-              <p>Drop a ZIP file here or click to upload</p>
-              <p className="hint">Supports: folder-per-class, MNIST IDX, flat images, CSV</p>
+              <p>Drop a file here or click to upload</p>
+              <p className="hint">ZIP: folder-per-class, MNIST IDX | TXT: text for language models</p>
             </div>
           )}
           <input
             ref={fileInputRef}
             type="file"
-            accept=".zip"
+            accept=".zip,.txt"
             onChange={handleFileChange}
             hidden
           />
         </div>
+
+        {/* Text-specific options */}
+        {fileType === 'text' && file && (
+          <div className="text-options">
+            <div className="form-row">
+              <div className="form-group">
+                <label>Tokenizer</label>
+                <select
+                  value={tokenizerType}
+                  onChange={(e) => setTokenizerType(e.target.value as 'character' | 'word')}
+                  disabled={uploading}
+                >
+                  <option value="character">Character-level</option>
+                  <option value="word">Word-level</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Sequence Length</label>
+                <input
+                  type="number"
+                  value={seqLength}
+                  onChange={(e) => setSeqLength(parseInt(e.target.value) || 128)}
+                  min={32}
+                  max={512}
+                  disabled={uploading}
+                />
+              </div>
+            </div>
+            <p className="hint">
+              Character-level works well for small datasets like Shakespeare.
+              Word-level is better for larger corpora.
+            </p>
+          </div>
+        )}
 
         <button
           className="btn primary"
@@ -246,19 +335,43 @@ export default function DatasetsTab() {
               <span>{uploadedDataset.data_type}</span>
               <span>{uploadedDataset.format?.replace(/_/g, ' ')}</span>
               <span>{uploadedDataset.num_classes} classes</span>
-              <span>{uploadedDataset.total_samples.toLocaleString()} samples</span>
-              {uploadedDataset.input_shape.length > 0 && (
+              <span>{uploadedDataset.total_samples?.toLocaleString()} samples</span>
+              {uploadedDataset.input_shape?.length > 0 && (
                 <span>Shape: [{uploadedDataset.input_shape.join('x')}]</span>
               )}
             </div>
-            {uploadedDataset.class_names.length > 0 && (
+            {uploadedDataset.class_names?.length > 0 && (
               <div className="upload-success-classes">
                 {uploadedDataset.class_names.map((name, i) => (
                   <span key={i} className="class-chip">{name}</span>
                 ))}
               </div>
             )}
-            {uploadPreview.length > 0 && (
+            {uploadedDataset.data_type === 'text' && textPreview ? (
+              <div className="text-preview-section">
+                <h5>Text Preview</h5>
+                <div className="text-preview-stats">
+                  <span>Vocab: {textPreview.vocab_size} tokens</span>
+                  <span>Sequences: {textPreview.train_sequences} train / {textPreview.test_sequences} test</span>
+                  <span>Total: {textPreview.total_tokens?.toLocaleString()} tokens</span>
+                </div>
+                {textPreview.sample_text && (
+                  <div className="text-sample">
+                    <pre>{textPreview.sample_text.slice(0, 300)}...</pre>
+                  </div>
+                )}
+                {textPreview.sample_tokens?.length > 0 && (
+                  <div className="token-preview">
+                    <span className="label">Sample tokens:</span>
+                    <div className="token-chips">
+                      {textPreview.sample_tokens.slice(0, 20).map((t, i) => (
+                        <span key={i} className="token-chip">{t === ' ' ? '␣' : t === '\n' ? '↵' : t}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : uploadPreview.length > 0 && (
               <div className="upload-preview">
                 <h5>Sample Images</h5>
                 <div className="preview-grid">
@@ -293,7 +406,7 @@ export default function DatasetsTab() {
               <div
                 key={dataset.id}
                 className={`dataset-card ${selectedDataset?.id === dataset.id ? 'selected' : ''}`}
-                onClick={() => setSelectedDataset(dataset)}
+                onClick={() => handleSelectDataset(dataset)}
               >
                 <div className="dataset-card-header">
                   <h4>{dataset.name}</h4>
@@ -327,7 +440,7 @@ export default function DatasetsTab() {
                   <span className="label">Format</span>
                   <span className="value">{selectedDataset.format?.replace(/_/g, ' ') || 'unknown'}</span>
                 </div>
-                {selectedDataset.input_shape.length > 0 && (
+                {selectedDataset.input_shape?.length > 0 && (
                   <div className="detail-item">
                     <span className="label">Input Shape</span>
                     <span className="value">[{selectedDataset.input_shape.join('x')}]</span>
@@ -353,7 +466,7 @@ export default function DatasetsTab() {
                 </div>
               </div>
 
-              {selectedDataset.class_names.length > 0 && (
+              {selectedDataset.class_names?.length > 0 && (
                 <div className="class-list">
                   <h4>Classes</h4>
                   <div className="class-chips">
@@ -368,6 +481,19 @@ export default function DatasetsTab() {
                 <h4>Sample Data</h4>
                 {loadingPreview ? (
                   <p className="loading-text">Loading preview...</p>
+                ) : selectedDataset.data_type === 'text' && textPreview ? (
+                  <div className="text-preview-section">
+                    <div className="text-preview-stats">
+                      <span>Vocab: {textPreview.vocab_size} tokens</span>
+                      <span>Type: {textPreview.tokenizer_type}</span>
+                      {textPreview.seq_length && <span>Seq length: {textPreview.seq_length}</span>}
+                    </div>
+                    {textPreview.sample_text && (
+                      <div className="text-sample">
+                        <pre>{textPreview.sample_text}</pre>
+                      </div>
+                    )}
+                  </div>
                 ) : preview.length > 0 ? (
                   <div className="preview-grid">
                     {preview.map((sample, i) => (
@@ -388,7 +514,7 @@ export default function DatasetsTab() {
               <div className="dataset-actions">
                 <button
                   className="btn danger"
-                  onClick={() => handleDelete(selectedDataset.id)}
+                  onClick={() => setDeleteConfirm(selectedDataset.id)}
                 >
                   Delete Dataset
                 </button>
@@ -397,6 +523,17 @@ export default function DatasetsTab() {
           )}
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={deleteConfirm !== null}
+        title="Delete Dataset"
+        message="Are you sure you want to delete this dataset? This action cannot be undone."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        variant="danger"
+        onConfirm={() => deleteConfirm && confirmDelete(deleteConfirm)}
+        onCancel={() => setDeleteConfirm(null)}
+      />
     </div>
   );
 }

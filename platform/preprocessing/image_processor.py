@@ -4,11 +4,14 @@ Converts images to normalized tensors in binary format.
 """
 
 import json
+import logging
 import struct
 from pathlib import Path
 from typing import List, Tuple, Optional
 import numpy as np
 from PIL import Image
+
+logger = logging.getLogger(__name__)
 
 
 class ImageProcessor:
@@ -66,7 +69,7 @@ class ImageProcessor:
                         all_images.append(img_array)
                         all_labels.append(class_idx)
                     except Exception as e:
-                        print(f"Warning: Failed to load {img_path}: {e}")
+                        logger.warning("Failed to load %s: %s", img_path, e)
 
         if not all_images:
             raise ValueError("No valid images found in dataset")
