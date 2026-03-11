@@ -1,5 +1,6 @@
+"use client";
 import { useState, useEffect, useRef } from 'react';
-import * as api from '../api';
+import * as api from '@/api';
 
 interface Props {
   models?: api.Model[];

@@ -2,8 +2,26 @@
 build/
 *.o
 
-# Data
-data/
+# Data (large; do not commit; .gitkeep keeps dir for scripts)
+data/*
+!data/.gitkeep
+
+# Exported ONNX and trained model binaries (purged from history; do not re-add)
+*.onnx
+mnist_cnn.onnx
+models/*.bin
+models/*.json
+!models/.gitkeep
+platform/models/*.bin
+platform/models/*.json
+!platform/models/.gitkeep
+
+# Personal / internal tooling (purged from history; keep local only)
+dongha.md
+.beads/
+mayor/
+deacon/
+settings/
 
 # Pretrained model weights (keep directory with .gitkeep)
 pretrained/*.bin
@@ -43,6 +61,9 @@ node_modules/
 # Polecats - worker worktrees
 **/polecats/
 
+# Agent/plan execution worktrees
+.worktrees/
+
 # Mayor rig clones
 **/mayor/rig/
 
@@ -78,3 +99,6 @@ node_modules/
 # =============================================================================
 # Note: .beads/ has its own .gitignore that handles SQLite files
 # and keeps issues.jsonl, metadata.json, config file as source of truth
+.env
+
+frontend/.next/

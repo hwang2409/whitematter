@@ -2,6 +2,7 @@
 
 This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
 
+**dongha.md:** When you make substantive changes to the project, update `dongha.md` (local dev log, gitignored) with a new numbered section describing what was implemented. Add entries above the final “*When you implement another plan...*” line.
 ## Quick Reference
 
 ```bash

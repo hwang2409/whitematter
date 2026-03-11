@@ -139,6 +139,10 @@ class CodeGenerator:
             layer_type = layer["type"].lower()
             params = layer.get("params", {})
 
+            # "transformer" is a composite; text models use TransformerLM template, not Sequential
+            if layer_type == "transformer":
+                continue
+
             if layer_type not in LAYER_TEMPLATES:
                 raise ValueError(f"Unknown layer type: {layer_type}")
 

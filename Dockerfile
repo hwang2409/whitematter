@@ -89,17 +89,14 @@ RUN npm run build
 # ------------------------------------------------------------------------------
 FROM python:3.11-slim
 
-# Install runtime dependencies
+# Install runtime dependencies (slim: no build tools)
 RUN apt-get update && apt-get install -y \
-    build-essential \
-    g++ \
-    make \
-    libomp-dev \
     libgomp1 \
     nginx \
     supervisor \
     sqlite3 \
     curl \
+    libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

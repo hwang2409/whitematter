@@ -1,7 +1,8 @@
+"use client";
 import { useState } from 'react';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import * as api from '../api';
+import * as api from '@/api';
 
 interface ChatMessage {
   role: 'user' | 'assistant';

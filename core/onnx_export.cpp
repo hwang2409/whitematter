@@ -454,7 +454,8 @@ bool export_onnx(Sequential* model, const std::string& filepath, const ONNXExpor
     }
 
     // Convert each layer
-    for (Module* layer : model->layers) {
+    for (const auto& ptr : model->layers) {
+        Module* layer = ptr.get();
         if (auto* l = dynamic_cast<Linear*>(layer)) {
             if (!convert_linear(l, ctx)) return false;
         } else if (auto* l = dynamic_cast<Conv2d*>(layer)) {
@@ -557,7 +558,8 @@ std::string get_onnx_export_info(Sequential* model, const std::vector<size_t>& i
     ss << "]\n\n";
     ss << "Layers:\n";
 
-    for (Module* layer : model->layers) {
+    for (const auto& ptr : model->layers) {
+        Module* layer = ptr.get();
         if (auto* l = dynamic_cast<Linear*>(layer)) {
             ss << "  Linear(" << l->weight->shape[0] << ", " << l->weight->shape[1] << ") -> Gemm\n";
         } else if (auto* l = dynamic_cast<Conv2d*>(layer)) {

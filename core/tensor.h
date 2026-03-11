@@ -1,6 +1,7 @@
 #ifndef TENSOR_H
 #define TENSOR_H
 
+#include "device.h"
 #include <vector>
 #include <memory>
 #include <functional>
@@ -34,6 +35,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
 public:
     std::vector<size_t> shape;
     bool requires_grad;
+    whitematter::DeviceType device{whitematter::DeviceType::CPU};
 
     std::function<void()> grad_fn;
     std::vector<TensorPtr> parents;
@@ -124,6 +126,9 @@ public:
     TensorPtr squeeze(int dim = -1) const;      // Remove dimension(s) of size 1
     TensorPtr unsqueeze(int dim) const;         // Add dimension of size 1
     TensorPtr permute(const std::vector<int>& dims) const;  // Reorder dimensions
+
+    // Device placement (CPU, METAL, or CUDA). to(METAL)/to(CUDA) use GPU for supported ops when available.
+    TensorPtr to(whitematter::DeviceType d) const;
 
     // Data augmentation (for images: [N,C,H,W] or [C,H,W])
     TensorPtr flip_horizontal() const;                           // Flip left-right
