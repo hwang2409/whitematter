@@ -14,8 +14,16 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, Set, Union
 import numpy as np
+
+# Type aliases for complex types
+ValidationResult = Dict[str, Any]
+ImageInfo = Dict[str, Any]
+ZipSafetyInfo = Dict[str, Any]
+ClassStats = Dict[str, int]
+PreviewSample = Dict[str, str]
+FormatInfo = Dict[str, Any]
 
 # Configure module logger
 logger = logging.getLogger(__name__)
@@ -509,7 +517,7 @@ class DatasetMetadata:
     status: str = "processing"
     error: Optional[str] = None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
         d['data_type'] = self.data_type.value
         return d
@@ -712,7 +720,7 @@ class DatasetManager:
         Returns (is_idx, type) where type is 'images' or 'labels' or 'unknown'."""
         try:
             with open(filepath, 'rb') as f:
-                magic = struct.unpack('>I', f.read(4))[0]
+                magic: int = struct.unpack('>I', f.read(4))[0]
                 # IDX magic numbers: 0x0801 = labels (ubyte), 0x0803 = images (ubyte, 3D)
                 if magic == 0x00000801:
                     return True, 'labels'
@@ -721,11 +729,11 @@ class DatasetManager:
                 # Also check for other IDX types
                 elif (magic >> 8) == 0x0008:
                     return True, 'unknown'
-        except:
+        except Exception:
             pass
         return False, 'unknown'
 
-    def _detect_format(self, raw_dir: Path) -> Tuple[DatasetFormat, Dict[str, Any]]:
+    def _detect_format(self, raw_dir: Path) -> Tuple[DatasetFormat, FormatInfo]:
         """Detect the dataset format and return format info."""
         all_items = list(raw_dir.iterdir())
         files = [f for f in all_items if f.is_file()]
@@ -791,7 +799,7 @@ class DatasetManager:
         logger.debug("Unknown format")
         return DatasetFormat.UNKNOWN, {"files": files, "dirs": dirs}
 
-    def _analyze_dataset(self, dataset_id: str, metadata: DatasetMetadata) -> DatasetMetadata:
+    def _analyze_dataset(self, dataset_id: str, metadata: DatasetMetadata) -> DatasetMetadata:  # noqa: C901
         """Analyze extracted dataset structure."""
         raw_dir = self.uploads_dir / dataset_id / "raw"
 
@@ -811,7 +819,7 @@ class DatasetManager:
             # Try to make sense of whatever is there
             return self._analyze_unknown(metadata, raw_dir)
 
-    def _analyze_mnist_idx(self, metadata: DatasetMetadata, info: Dict) -> DatasetMetadata:
+    def _analyze_mnist_idx(self, metadata: DatasetMetadata, info: FormatInfo) -> DatasetMetadata:
         """Analyze MNIST IDX format dataset."""
         images_file = info["images_file"]
         labels_file = info["labels_file"]
@@ -842,7 +850,7 @@ class DatasetManager:
 
         return metadata
 
-    def _analyze_folder_per_class(self, metadata: DatasetMetadata, info: Dict) -> DatasetMetadata:
+    def _analyze_folder_per_class(self, metadata: DatasetMetadata, info: FormatInfo) -> DatasetMetadata:
         """Analyze folder-per-class structure."""
         class_dirs = info["class_dirs"]
 
@@ -869,7 +877,7 @@ class DatasetManager:
 
         return metadata
 
-    def _analyze_csv_labels(self, metadata: DatasetMetadata, info: Dict) -> DatasetMetadata:
+    def _analyze_csv_labels(self, metadata: DatasetMetadata, info: FormatInfo) -> DatasetMetadata:
         """Analyze CSV with labels format."""
         import csv
         csv_file = info["csv_file"]
@@ -901,7 +909,7 @@ class DatasetManager:
 
         return metadata
 
-    def _analyze_flat_images(self, metadata: DatasetMetadata, info: Dict) -> DatasetMetadata:
+    def _analyze_flat_images(self, metadata: DatasetMetadata, info: FormatInfo) -> DatasetMetadata:
         """Analyze flat folder of images (no labels)."""
         image_files = info["image_files"]
 
@@ -925,7 +933,7 @@ class DatasetManager:
 
         return metadata
 
-    def _detect_data_type(self, extensions: set, sample_files: List[Path]) -> DataType:
+    def _detect_data_type(self, extensions: Set[str], sample_files: List[Path]) -> DataType:
         """Detect the type of data in the dataset."""
         if extensions & IMAGE_EXTENSIONS:
             return DataType.IMAGE
@@ -941,7 +949,7 @@ class DatasetManager:
                         if row and len(row) > 1:
                             return DataType.TABULAR
                         return DataType.TEXT
-                except:
+                except Exception:
                     pass
             return DataType.TABULAR
         return DataType.UNKNOWN
@@ -966,7 +974,7 @@ class DatasetManager:
                         else:
                             target_size = 224
                         return [channels, target_size, target_size]
-            except:
+            except Exception:
                 pass
             return [3, 32, 32]
 
@@ -983,7 +991,7 @@ class DatasetManager:
                         header = next(reader, None)
                         if header:
                             return [len(header)]
-            except:
+            except Exception:
                 pass
             return [10]
 
@@ -1011,7 +1019,7 @@ class DatasetManager:
             return True
         return False
 
-    def get_preview(self, dataset_id: str, num_samples: int = 18) -> Dict[str, Any]:
+    def get_preview(self, dataset_id: str, num_samples: int = 18) -> Dict[str, Any]:  # noqa: C901
         """Get a preview of the dataset with base64-encoded images."""
         import base64
         from io import BytesIO
@@ -1040,7 +1048,7 @@ class DatasetManager:
 
         return preview
 
-    def _preview_mnist_idx(self, raw_dir: Path, metadata: DatasetMetadata, num_samples: int) -> List[Dict]:
+    def _preview_mnist_idx(self, raw_dir: Path, metadata: DatasetMetadata, num_samples: int) -> List[PreviewSample]:
         """Generate preview for MNIST IDX format."""
         import base64
         from io import BytesIO
@@ -1122,7 +1130,7 @@ class DatasetManager:
 
         return samples
 
-    def _preview_folder_per_class(self, raw_dir: Path, metadata: DatasetMetadata, num_samples: int) -> List[Dict]:
+    def _preview_folder_per_class(self, raw_dir: Path, metadata: DatasetMetadata, num_samples: int) -> List[PreviewSample]:
         """Generate preview for folder-per-class format."""
         import base64
         from io import BytesIO
@@ -1157,7 +1165,7 @@ class DatasetManager:
 
         return samples
 
-    def _preview_flat_images(self, raw_dir: Path, num_samples: int) -> List[Dict]:
+    def _preview_flat_images(self, raw_dir: Path, num_samples: int) -> List[PreviewSample]:
         """Generate preview for flat images folder."""
         import base64
         from io import BytesIO

@@ -16,7 +16,8 @@ if sys.platform == 'darwin':
                            '-I/opt/homebrew/opt/libomp/include']
     extra_link_args += ['-L/opt/homebrew/opt/libomp/lib', '-lomp']
 elif sys.platform == 'linux':
-    extra_compile_args += ['-fopenmp', '-march=native']
+    # Use portable flags for containers, -march=native can cause issues
+    extra_compile_args += ['-fopenmp']
     extra_link_args += ['-fopenmp']
 
 class BuildExt(build_ext):

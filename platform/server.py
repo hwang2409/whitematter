@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
 """
-Whitematter Model Server v0.4.0
+Whitematter Model Server v0.5.0
+
+Now with database and blob storage backend.
+Data is stored in ~/.whitematter/ instead of the project directory.
+
+To migrate existing data, run: python migrate_to_db.py
+To start workers for training: python run_worker.py --count 2
 """
 
 import argparse
+import asyncio
 import json
+import logging
 import shutil
 import tempfile
 import threading
@@ -14,8 +22,10 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 from enum import Enum
 
+logger = logging.getLogger(__name__)
+
 import numpy as np
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from PIL import Image
@@ -23,16 +33,26 @@ import io
 import uvicorn
 
 from dataset_manager import DatasetManager, DataType
-from preprocessing import ImageProcessor
+from preprocessing import ImageProcessor, TextProcessor, TokenizerType
 from codegen import CodeGenerator, compile_training_code
+from services.dataset_service import DatasetService
 from codegen.compiler import run_training as run_custom_training_process
 from llm.service import get_llm_service
+from model_format import (
+    validate_model_file, ModelFormatError, is_whitematter_model,
+    format_header_info, get_arch_type_from_name
+)
+
+# Initialize database
+from db import init_db, get_data_dir
+init_db()
+logger.info("Data directory: %s", get_data_dir())
 
 try:
     import whitematter as wm
-except ImportError:
-    print("Error: whitematter module not found. Build with: pip install -e .")
-    exit(1)
+except ImportError as e:
+    logger.critical("whitematter module not found. Build with: pip install -e .")
+    raise SystemExit(1) from e
 
 # Paths relative to project root (parent of platform/)
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -195,12 +215,58 @@ training_jobs: dict = {}
 UPLOADS_DIR = PROJECT_ROOT / "uploads"
 GENERATED_DIR = PROJECT_ROOT / "generated"
 
+# WebSocket subscriber registry for real-time training updates
+_ws_subscribers: Dict[str, list] = {}  # job_id -> list of asyncio.Queue
+_ws_lock = threading.Lock()
+_event_loop: Optional[asyncio.AbstractEventLoop] = None
+
 dataset_manager = DatasetManager(uploads_dir=UPLOADS_DIR)
+dataset_service = DatasetService()  # Database-backed service
 code_generator = CodeGenerator()
 llm_service = get_llm_service()
 
-app = FastAPI(title="Whitematter Model Server", version="0.4.0")
+app = FastAPI(title="Whitematter Model Server", version="0.5.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+
+@app.on_event("startup")
+async def _capture_event_loop():
+    global _event_loop
+    _event_loop = asyncio.get_running_loop()
+
+
+def _get_job_snapshot(job_id: str) -> Optional[Dict[str, Any]]:
+    """Extract a JSON-safe dict from training_jobs."""
+    j = training_jobs.get(job_id)
+    if j is None:
+        return None
+    status = j["status"]
+    if hasattr(status, 'value'):
+        status = status.value
+    return {
+        "job_id": j["id"],
+        "model_id": j["model_id"],
+        "status": status,
+        "epoch": j.get("epoch", 0),
+        "total_epochs": j.get("total_epochs", 0),
+        "loss": j.get("loss", 0.0),
+        "accuracy": j.get("accuracy", 0.0),
+        "message": j.get("message", ""),
+    }
+
+
+def notify_training_subscribers(job_id: str):
+    """Push latest job snapshot to all WebSocket subscribers. Safe to call from background threads."""
+    snapshot = _get_job_snapshot(job_id)
+    if snapshot is None or _event_loop is None:
+        return
+    with _ws_lock:
+        queues = list(_ws_subscribers.get(job_id, []))
+    for q in queues:
+        try:
+            asyncio.run_coroutine_threadsafe(q.put(snapshot), _event_loop)
+        except RuntimeError:
+            pass  # event loop closed
 
 
 def process_mnist_idx(raw_dir: Path, output_dir: Path, metadata) -> dict:
@@ -215,8 +281,8 @@ def process_mnist_idx(raw_dir: Path, output_dir: Path, metadata) -> dict:
     all_items = list(raw_dir.iterdir())
     files = [f for f in all_items if f.is_file()]
 
-    print(f"[MNIST] Looking for IDX files in {raw_dir}")
-    print(f"[MNIST] Found {len(files)} files: {[f.name for f in files]}")
+    logger.debug("MNIST: Looking for IDX files in %s", raw_dir)
+    logger.debug("MNIST: Found %d files: %s", len(files), [f.name for f in files])
 
     train_images_file = None
     train_labels_file = None
@@ -252,8 +318,8 @@ def process_mnist_idx(raw_dir: Path, output_dir: Path, metadata) -> dict:
                 train_labels_file = f
                 break
 
-    print(f"[MNIST] train_images: {train_images_file}, train_labels: {train_labels_file}")
-    print(f"[MNIST] test_images: {test_images_file}, test_labels: {test_labels_file}")
+    logger.debug("MNIST: train_images: %s, train_labels: %s", train_images_file, train_labels_file)
+    logger.debug("MNIST: test_images: %s, test_labels: %s", test_images_file, test_labels_file)
 
     if not train_images_file or not train_labels_file:
         raise ValueError(f"Could not find MNIST IDX files. Found files: {[f.name for f in files]}")
@@ -331,7 +397,7 @@ def process_mnist_idx(raw_dir: Path, output_dir: Path, metadata) -> dict:
     with open(output_dir / "config.json", 'w') as f:
         json.dump(config, f, indent=2)
 
-    print(f"[MNIST] Processed {len(train_images)} train, {len(test_images)} test images")
+    logger.info("MNIST: Processed %d train, %d test images", len(train_images), len(test_images))
     return config
 
 
@@ -374,6 +440,20 @@ def get_loaded_model(model_id: str) -> wm.Model:
     if not model_path.exists():
         raise HTTPException(status_code=404, detail=f"Model weights not found: {model_id}")
 
+    # Validate model file format before loading
+    is_valid, header, error = validate_model_file(model_path)
+    if not is_valid:
+        logger.error(f"Model validation failed for {model_id}: {error}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid model file format: {error}"
+        )
+
+    if header and header.is_legacy:
+        logger.info(f"Loading legacy format model: {model_id}")
+    elif header:
+        logger.info(f"Loading model {model_id}: {format_header_info(header)}")
+
     arch = "simple"
     if "vgg" in metadata.architecture.lower():
         arch = "vgg"
@@ -404,7 +484,8 @@ def preprocess_image(image: Image.Image, dataset: str) -> np.ndarray:
 def run_training(job_id: str, request: TrainRequest, metadata: ModelMetadata):
     import subprocess
     try:
-        training_jobs[job_id]["status"] = TrainStatus.RUNNING
+        training_jobs[job_id]["status"] = "running"
+        notify_training_subscribers(job_id)
         metadata.status = TrainStatus.RUNNING
         save_model_metadata(metadata)
 
@@ -435,12 +516,13 @@ def run_training(job_id: str, request: TrainRequest, metadata: ModelMetadata):
                             break
 
                     training_jobs[job_id].update({"epoch": epoch, "loss": loss, "accuracy": acc, "message": f"Epoch {epoch}: {acc:.2f}%"})
+                    notify_training_subscribers(job_id)
                     metadata.epochs_trained = epoch
                     metadata.best_accuracy = max(metadata.best_accuracy, acc)
                     metadata.training_history.append({"epoch": epoch, "loss": loss, "accuracy": acc})
                     save_model_metadata(metadata)
-                except:
-                    pass
+                except (ValueError, IndexError, KeyError) as e:
+                    logger.debug("Failed to parse training output line: %s - %s", line, e)
 
             if training_jobs[job_id].get("cancelled"):
                 process.terminate()
@@ -449,17 +531,26 @@ def run_training(job_id: str, request: TrainRequest, metadata: ModelMetadata):
         process.wait()
 
         if training_jobs[job_id].get("cancelled"):
-            training_jobs[job_id]["status"] = metadata.status = TrainStatus.CANCELLED
+            training_jobs[job_id]["status"] = "cancelled"
+            metadata.status = TrainStatus.CANCELLED
+            notify_training_subscribers(job_id)
         elif process.returncode == 0 and src.exists():
             shutil.copy(src, get_model_path(metadata.id))
-            training_jobs[job_id]["status"] = metadata.status = TrainStatus.COMPLETED
+            training_jobs[job_id]["status"] = "completed"
+            metadata.status = TrainStatus.COMPLETED
             training_jobs[job_id]["message"] = f"Complete! Best: {metadata.best_accuracy:.2f}%"
+            notify_training_subscribers(job_id)
         else:
-            training_jobs[job_id]["status"] = metadata.status = TrainStatus.FAILED
+            training_jobs[job_id]["status"] = "failed"
+            metadata.status = TrainStatus.FAILED
+            notify_training_subscribers(job_id)
         save_model_metadata(metadata)
-    except Exception as e:
-        training_jobs[job_id]["status"] = metadata.status = TrainStatus.FAILED
+    except (ValueError, RuntimeError, OSError) as e:
+        logger.exception("Training job %s failed", job_id)
+        training_jobs[job_id]["status"] = "failed"
+        metadata.status = TrainStatus.FAILED
         training_jobs[job_id]["message"] = str(e)
+        notify_training_subscribers(job_id)
         save_model_metadata(metadata)
 
 # API Endpoints
@@ -470,6 +561,34 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
+
+@app.get("/workers/status")
+async def get_worker_status():
+    """Get status of training workers and job queue."""
+    try:
+        from workers import get_job_queue
+        queue = get_job_queue()
+        pending = queue.get_pending_count()
+        active = queue.get_active_jobs()
+        logger.info("Retrieved worker status: %d pending, %d active jobs", pending, len(active))
+        return {
+            "pending_jobs": pending,
+            "active_jobs": len(active),
+            "jobs": active
+        }
+    except ImportError:
+        logger.debug("Workers module not available, using legacy job tracking")
+        return {
+            "pending_jobs": 0,
+            "active_jobs": len(training_jobs),
+            "jobs": [
+                {k: v for k, v in job.items() if k != 'process'}
+                for job in training_jobs.values()
+            ],
+            "note": "Using legacy in-memory job tracking"
+        }
+
 
 # ============= Dataset Upload Endpoints =============
 
@@ -518,6 +637,7 @@ async def upload_dataset(
             metadata.status = "ready"
             dataset_manager._save_metadata(dataset_id, metadata)
 
+        logger.info("Successfully uploaded dataset %s (%s)", dataset_id, metadata.name)
         return {
             "id": dataset_id,
             "name": metadata.name,
@@ -530,41 +650,125 @@ async def upload_dataset(
             "created_at": metadata.created_at,
             "status": metadata.status
         }
-    except Exception as e:
+    except (ValueError, IOError, OSError) as e:
         # Clean up on error
+        logger.exception("Failed to upload dataset %s", dataset_id)
         dataset_manager.delete_dataset(dataset_id)
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e)) from e
     finally:
         tmp_path.unlink(missing_ok=True)
 
+
+@app.post("/datasets/upload/text")
+async def upload_text_dataset(
+    file: UploadFile = File(...),
+    name: Optional[str] = Form(None),
+    tokenizer_type: str = Form("character"),
+    seq_length: int = Form(128)
+):
+    """Upload a text file for language model training."""
+    if not file.filename.endswith('.txt'):
+        raise HTTPException(status_code=400, detail="File must be a .txt file")
+
+    if tokenizer_type not in ("character", "word"):
+        raise HTTPException(status_code=400, detail="tokenizer_type must be 'character' or 'word'")
+
+    # Create dataset entry using the database service
+    dataset_name = name or file.filename.replace('.txt', '')
+    dataset_info = dataset_service.create_dataset(dataset_name)
+    dataset_id = dataset_info['id']
+
+    try:
+        content = await file.read()
+        result = dataset_service.upload_text(
+            dataset_id=dataset_id,
+            file_content=content,
+            filename=file.filename,
+            tokenizer_type=tokenizer_type,
+            seq_length=seq_length
+        )
+
+        logger.info("Successfully uploaded text dataset %s (%s)", dataset_id, dataset_name)
+        return {
+            "id": result['id'],
+            "name": result['name'],
+            "data_type": result['data_type'],
+            "format": result['format'],
+            "status": result['status'],
+            "total_samples": result['total_samples'],
+            "train_samples": result['train_samples'],
+            "test_samples": result['test_samples'],
+            "input_shape": result['input_shape'],
+            "num_classes": result['num_classes'],  # vocab_size for text
+            "preprocessing_config": dataset_service.get_dataset(dataset_id).get('preprocessing_config', {})
+        }
+    except (ValueError, IOError, OSError) as e:
+        logger.exception("Failed to upload text dataset %s", dataset_id)
+        dataset_service.delete_dataset(dataset_id)
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
 @app.get("/datasets")
 async def list_uploaded_datasets():
-    """List all uploaded datasets."""
-    datasets = dataset_manager.list_datasets()
-    return {"datasets": [d.to_dict() for d in datasets]}
+    """List all uploaded datasets (from both legacy manager and database)."""
+    # Legacy datasets from file system
+    legacy_datasets = dataset_manager.list_datasets()
+    legacy_list = [d.to_dict() for d in legacy_datasets]
+
+    # Database-backed datasets
+    db_datasets = dataset_service.list_datasets()
+
+    # Combine and dedupe by ID
+    all_ids = set(d.get('id') for d in legacy_list)
+    combined = legacy_list.copy()
+    for d in db_datasets:
+        if d.get('id') not in all_ids:
+            combined.append(d)
+
+    return {"datasets": combined}
 
 @app.get("/datasets/{dataset_id}")
 async def get_dataset(dataset_id: str):
     """Get dataset metadata."""
+    # Try legacy manager first
     metadata = dataset_manager.get_metadata(dataset_id)
-    if not metadata:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    return metadata.to_dict()
+    if metadata:
+        return metadata.to_dict()
+
+    # Fall back to database service
+    db_dataset = dataset_service.get_dataset(dataset_id)
+    if db_dataset:
+        return db_dataset
+
+    raise HTTPException(status_code=404, detail="Dataset not found")
 
 @app.get("/datasets/{dataset_id}/preview")
 async def get_dataset_preview(dataset_id: str):
     """Get a preview of the dataset."""
+    # Try legacy manager first
     preview = dataset_manager.get_preview(dataset_id)
-    if not preview:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    return preview
+    if preview:
+        return preview
+
+    # Fall back to database service
+    db_preview = dataset_service.get_preview(dataset_id)
+    if db_preview:
+        return db_preview
+
+    raise HTTPException(status_code=404, detail="Dataset not found")
 
 @app.delete("/datasets/{dataset_id}")
 async def delete_dataset(dataset_id: str):
     """Delete a dataset."""
-    if not dataset_manager.delete_dataset(dataset_id):
-        raise HTTPException(status_code=404, detail="Dataset not found")
-    return {"message": f"Dataset {dataset_id} deleted"}
+    # Try legacy manager first
+    if dataset_manager.delete_dataset(dataset_id):
+        return {"message": f"Dataset {dataset_id} deleted"}
+
+    # Fall back to database service
+    if dataset_service.delete_dataset(dataset_id):
+        return {"message": f"Dataset {dataset_id} deleted"}
+
+    raise HTTPException(status_code=404, detail="Dataset not found")
 
 # ============= Architecture Design Endpoints =============
 
@@ -584,26 +788,47 @@ class CustomTrainRequest(BaseModel):
 @app.post("/design/suggest")
 async def suggest_architecture(request: DesignRequest):
     """Get LLM-suggested architecture for a dataset."""
+    # Try legacy manager first
     metadata = dataset_manager.get_metadata(request.dataset_id)
-    if not metadata:
-        raise HTTPException(status_code=404, detail="Dataset not found")
+    if metadata:
+        dataset_info = metadata.to_dict()
+    else:
+        # Fall back to database service
+        dataset_info = dataset_service.get_dataset(request.dataset_id)
+        if not dataset_info:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+
+    # For text datasets, add preprocessing config to dataset_info
+    if dataset_info.get('data_type') == 'text':
+        preprocessing_config = dataset_info.get('preprocessing_config', {})
+        dataset_info['vocab_size'] = preprocessing_config.get('vocab_size', dataset_info.get('num_classes', 100))
+        dataset_info['seq_length'] = preprocessing_config.get('seq_length', 128)
+        dataset_info['tokenizer_type'] = preprocessing_config.get('tokenizer_type', 'character')
 
     try:
         result = llm_service.suggest_architecture(
-            dataset_info=metadata.to_dict(),
+            dataset_info=dataset_info,
             user_prompt=request.prompt
         )
+
+        # For text datasets, add vocab_size and seq_length to architecture
+        if dataset_info.get('data_type') == 'text':
+            result["architecture"]["vocab_size"] = dataset_info.get('vocab_size')
+            result["architecture"]["seq_length"] = dataset_info.get('seq_length')
+            result["architecture"]["data_type"] = "text"
 
         # Validate the suggested architecture
         validation = code_generator.validate_architecture(result["architecture"])
 
+        logger.info("Suggested architecture for dataset %s", request.dataset_id)
         return {
             "architecture": result["architecture"],
             "explanation": result["explanation"],
             "validation": validation
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"LLM error: {str(e)}")
+    except (ValueError, RuntimeError, ConnectionError) as e:
+        logger.exception("LLM architecture suggestion failed for dataset %s", request.dataset_id)
+        raise HTTPException(status_code=500, detail=f"LLM error: {str(e)}") from e
 
 @app.post("/design/validate")
 async def validate_architecture(architecture: Dict[str, Any]):
@@ -622,33 +847,154 @@ async def refine_architecture(request: RefineRequest):
 
         validation = code_generator.validate_architecture(result["architecture"])
 
+        logger.info("Refined architecture based on feedback")
         return {
             "architecture": result["architecture"],
             "explanation": result["explanation"],
             "validation": validation
         }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"LLM error: {str(e)}")
+    except (ValueError, RuntimeError, ConnectionError) as e:
+        logger.exception("LLM architecture refinement failed")
+        raise HTTPException(status_code=500, detail=f"LLM error: {str(e)}") from e
+
+
+class DesignHelpRequest(BaseModel):
+    message: str
+    context: Optional[Dict[str, Any]] = None
+
+
+@app.post("/design/help")
+async def design_help(request: DesignHelpRequest):
+    """LLM-powered design assistant for neural network architecture questions."""
+    message = request.message.lower()
+    context = request.context or {}
+    dataset_type = context.get("dataset_type", "image")
+
+    # Knowledge base for design assistance
+    responses = {
+        # Layer explanations
+        "conv": "**Convolutional layers (Conv2d)** extract spatial features from images using learnable filters.\n\n- `in_channels`: Number of input channels (1 for grayscale, 3 for RGB)\n- `out_channels`: Number of filters (more = more features, but slower)\n- `kernel_size`: Filter size (3x3 is most common)\n- `stride`: Step size (1 = dense, 2 = downsamples)\n- `padding`: Border padding (1 for 3x3 kernel preserves size)\n\n**Typical progression**: 32 → 64 → 128 filters",
+
+        "lstm": "**LSTM layers** are great for sequential data like text.\n\n- `input_size`: Size of input features (embedding dim for text)\n- `hidden_size`: Size of hidden state (128-512 typical)\n- `num_layers`: Stacked LSTMs (2-3 is common)\n\n**For language models**: Use Embedding → LSTM → Linear\n\n**Tip**: Larger hidden_size = more capacity but slower training",
+
+        "dropout": "**Dropout** randomly zeros neurons during training to prevent overfitting.\n\n- `p`: Dropout probability (0.1-0.5 typical)\n- Use **0.2-0.3** for most cases\n- Use **0.5** for very large models or small datasets\n- Place after Dense/Linear layers, not after BatchNorm",
+
+        "batch": "**BatchNorm** normalizes activations, allowing faster training and higher learning rates.\n\n- Place **after Conv2d/Linear**, **before activation**\n- Helps with gradient flow in deep networks\n- Allows learning rates 10x higher\n- Acts as mild regularization",
+
+        "embed": "**Embedding layers** convert token IDs to dense vectors.\n\n- `num_embeddings`: Vocabulary size\n- `embedding_dim`: Vector size (64-256 typical)\n\n**For character-level**: 64-128 dim\n**For word-level**: 128-300 dim",
+
+        "linear": "**Linear (Dense) layers** perform `output = input @ weights + bias`.\n\n- `in_features`: Input size\n- `out_features`: Output size\n- Final layer should match number of classes\n\n**Tip**: Add activation (ReLU) between Linear layers",
+
+        # Training parameters
+        "learning": "**Learning Rate** controls step size during optimization.\n\n- **Too high**: Training diverges, loss explodes\n- **Too low**: Training is slow, may get stuck\n\n**Recommended starting points**:\n- Adam: 0.001 - 0.0001\n- SGD: 0.01 - 0.1\n\n**For fine-tuning**: Use 10x smaller\n**If loss plateaus**: Reduce by 2-10x",
+
+        "epoch": "**Epochs** = full passes through training data.\n\n**Guidelines**:\n- Small dataset (<1K): 50-100 epochs\n- Medium dataset (1K-10K): 20-50 epochs\n- Large dataset (>10K): 10-30 epochs\n\n**For language models**: Character-level needs more epochs (30-100)\n\n**Signs to stop**: Validation loss stops improving",
+
+        "batch_size": "**Batch Size** affects training speed and generalization.\n\n- **Larger** (64-256): Faster, more stable, may generalize worse\n- **Smaller** (16-32): Slower, noisier, often generalizes better\n\n**Memory limited?** Use smaller batch\n**Recommended**: 32-64 for most cases",
+
+        "optimizer": "**Optimizers** update weights based on gradients.\n\n**Adam** (recommended for most cases):\n- Adaptive learning rates\n- Works well out-of-the-box\n- lr=0.001 typical\n\n**SGD with momentum**:\n- Often better final accuracy\n- Needs more tuning\n- lr=0.01-0.1, momentum=0.9",
+
+        # Architecture patterns
+        "cnn": "**CNN Architecture Pattern** for images:\n\n```\nConv2d → BatchNorm → ReLU → MaxPool\n↓ (repeat 2-4 times, increasing filters)\nFlatten → Linear → ReLU → Dropout → Linear\n```\n\n**Filter progression**: 32 → 64 → 128\n**Always use**: BatchNorm after Conv, Dropout before final Linear",
+
+        "language": "**Language Model Architecture**:\n\n```\nEmbedding(vocab_size, 128-256)\n↓\nLSTM(embed_dim, 256-512, layers=2)\n↓\nDropout(0.3)\n↓\nLinear(hidden_size, vocab_size)\n```\n\n**Tips**:\n- More epochs = better (30-100)\n- Lower learning rate (0.001-0.002)\n- Character-level is easier to train than word-level",
+
+        "overfit": "**Signs of Overfitting**:\n- Training loss decreases but validation loss increases\n- Training accuracy >> validation accuracy\n\n**Solutions**:\n1. Add **Dropout** (0.2-0.5)\n2. Add **data augmentation**\n3. Use **smaller model**\n4. **Early stopping**\n5. Reduce epochs",
+
+        "underfit": "**Signs of Underfitting**:\n- Both training and validation loss are high\n- Model isn't learning patterns\n\n**Solutions**:\n1. **Larger model** (more layers/filters)\n2. **Train longer** (more epochs)\n3. **Higher learning rate**\n4. **Remove regularization** (less dropout)\n5. Check data quality",
+
+        "accuracy": "**Improving Accuracy**:\n\n1. **Train longer**: More epochs (but watch for overfitting)\n2. **Bigger model**: More layers, more filters/units\n3. **Better hyperparameters**: Lower LR, tune batch size\n4. **Data augmentation**: For images, use flips/rotations\n5. **Learning rate schedule**: Reduce LR when plateauing\n\n**For language models**: Accuracy = 100/perplexity, so 50% = perplexity 2.0 (good!)",
+    }
+
+    # Find matching response
+    response = None
+    for key, value in responses.items():
+        if key in message:
+            response = value
+            break
+
+    # Default contextual responses
+    if not response:
+        if "help" in message or "what" in message or "how" in message:
+            response = """**I can help you with:**
+
+- **Layers**: conv, lstm, embedding, linear, dropout, batchnorm
+- **Training**: learning rate, epochs, batch size, optimizer
+- **Patterns**: CNN architecture, language models
+- **Problems**: overfitting, underfitting, improving accuracy
+
+**Just ask about any of these topics!**
+
+Examples:
+
+- "What learning rate should I use?"
+- "How do I fix overfitting?"
+- "Explain dropout"
+- "How to improve accuracy?" """
+        elif dataset_type == "text":
+            response = """**For text/language models**, I recommend:
+
+- **Architecture**: Embedding → LSTM (2 layers) → Dropout → Linear
+- **Embedding dim**: 128-256
+- **Hidden size**: 256-512
+- **Dropout**: 0.3
+- **Epochs**: 30-50 for good results
+- **Learning rate**: 0.001-0.002
+
+Ask me about specific layers or hyperparameters!"""
+        else:
+            response = """**For image classification**, I recommend:
+
+- **Architecture**: Conv → BatchNorm → ReLU → Pool (repeat) → Flatten → Linear
+- **Filters**: Start with 32, double each block (32→64→128)
+- **Dropout**: 0.2-0.3 before final layer
+- **Epochs**: 20-30
+- **Learning rate**: 0.001 with Adam
+
+Ask me about specific layers or hyperparameters!"""
+
+    return {"response": response}
+
 
 # ============= Custom Training Endpoints =============
 
 def run_custom_training(job_id: str, request: CustomTrainRequest, metadata: ModelMetadata):
     """Background function to run custom model training."""
+    from db import get_blob_store
+    blob_store = get_blob_store()
+
     try:
-        training_jobs[job_id]["status"] = TrainStatus.RUNNING
+        training_jobs[job_id]["status"] = "running"
+        notify_training_subscribers(job_id)
         metadata.status = TrainStatus.RUNNING
         save_model_metadata(metadata)
 
-        # Get dataset config
+        # Get dataset config - try legacy first, then database
         dataset_meta = dataset_manager.get_metadata(request.dataset_id)
         processed_dir = dataset_manager.uploads_dir / request.dataset_id / "processed"
         config_path = processed_dir / "config.json"
 
-        if not config_path.exists():
+        dataset_config = None
+        data_from_blobs = False
+
+        if config_path.exists():
+            with open(config_path) as f:
+                dataset_config = json.load(f)
+        else:
+            # Try database service
+            db_dataset = dataset_service.get_dataset(request.dataset_id)
+            if db_dataset and db_dataset.get('processed_blob_prefix'):
+                config_blob = blob_store.get(f"{db_dataset['processed_blob_prefix']}/config.json")
+                if config_blob:
+                    dataset_config = json.loads(config_blob.decode())
+                    data_from_blobs = True
+
+        if not dataset_config:
             raise FileNotFoundError("Dataset not processed")
 
-        with open(config_path) as f:
-            dataset_config = json.load(f)
+        # Add data_type from architecture if specified
+        if request.architecture.get('data_type'):
+            dataset_config['data_type'] = request.architecture['data_type']
 
         # Generate training code
         job_dir = GENERATED_DIR / job_id
@@ -659,18 +1005,49 @@ def run_custom_training(job_id: str, request: CustomTrainRequest, metadata: Mode
         )
 
         # Compile
+        training_jobs[job_id]["status"] = "compiling"
         training_jobs[job_id]["message"] = "Compiling..."
+        notify_training_subscribers(job_id)
         success, msg = compile_training_code(job_dir)
         if not success:
             raise RuntimeError(f"Compilation failed: {msg}")
 
         # Run training
+        training_jobs[job_id]["status"] = "training"
         training_jobs[job_id]["message"] = "Training..."
+        notify_training_subscribers(job_id)
         output_model = job_dir / "model.bin"
+
+        # If data is from blobs, extract to temp directory
+        actual_data_dir = processed_dir
+        temp_data_dir = None
+        if data_from_blobs:
+            db_dataset = dataset_service.get_dataset(request.dataset_id)
+            if db_dataset and db_dataset.get('processed_blob_prefix'):
+                temp_data_dir = job_dir / "data"
+                temp_data_dir.mkdir(exist_ok=True)
+                blob_prefix = db_dataset['processed_blob_prefix']
+
+                # Extract all data files
+                data_type = dataset_config.get('data_type', 'image')
+                if data_type == 'text':
+                    files = ['train_inputs.bin', 'train_targets.bin',
+                             'test_inputs.bin', 'test_targets.bin',
+                             'config.json', 'vocabulary.json']
+                else:
+                    files = ['train_images.bin', 'train_labels.bin',
+                             'test_images.bin', 'test_labels.bin', 'config.json']
+
+                for filename in files:
+                    data = blob_store.get(f"{blob_prefix}/{filename}")
+                    if data:
+                        (temp_data_dir / filename).write_bytes(data)
+
+                actual_data_dir = temp_data_dir
 
         process = run_custom_training_process(
             generated_dir=job_dir,
-            data_dir=processed_dir,
+            data_dir=actual_data_dir,
             output_model=output_model
         )
         training_jobs[job_id]["process"] = process
@@ -697,12 +1074,13 @@ def run_custom_training(job_id: str, request: CustomTrainRequest, metadata: Mode
                         "accuracy": acc,
                         "message": f"Epoch {epoch}: {acc:.2f}%"
                     })
+                    notify_training_subscribers(job_id)
                     metadata.epochs_trained = epoch
                     metadata.best_accuracy = max(metadata.best_accuracy, acc)
                     metadata.training_history.append({"epoch": epoch, "loss": loss, "accuracy": acc})
                     save_model_metadata(metadata)
-                except:
-                    pass
+                except (ValueError, IndexError, KeyError) as e:
+                    logger.debug("Failed to parse custom training output line: %s - %s", line, e)
 
             if training_jobs[job_id].get("cancelled"):
                 process.terminate()
@@ -711,31 +1089,54 @@ def run_custom_training(job_id: str, request: CustomTrainRequest, metadata: Mode
         process.wait()
 
         if training_jobs[job_id].get("cancelled"):
-            training_jobs[job_id]["status"] = metadata.status = TrainStatus.CANCELLED
+            logger.info("Custom training job %s was cancelled", job_id)
+            training_jobs[job_id]["status"] = "cancelled"
+            metadata.status = TrainStatus.CANCELLED
+            notify_training_subscribers(job_id)
         elif process.returncode == 0 and output_model.exists():
             shutil.copy(output_model, get_model_path(metadata.id))
-            training_jobs[job_id]["status"] = metadata.status = TrainStatus.COMPLETED
+            training_jobs[job_id]["status"] = "completed"
+            metadata.status = TrainStatus.COMPLETED
             training_jobs[job_id]["message"] = f"Complete! Best: {metadata.best_accuracy:.2f}%"
+            notify_training_subscribers(job_id)
+            logger.info("Custom training job %s completed with accuracy %.2f%%", job_id, metadata.best_accuracy)
         else:
-            training_jobs[job_id]["status"] = metadata.status = TrainStatus.FAILED
+            training_jobs[job_id]["status"] = "failed"
+            metadata.status = TrainStatus.FAILED
+            # Capture last few lines of output for error message
+            output_lines = training_jobs[job_id].get("output", [])
+            error_msg = "\n".join(output_lines[-5:]) if output_lines else f"Training failed (exit code {process.returncode})"
+            training_jobs[job_id]["message"] = error_msg
+            notify_training_subscribers(job_id)
+            logger.error("Custom training job %s failed: %s", job_id, error_msg)
 
         save_model_metadata(metadata)
 
-    except Exception as e:
-        training_jobs[job_id]["status"] = metadata.status = TrainStatus.FAILED
+    except (ValueError, RuntimeError, FileNotFoundError, OSError) as e:
+        logger.exception("Custom training job %s encountered an error", job_id)
+        training_jobs[job_id]["status"] = "failed"
+        metadata.status = TrainStatus.FAILED
         training_jobs[job_id]["message"] = str(e)
+        notify_training_subscribers(job_id)
         save_model_metadata(metadata)
 
 @app.post("/train/custom")
 async def start_custom_training(request: CustomTrainRequest):
     """Start training with a custom architecture on an uploaded dataset."""
-    # Validate dataset exists
+    # Validate dataset exists - try legacy manager first, then database service
     dataset_meta = dataset_manager.get_metadata(request.dataset_id)
+    db_dataset = None
     if not dataset_meta:
-        raise HTTPException(status_code=404, detail="Dataset not found")
-
-    if dataset_meta.status not in ("processed", "ready"):
-        raise HTTPException(status_code=400, detail="Dataset not processed yet")
+        # Try database service
+        db_dataset = dataset_service.get_dataset(request.dataset_id)
+        if not db_dataset:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        # Check status
+        if db_dataset.get('status') != 'ready':
+            raise HTTPException(status_code=400, detail="Dataset not processed yet")
+    else:
+        if dataset_meta.status not in ("processed", "ready"):
+            raise HTTPException(status_code=400, detail="Dataset not processed yet")
 
     # Validate architecture
     validation = code_generator.validate_architecture(request.architecture)
@@ -744,7 +1145,8 @@ async def start_custom_training(request: CustomTrainRequest):
 
     # Create job
     model_id = job_id = str(uuid.uuid4())[:8]
-    model_name = request.name or f"custom_{dataset_meta.name}_{model_id}"
+    dataset_name = dataset_meta.name if dataset_meta else db_dataset.get('name', 'unknown')
+    model_name = request.name or f"custom_{dataset_name}_{model_id}"
 
     metadata = ModelMetadata(
         id=model_id,
@@ -766,7 +1168,7 @@ async def start_custom_training(request: CustomTrainRequest):
     training_jobs[job_id] = {
         "id": job_id,
         "model_id": model_id,
-        "status": TrainStatus.PENDING,
+        "status": "pending",
         "epoch": 0,
         "total_epochs": request.architecture.get("training", {}).get("epochs", 10),
         "loss": 0.0,
@@ -778,10 +1180,17 @@ async def start_custom_training(request: CustomTrainRequest):
 
     threading.Thread(target=run_custom_training, args=(job_id, request, metadata)).start()
 
+    # Return full job info so UI can display progress immediately
+    job = training_jobs[job_id]
     return {
         "job_id": job_id,
         "model_id": model_id,
-        "message": "Custom training started",
+        "status": job["status"],
+        "epoch": job["epoch"],
+        "total_epochs": job["total_epochs"],
+        "loss": job["loss"],
+        "accuracy": job["accuracy"],
+        "message": job["message"],
         "architecture": request.architecture
     }
 
@@ -840,6 +1249,242 @@ async def delete_model(model_id: str):
         p.unlink(missing_ok=True)
     return {"message": f"Model {model_id} deleted"}
 
+@app.post("/models/{model_id}/resume")
+async def resume_training(model_id: str):
+    """Resume training a failed or cancelled model from its last checkpoint."""
+    metadata = load_model_metadata(model_id)
+    if not metadata:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    # Check if model can be resumed
+    if metadata.status not in (TrainStatus.FAILED, TrainStatus.CANCELLED):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot resume model with status '{metadata.status}'. Only failed or cancelled models can be resumed."
+        )
+
+    # Get the architecture from config
+    config = metadata.config
+    if not config or "architecture" not in config:
+        raise HTTPException(status_code=400, detail="Model config missing architecture")
+
+    # Get the weights file
+    weights_path = get_model_path(model_id)
+    if not weights_path.exists():
+        raise HTTPException(status_code=400, detail="No checkpoint found to resume from")
+
+    # Get the dataset ID
+    dataset_id = config.get("dataset_id")
+    if not dataset_id:
+        raise HTTPException(status_code=400, detail="Model config missing dataset_id")
+
+    # Create new job with same model ID
+    job_id = str(uuid.uuid4())[:8]
+
+    # Get total epochs and start epoch
+    architecture = config["architecture"]
+    total_epochs = architecture.get("training", {}).get("epochs", 10)
+    start_epoch = metadata.epochs_trained
+
+    if start_epoch >= total_epochs:
+        raise HTTPException(status_code=400, detail="Model already completed all epochs")
+
+    # Update metadata
+    metadata.status = TrainStatus.PENDING
+    save_model_metadata(metadata)
+
+    training_jobs[job_id] = {
+        "id": job_id,
+        "model_id": model_id,
+        "status": "pending",
+        "epoch": start_epoch,
+        "total_epochs": total_epochs,
+        "loss": 0.0,
+        "accuracy": metadata.best_accuracy,
+        "message": f"Resuming from epoch {start_epoch}...",
+        "output": [],
+        "cancelled": False
+    }
+
+    # Create request object for resume
+    class ResumeRequest:
+        def __init__(self, dataset_id, architecture):
+            self.dataset_id = dataset_id
+            self.architecture = architecture
+            self.name = None
+
+    request = ResumeRequest(dataset_id, architecture)
+
+    threading.Thread(
+        target=run_resume_training,
+        args=(job_id, request, metadata, weights_path, start_epoch)
+    ).start()
+
+    return {
+        "job_id": job_id,
+        "model_id": model_id,
+        "message": f"Resuming training from epoch {start_epoch}",
+        "start_epoch": start_epoch,
+        "total_epochs": total_epochs
+    }
+
+def run_resume_training(job_id: str, request, metadata: ModelMetadata, weights_path: Path, start_epoch: int):
+    """Background function to run resumed model training."""
+    from db import get_blob_store
+    blob_store = get_blob_store()
+
+    try:
+        training_jobs[job_id]["status"] = "running"
+        notify_training_subscribers(job_id)
+        metadata.status = TrainStatus.RUNNING
+        save_model_metadata(metadata)
+
+        # Get dataset config
+        dataset_meta = dataset_manager.get_metadata(request.dataset_id)
+        processed_dir = dataset_manager.uploads_dir / request.dataset_id / "processed"
+        config_path = processed_dir / "config.json"
+
+        dataset_config = None
+        data_from_blobs = False
+
+        if config_path.exists():
+            with open(config_path) as f:
+                dataset_config = json.load(f)
+        else:
+            db_dataset = dataset_service.get_dataset(request.dataset_id)
+            if db_dataset and db_dataset.get('processed_blob_prefix'):
+                config_blob = blob_store.get(f"{db_dataset['processed_blob_prefix']}/config.json")
+                if config_blob:
+                    dataset_config = json.loads(config_blob.decode())
+                    data_from_blobs = True
+
+        if not dataset_config:
+            raise FileNotFoundError("Dataset not processed")
+
+        if request.architecture.get('data_type'):
+            dataset_config['data_type'] = request.architecture['data_type']
+
+        # Generate training code (same as original)
+        job_dir = GENERATED_DIR / job_id
+        code_generator.generate(
+            architecture=request.architecture,
+            dataset_config=dataset_config,
+            output_dir=job_dir
+        )
+
+        # Compile
+        training_jobs[job_id]["status"] = "compiling"
+        training_jobs[job_id]["message"] = "Compiling..."
+        notify_training_subscribers(job_id)
+        success, msg = compile_training_code(job_dir)
+        if not success:
+            raise RuntimeError(f"Compilation failed: {msg}")
+
+        # Run training with resume
+        training_jobs[job_id]["status"] = "training"
+        training_jobs[job_id]["message"] = f"Resuming from epoch {start_epoch}..."
+        notify_training_subscribers(job_id)
+        output_model = job_dir / "model.bin"
+
+        # Handle blob-based data
+        actual_data_dir = processed_dir
+        temp_data_dir = None
+        if data_from_blobs:
+            db_dataset = dataset_service.get_dataset(request.dataset_id)
+            if db_dataset and db_dataset.get('processed_blob_prefix'):
+                temp_data_dir = job_dir / "data"
+                temp_data_dir.mkdir(exist_ok=True)
+                blob_prefix = db_dataset['processed_blob_prefix']
+
+                data_type = dataset_config.get('data_type', 'image')
+                if data_type == 'text':
+                    files = ['train_inputs.bin', 'train_targets.bin',
+                             'test_inputs.bin', 'test_targets.bin',
+                             'config.json', 'vocabulary.json']
+                else:
+                    files = ['train_images.bin', 'train_labels.bin',
+                             'test_images.bin', 'test_labels.bin', 'config.json']
+
+                for filename in files:
+                    data = blob_store.get(f"{blob_prefix}/{filename}")
+                    if data:
+                        (temp_data_dir / filename).write_bytes(data)
+
+                actual_data_dir = temp_data_dir
+
+        # Start training with resume weights and start epoch
+        process = run_custom_training_process(
+            generated_dir=job_dir,
+            data_dir=actual_data_dir,
+            output_model=output_model,
+            resume_weights=weights_path,
+            start_epoch=start_epoch
+        )
+        training_jobs[job_id]["process"] = process
+
+        # Stream output
+        for line in process.stdout:
+            line = line.strip()
+            training_jobs[job_id]["output"].append(line)
+
+            if "Epoch" in line and "Loss:" in line:
+                try:
+                    parts = line.split("|")
+                    epoch = int(parts[0].split()[1])
+                    loss = float(parts[1].split(":")[1].strip())
+                    acc = 0.0
+                    for p in parts[2:]:
+                        if "Test Acc:" in p or "Acc:" in p:
+                            acc = float(p.split(":")[1].strip().rstrip('%'))
+                            break
+
+                    training_jobs[job_id].update({
+                        "epoch": epoch,
+                        "loss": loss,
+                        "accuracy": acc,
+                        "message": f"Epoch {epoch}: {acc:.2f}%"
+                    })
+                    notify_training_subscribers(job_id)
+                    metadata.epochs_trained = epoch
+                    metadata.best_accuracy = max(metadata.best_accuracy, acc)
+                    metadata.training_history.append({"epoch": epoch, "loss": loss, "accuracy": acc})
+                    save_model_metadata(metadata)
+                except (ValueError, IndexError, KeyError) as e:
+                    logger.debug("Failed to parse resume training output: %s", e)
+
+            if training_jobs[job_id].get("cancelled"):
+                process.terminate()
+                break
+
+        process.wait()
+
+        if training_jobs[job_id].get("cancelled"):
+            training_jobs[job_id]["status"] = "cancelled"
+            metadata.status = TrainStatus.CANCELLED
+            notify_training_subscribers(job_id)
+        elif process.returncode == 0 and output_model.exists():
+            shutil.copy(output_model, get_model_path(metadata.id))
+            training_jobs[job_id]["status"] = "completed"
+            metadata.status = TrainStatus.COMPLETED
+            training_jobs[job_id]["message"] = f"Complete! Best: {metadata.best_accuracy:.2f}%"
+            notify_training_subscribers(job_id)
+        else:
+            training_jobs[job_id]["status"] = "failed"
+            metadata.status = TrainStatus.FAILED
+            output_lines = training_jobs[job_id].get("output", [])
+            error_msg = "\n".join(output_lines[-5:]) if output_lines else f"Training failed (exit code {process.returncode})"
+            training_jobs[job_id]["message"] = error_msg
+            notify_training_subscribers(job_id)
+
+        save_model_metadata(metadata)
+
+    except Exception as e:
+        training_jobs[job_id]["status"] = "failed"
+        metadata.status = TrainStatus.FAILED
+        training_jobs[job_id]["message"] = str(e)
+        notify_training_subscribers(job_id)
+        save_model_metadata(metadata)
+
 @app.post("/train")
 async def start_training(request: TrainRequest):
     if request.dataset not in DATASETS:
@@ -867,26 +1512,99 @@ async def start_training(request: TrainRequest):
                              best_accuracy=0.0, status=TrainStatus.PENDING, training_history=[], config=config)
     save_model_metadata(metadata)
 
-    training_jobs[job_id] = {"id": job_id, "model_id": model_id, "status": TrainStatus.PENDING, "epoch": 0,
+    training_jobs[job_id] = {"id": job_id, "model_id": model_id, "status": "pending", "epoch": 0,
                             "total_epochs": request.epochs, "loss": 0.0, "accuracy": 0.0, "message": "Starting...",
                             "output": [], "cancelled": False}
 
     threading.Thread(target=run_training, args=(job_id, request, metadata)).start()
-    return {"job_id": job_id, "model_id": model_id, "message": "Training started", "config": config}
+
+    # Return full job info so UI can display progress immediately
+    job = training_jobs[job_id]
+    return {
+        "job_id": job_id,
+        "model_id": model_id,
+        "status": job["status"],
+        "epoch": job["epoch"],
+        "total_epochs": job["total_epochs"],
+        "loss": job["loss"],
+        "accuracy": job["accuracy"],
+        "message": job["message"],
+        "config": config
+    }
+
+@app.websocket("/ws/train/{job_id}")
+async def ws_training_status(websocket: WebSocket, job_id: str):
+    """WebSocket endpoint for real-time training updates."""
+    if job_id not in training_jobs:
+        await websocket.close(code=4004, reason="Training job not found")
+        return
+
+    await websocket.accept()
+
+    queue: asyncio.Queue = asyncio.Queue()
+    with _ws_lock:
+        _ws_subscribers.setdefault(job_id, []).append(queue)
+
+    try:
+        # Send initial snapshot
+        snapshot = _get_job_snapshot(job_id)
+        if snapshot:
+            await websocket.send_json(snapshot)
+
+        while True:
+            # Wait for either a queue update or a client message (ping/pong)
+            try:
+                update = await asyncio.wait_for(queue.get(), timeout=5.0)
+                await websocket.send_json(update)
+                # Close on terminal status
+                if update.get("status") in ("completed", "failed", "cancelled"):
+                    await websocket.close(code=1000)
+                    break
+            except asyncio.TimeoutError:
+                # Send a ping to keep the connection alive
+                try:
+                    await websocket.send_json({"type": "ping"})
+                except Exception:
+                    break
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        with _ws_lock:
+            subs = _ws_subscribers.get(job_id, [])
+            if queue in subs:
+                subs.remove(queue)
+            if not subs:
+                _ws_subscribers.pop(job_id, None)
+
 
 @app.get("/train/{job_id}")
 async def get_training_status(job_id: str):
     if job_id not in training_jobs:
         raise HTTPException(status_code=404, detail="Training job not found")
     j = training_jobs[job_id]
-    return {k: j[k] for k in ["id", "model_id", "status", "epoch", "total_epochs", "loss", "accuracy", "message"]}
+    # Map status to frontend-expected values
+    status = j["status"]
+    if hasattr(status, 'value'):
+        status = status.value
+    return {
+        "job_id": j["id"],
+        "model_id": j["model_id"],
+        "status": status,
+        "epoch": j.get("epoch", 0),
+        "total_epochs": j.get("total_epochs", 0),
+        "loss": j.get("loss", 0.0),
+        "accuracy": j.get("accuracy", 0.0),
+        "message": j.get("message", "")
+    }
 
 @app.delete("/train/{job_id}")
 async def cancel_training(job_id: str):
     if job_id not in training_jobs:
         raise HTTPException(status_code=404, detail="Training job not found")
     j = training_jobs[job_id]
-    if j["status"] not in [TrainStatus.PENDING, TrainStatus.RUNNING]:
+    if j["status"] not in ["pending", "running", "compiling", "training"]:
         raise HTTPException(status_code=400, detail="Job not running")
     j["cancelled"] = True
     if "process" in j:
@@ -1034,6 +1752,100 @@ async def api_predict(model_id: str, file: UploadFile = File(...)):
     """Convenience endpoint for model prediction: /api/{model_id}/predict"""
     return await predict(model_id, file)
 
+class GenerateRequest(BaseModel):
+    prompt: str
+    max_tokens: int = 100
+    temperature: float = 0.8
+
+
+@app.post("/api/{model_id}/generate")
+async def generate_text(model_id: str, request: GenerateRequest):
+    """Generate text using a trained language model."""
+    import subprocess
+
+    metadata = load_model_metadata(model_id)
+    if not metadata:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    if metadata.status != TrainStatus.COMPLETED:
+        raise HTTPException(status_code=400, detail="Model not ready")
+
+    # Check if this is a text model
+    if not metadata.dataset.startswith("custom:"):
+        raise HTTPException(status_code=400, detail="This model is not a language model")
+
+    dataset_id = metadata.dataset.replace("custom:", "")
+
+    # Get vocabulary path from blob storage
+    from db import get_blob_store
+    blob_store = get_blob_store()
+
+    # Get dataset info to find vocab
+    dataset_info = dataset_service.get_dataset(dataset_id)
+    if not dataset_info:
+        raise HTTPException(status_code=400, detail="Dataset not found")
+
+    if dataset_info.get('data_type') != 'text':
+        raise HTTPException(status_code=400, detail="Not a text dataset")
+
+    # Extract vocabulary to temp file
+    processed_prefix = dataset_info.get('processed_blob_prefix')
+    if not processed_prefix:
+        raise HTTPException(status_code=400, detail="Dataset not processed")
+
+    vocab_blob = blob_store.get(f"{processed_prefix}/vocabulary.json")
+    if not vocab_blob:
+        raise HTTPException(status_code=400, detail="Vocabulary not found")
+
+    # Find or extract the inference executable
+    job_dir = GENERATED_DIR / model_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    infer_exe = job_dir / "infer"
+    model_bin = get_model_path(model_id)
+
+    # Extract inference executable from blob storage if not present locally
+    if not infer_exe.exists():
+        infer_blob = blob_store.get(f"models/{model_id}/infer")
+        if not infer_blob:
+            raise HTTPException(status_code=400, detail="Inference executable not found")
+        infer_exe.write_bytes(infer_blob)
+        import stat
+        infer_exe.chmod(infer_exe.stat().st_mode | stat.S_IEXEC)
+
+    # Write vocab to temp file
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.json', mode='wb') as tmp:
+        tmp.write(vocab_blob)
+        vocab_path = Path(tmp.name)
+
+    try:
+        result = subprocess.run(
+            [
+                str(infer_exe),
+                str(model_bin),
+                str(vocab_path),
+                request.prompt,
+                str(request.max_tokens),
+                str(request.temperature)
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+
+        if result.returncode != 0:
+            raise HTTPException(status_code=500, detail=f"Generation failed: {result.stderr}")
+
+        return {
+            "model_id": model_id,
+            "prompt": request.prompt,
+            "generated_text": result.stdout.strip(),
+            "max_tokens": request.max_tokens,
+            "temperature": request.temperature
+        }
+    finally:
+        vocab_path.unlink(missing_ok=True)
+
+
 @app.get("/api/{model_id}/info")
 async def api_model_info(model_id: str):
     """Get model information."""
@@ -1078,7 +1890,7 @@ def main():
     MODELS_DIR = Path(args.models_dir)
     ensure_dirs()
 
-    print(f"Whitematter Model Server v0.3.0 at http://{args.host}:{args.port}")
+    logger.info("Whitematter Model Server v0.5.0 at http://%s:%s", args.host, args.port)
     uvicorn.run(app, host=args.host, port=args.port)
 
 if __name__ == "__main__":

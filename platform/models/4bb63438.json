@@ -1,0 +1,274 @@
+{
+  "id": "4bb63438",
+  "name": "custom_minigpt_4bb63438",
+  "dataset": "custom:6b2bf275a0b0401d",
+  "architecture": "custom",
+  "created_at": "2026-01-31T13:08:15.011172",
+  "epochs_trained": 40,
+  "best_accuracy": 19.41,
+  "status": "completed",
+  "training_history": [
+    {
+      "epoch": 1,
+      "loss": 2.4601,
+      "accuracy": 12.93
+    },
+    {
+      "epoch": 2,
+      "loss": 1.9745,
+      "accuracy": 15.01
+    },
+    {
+      "epoch": 3,
+      "loss": 1.8478,
+      "accuracy": 16.12
+    },
+    {
+      "epoch": 4,
+      "loss": 1.7799,
+      "accuracy": 16.88
+    },
+    {
+      "epoch": 5,
+      "loss": 1.7366,
+      "accuracy": 17.36
+    },
+    {
+      "epoch": 6,
+      "loss": 1.7067,
+      "accuracy": 17.79
+    },
+    {
+      "epoch": 7,
+      "loss": 1.6839,
+      "accuracy": 18.06
+    },
+    {
+      "epoch": 8,
+      "loss": 1.6661,
+      "accuracy": 18.26
+    },
+    {
+      "epoch": 9,
+      "loss": 1.6516,
+      "accuracy": 18.42
+    },
+    {
+      "epoch": 10,
+      "loss": 1.6398,
+      "accuracy": 18.61
+    },
+    {
+      "epoch": 11,
+      "loss": 1.6294,
+      "accuracy": 18.68
+    },
+    {
+      "epoch": 12,
+      "loss": 1.6218,
+      "accuracy": 18.77
+    },
+    {
+      "epoch": 13,
+      "loss": 1.6141,
+      "accuracy": 18.84
+    },
+    {
+      "epoch": 14,
+      "loss": 1.608,
+      "accuracy": 18.9
+    },
+    {
+      "epoch": 15,
+      "loss": 1.6025,
+      "accuracy": 18.93
+    },
+    {
+      "epoch": 16,
+      "loss": 1.5974,
+      "accuracy": 19.01
+    },
+    {
+      "epoch": 17,
+      "loss": 1.5937,
+      "accuracy": 19.07
+    },
+    {
+      "epoch": 18,
+      "loss": 1.5891,
+      "accuracy": 19.12
+    },
+    {
+      "epoch": 19,
+      "loss": 1.5858,
+      "accuracy": 19.12
+    },
+    {
+      "epoch": 20,
+      "loss": 1.5828,
+      "accuracy": 19.15
+    },
+    {
+      "epoch": 21,
+      "loss": 1.5805,
+      "accuracy": 19.13
+    },
+    {
+      "epoch": 22,
+      "loss": 1.5784,
+      "accuracy": 19.16
+    },
+    {
+      "epoch": 23,
+      "loss": 1.5757,
+      "accuracy": 19.2
+    },
+    {
+      "epoch": 24,
+      "loss": 1.574,
+      "accuracy": 19.27
+    },
+    {
+      "epoch": 25,
+      "loss": 1.5716,
+      "accuracy": 19.29
+    },
+    {
+      "epoch": 26,
+      "loss": 1.5702,
+      "accuracy": 19.28
+    },
+    {
+      "epoch": 27,
+      "loss": 1.5691,
+      "accuracy": 19.31
+    },
+    {
+      "epoch": 28,
+      "loss": 1.5671,
+      "accuracy": 19.33
+    },
+    {
+      "epoch": 29,
+      "loss": 1.5663,
+      "accuracy": 19.36
+    },
+    {
+      "epoch": 30,
+      "loss": 1.566,
+      "accuracy": 19.33
+    },
+    {
+      "epoch": 31,
+      "loss": 1.5646,
+      "accuracy": 19.36
+    },
+    {
+      "epoch": 32,
+      "loss": 1.564,
+      "accuracy": 19.38
+    },
+    {
+      "epoch": 33,
+      "loss": 1.5626,
+      "accuracy": 19.38
+    },
+    {
+      "epoch": 34,
+      "loss": 1.563,
+      "accuracy": 19.39
+    },
+    {
+      "epoch": 35,
+      "loss": 1.562,
+      "accuracy": 19.41
+    },
+    {
+      "epoch": 36,
+      "loss": 1.5611,
+      "accuracy": 19.4
+    },
+    {
+      "epoch": 37,
+      "loss": 1.5614,
+      "accuracy": 19.41
+    },
+    {
+      "epoch": 38,
+      "loss": 1.561,
+      "accuracy": 19.41
+    },
+    {
+      "epoch": 39,
+      "loss": 1.561,
+      "accuracy": 19.41
+    },
+    {
+      "epoch": 40,
+      "loss": 1.5605,
+      "accuracy": 19.41
+    }
+  ],
+  "config": {
+    "dataset_id": "6b2bf275a0b0401d",
+    "architecture": {
+      "name": "char_lstm_lm",
+      "description": "Character-level LSTM language model with 2-layer LSTM for text generation",
+      "data_type": "text",
+      "input_shape": [
+        128
+      ],
+      "num_classes": 68,
+      "layers": [
+        {
+          "type": "embedding",
+          "params": {
+            "num_embeddings": 68,
+            "embedding_dim": 128
+          }
+        },
+        {
+          "type": "lstm",
+          "params": {
+            "input_size": 128,
+            "hidden_size": 256,
+            "num_layers": 2,
+            "batch_first": true,
+            "dropout": 0.1
+          }
+        },
+        {
+          "type": "dropout",
+          "params": {
+            "p": 0.3
+          }
+        },
+        {
+          "type": "linear",
+          "params": {
+            "in_features": 256,
+            "out_features": 68
+          }
+        }
+      ],
+      "training": {
+        "optimizer": {
+          "type": "adam",
+          "params": {
+            "learning_rate": 0.0015
+          }
+        },
+        "scheduler": {
+          "type": "cosine",
+          "params": {
+            "T_max": 40
+          }
+        },
+        "epochs": 40,
+        "batch_size": 64
+      },
+      "vocab_size": 68,
+      "seq_length": 128
+    }
+  }
+}

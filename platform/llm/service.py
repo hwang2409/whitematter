@@ -3,9 +3,12 @@ LLM Service - Claude API integration for architecture design.
 """
 
 import json
+import logging
 import os
 import re
 from typing import Dict, Any, Optional
+
+logger = logging.getLogger(__name__)
 
 from .prompts import ARCHITECTURE_SYSTEM_PROMPT, REFINEMENT_PROMPT
 
@@ -201,26 +204,69 @@ class MockLLMService:
                 }
             }
         elif data_type == 'text':
-            seq_len = input_shape[0] if input_shape else 256
-            architecture = {
-                "name": "simple_lstm",
-                "description": "Simple LSTM for text classification",
-                "data_type": "text",
-                "input_shape": [seq_len],
-                "num_classes": num_classes,
-                "layers": [
-                    {"type": "embedding", "params": {"num_embeddings": 10000, "embedding_dim": 128}},
-                    {"type": "lstm", "params": {"input_size": 128, "hidden_size": 256}},
-                    {"type": "dropout", "params": {"p": 0.5}},
-                    {"type": "linear", "params": {"in_features": 256, "out_features": num_classes}},
-                ],
-                "training": {
-                    "optimizer": {"type": "adam", "params": {"learning_rate": 0.001}},
-                    "scheduler": {"type": "none", "params": {}},
-                    "epochs": 20,
-                    "batch_size": 32
+            seq_len = input_shape[0] if input_shape else 128
+            vocab_size = num_classes  # For text, num_classes = vocab_size
+            embedding_dim = 64
+            hidden_size = 128
+
+            # Check for keywords in user prompt to decide architecture
+            # Default to Transformer architecture for text (better performance)
+            use_lstm = 'lstm' in user_prompt.lower() or 'rnn' in user_prompt.lower()
+
+            if use_lstm:
+                # Legacy LSTM-based language model (only if explicitly requested)
+                architecture = {
+                    "name": "char_lstm",
+                    "description": "Character-level LSTM for language modeling",
+                    "data_type": "text",
+                    "input_shape": [seq_len],
+                    "num_classes": vocab_size,
+                    "vocab_size": vocab_size,
+                    "seq_length": seq_len,
+                    "layers": [
+                        {"type": "embedding", "params": {"num_embeddings": vocab_size, "embedding_dim": embedding_dim}},
+                        {"type": "lstm", "params": {"input_size": embedding_dim, "hidden_size": hidden_size}},
+                        {"type": "dropout", "params": {"p": 0.3}},
+                        {"type": "linear", "params": {"in_features": hidden_size, "out_features": vocab_size}},
+                    ],
+                    "training": {
+                        "optimizer": {"type": "adam", "params": {"learning_rate": 0.002}},
+                        "scheduler": {"type": "step", "params": {"step_size": 10, "gamma": 0.5}},
+                        "epochs": 30,
+                        "batch_size": 32
+                    }
                 }
-            }
+            else:
+                # Transformer architecture (default - better convergence)
+                num_heads = 4
+                num_layers = 4
+                ff_dim = embedding_dim * 2
+                # Ensure embed_dim is divisible by num_heads
+                if embedding_dim % num_heads != 0:
+                    embedding_dim = (embedding_dim // num_heads + 1) * num_heads
+                    ff_dim = embedding_dim * 2
+
+                architecture = {
+                    "name": "char_transformer",
+                    "description": f"Transformer language model ({num_layers} layers, {num_heads} heads)",
+                    "data_type": "text",
+                    "input_shape": [seq_len],
+                    "num_classes": vocab_size,
+                    "vocab_size": vocab_size,
+                    "seq_length": seq_len,
+                    "layers": [
+                        {"type": "embedding", "params": {"num_embeddings": vocab_size, "embedding_dim": embedding_dim}},
+                        {"type": "transformer", "params": {"embed_dim": embedding_dim, "num_heads": num_heads, "num_layers": num_layers, "ff_dim": ff_dim}},
+                        {"type": "layernorm", "params": {"normalized_shape": embedding_dim}},
+                        {"type": "linear", "params": {"in_features": embedding_dim, "out_features": vocab_size}},
+                    ],
+                    "training": {
+                        "optimizer": {"type": "adam", "params": {"learning_rate": 0.001, "beta1": 0.9, "beta2": 0.98}},
+                        "scheduler": {"type": "cosine", "params": {"T_max": 50}},
+                        "epochs": 50,
+                        "batch_size": 32
+                    }
+                }
         else:  # tabular
             num_features = input_shape[0] if input_shape else 10
             architecture = {
@@ -266,5 +312,5 @@ def get_llm_service(api_key: Optional[str] = None) -> LLMService:
     if key:
         return LLMService(api_key=key)
     else:
-        print("Warning: ANTHROPIC_API_KEY not set, using mock LLM service")
+        logger.warning("ANTHROPIC_API_KEY not set, using mock LLM service")
         return MockLLMService()

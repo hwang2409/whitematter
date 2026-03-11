@@ -1,0 +1,276 @@
+{
+  "id": "337dda5c",
+  "name": "custom_minigpt_337dda5c",
+  "dataset": "custom:6b2bf275a0b0401d",
+  "architecture": "custom",
+  "created_at": "2026-01-30T05:32:01.415121",
+  "epochs_trained": 40,
+  "best_accuracy": 19.24,
+  "status": "completed",
+  "training_history": [
+    {
+      "epoch": 1,
+      "loss": 2.4603,
+      "accuracy": 12.95
+    },
+    {
+      "epoch": 2,
+      "loss": 1.9725,
+      "accuracy": 15.0
+    },
+    {
+      "epoch": 3,
+      "loss": 1.8456,
+      "accuracy": 16.06
+    },
+    {
+      "epoch": 4,
+      "loss": 1.781,
+      "accuracy": 16.74
+    },
+    {
+      "epoch": 5,
+      "loss": 1.739,
+      "accuracy": 17.22
+    },
+    {
+      "epoch": 6,
+      "loss": 1.7095,
+      "accuracy": 17.6
+    },
+    {
+      "epoch": 7,
+      "loss": 1.6862,
+      "accuracy": 17.87
+    },
+    {
+      "epoch": 8,
+      "loss": 1.6687,
+      "accuracy": 18.03
+    },
+    {
+      "epoch": 9,
+      "loss": 1.6545,
+      "accuracy": 18.2
+    },
+    {
+      "epoch": 10,
+      "loss": 1.6421,
+      "accuracy": 18.28
+    },
+    {
+      "epoch": 11,
+      "loss": 1.6325,
+      "accuracy": 18.42
+    },
+    {
+      "epoch": 12,
+      "loss": 1.6238,
+      "accuracy": 18.49
+    },
+    {
+      "epoch": 13,
+      "loss": 1.616,
+      "accuracy": 18.56
+    },
+    {
+      "epoch": 14,
+      "loss": 1.61,
+      "accuracy": 18.64
+    },
+    {
+      "epoch": 15,
+      "loss": 1.604,
+      "accuracy": 18.68
+    },
+    {
+      "epoch": 16,
+      "loss": 1.5995,
+      "accuracy": 18.77
+    },
+    {
+      "epoch": 17,
+      "loss": 1.5947,
+      "accuracy": 18.84
+    },
+    {
+      "epoch": 18,
+      "loss": 1.5903,
+      "accuracy": 18.82
+    },
+    {
+      "epoch": 19,
+      "loss": 1.5873,
+      "accuracy": 18.96
+    },
+    {
+      "epoch": 20,
+      "loss": 1.583,
+      "accuracy": 18.97
+    },
+    {
+      "epoch": 21,
+      "loss": 1.5805,
+      "accuracy": 18.98
+    },
+    {
+      "epoch": 22,
+      "loss": 1.5782,
+      "accuracy": 19.03
+    },
+    {
+      "epoch": 23,
+      "loss": 1.5761,
+      "accuracy": 19.07
+    },
+    {
+      "epoch": 24,
+      "loss": 1.5735,
+      "accuracy": 19.1
+    },
+    {
+      "epoch": 25,
+      "loss": 1.5722,
+      "accuracy": 19.12
+    },
+    {
+      "epoch": 26,
+      "loss": 1.57,
+      "accuracy": 19.14
+    },
+    {
+      "epoch": 27,
+      "loss": 1.5688,
+      "accuracy": 19.11
+    },
+    {
+      "epoch": 28,
+      "loss": 1.5673,
+      "accuracy": 19.15
+    },
+    {
+      "epoch": 29,
+      "loss": 1.5662,
+      "accuracy": 19.17
+    },
+    {
+      "epoch": 30,
+      "loss": 1.5654,
+      "accuracy": 19.2
+    },
+    {
+      "epoch": 31,
+      "loss": 1.5644,
+      "accuracy": 19.17
+    },
+    {
+      "epoch": 32,
+      "loss": 1.5633,
+      "accuracy": 19.2
+    },
+    {
+      "epoch": 33,
+      "loss": 1.5629,
+      "accuracy": 19.22
+    },
+    {
+      "epoch": 34,
+      "loss": 1.5619,
+      "accuracy": 19.22
+    },
+    {
+      "epoch": 35,
+      "loss": 1.5612,
+      "accuracy": 19.23
+    },
+    {
+      "epoch": 36,
+      "loss": 1.5609,
+      "accuracy": 19.24
+    },
+    {
+      "epoch": 37,
+      "loss": 1.5605,
+      "accuracy": 19.23
+    },
+    {
+      "epoch": 38,
+      "loss": 1.5605,
+      "accuracy": 19.24
+    },
+    {
+      "epoch": 39,
+      "loss": 1.56,
+      "accuracy": 19.24
+    },
+    {
+      "epoch": 40,
+      "loss": 1.5602,
+      "accuracy": 19.24
+    }
+  ],
+  "config": {
+    "dataset_id": "6b2bf275a0b0401d",
+    "architecture": {
+      "name": "CharLSTM_LanguageModel",
+      "description": "2-layer LSTM architecture for character-level language modeling with 68-character vocabulary",
+      "data_type": "text",
+      "input_shape": [
+        128
+      ],
+      "num_classes": 68,
+      "layers": [
+        {
+          "type": "embedding",
+          "params": {
+            "num_embeddings": 68,
+            "embedding_dim": 128
+          }
+        },
+        {
+          "type": "lstm",
+          "params": {
+            "input_size": 128,
+            "hidden_size": 384,
+            "num_layers": 2,
+            "dropout": 0.3,
+            "batch_first": true
+          }
+        },
+        {
+          "type": "dropout",
+          "params": {
+            "p": 0.3
+          }
+        },
+        {
+          "type": "linear",
+          "params": {
+            "in_features": 384,
+            "out_features": 68
+          }
+        }
+      ],
+      "training": {
+        "optimizer": {
+          "type": "adam",
+          "params": {
+            "learning_rate": 0.0015,
+            "beta1": 0.9,
+            "beta2": 0.999
+          }
+        },
+        "scheduler": {
+          "type": "cosine",
+          "params": {
+            "T_max": 40
+          }
+        },
+        "epochs": 40,
+        "batch_size": 64
+      },
+      "vocab_size": 68,
+      "seq_length": 128
+    }
+  }
+}

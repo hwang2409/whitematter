@@ -22,9 +22,9 @@ def compile_training_code(
         Tuple of (success, output_message)
     """
     try:
-        # Run make
+        # Run make to build both train and infer
         result = subprocess.run(
-            ["make", "train"],
+            ["make", "all"],
             cwd=generated_dir,
             capture_output=True,
             text=True,
@@ -53,6 +53,8 @@ def run_training(
     generated_dir: Path,
     data_dir: Path,
     output_model: Path,
+    resume_weights: Path = None,
+    start_epoch: int = 0,
     timeout: int = 3600  # 1 hour default
 ) -> subprocess.Popen:
     """
@@ -62,6 +64,8 @@ def run_training(
         generated_dir: Directory containing compiled 'train' executable
         data_dir: Directory containing processed dataset
         output_model: Path for output model file
+        resume_weights: Optional path to weights file to resume from
+        start_epoch: Epoch to start from (for resume)
         timeout: Not enforced here (handled by caller)
 
     Returns:
@@ -72,8 +76,12 @@ def run_training(
     if not train_exe.exists():
         raise FileNotFoundError(f"Training executable not found: {train_exe}")
 
+    cmd = [str(train_exe), str(data_dir), str(output_model)]
+    if resume_weights and resume_weights.exists():
+        cmd.extend([str(resume_weights), str(start_epoch)])
+
     process = subprocess.Popen(
-        [str(train_exe), str(data_dir), str(output_model)],
+        cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
