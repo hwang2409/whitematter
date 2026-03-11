@@ -42,7 +42,7 @@ COPY Makefile .
 RUN make -j$(nproc) all
 
 # ------------------------------------------------------------------------------
-# Stage 2: Build Python bindings
+# Stage 2: Build Python bindings (from repo root: setup.py + pyproject.toml)
 # ------------------------------------------------------------------------------
 FROM python:3.11-slim AS python-builder
 
@@ -57,13 +57,13 @@ WORKDIR /app
 # Install pybind11 first
 RUN pip install --no-cache-dir pybind11 wheel setuptools
 
-# Copy C++ source for Python bindings
-COPY core/*.cpp core/*.h ./
-COPY bindings/*.cpp ./
-COPY platform/setup.py .
+# Copy root package definition and C++ sources for the extension
+COPY setup.py pyproject.toml ./
+COPY core/ core/
+COPY bindings/ bindings/
 
-# Build the Python extension
-RUN pip wheel --no-cache-dir --wheel-dir /wheels .
+# Build the Python extension from root (one source of truth)
+RUN pip wheel --no-cache-dir . --wheel-dir /wheels
 
 # ------------------------------------------------------------------------------
 # Stage 3: Build frontend
