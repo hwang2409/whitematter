@@ -14,6 +14,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
+import { useTheme } from "@mui/material/styles";
 import type { Architecture, ArchitectureLayer } from "@/api";
 import { themeTokens } from "@/theme";
 
@@ -53,6 +54,7 @@ type LayerNodeData = {
 };
 
 function LayerNode({ data }: NodeProps<Node<LayerNodeData>>) {
+  const theme = useTheme();
   return (
     <Box
       sx={{
@@ -63,7 +65,7 @@ function LayerNode({ data }: NodeProps<Node<LayerNodeData>>) {
         borderRadius: 1,
         borderLeft: "3px solid",
         borderLeftColor: themeTokens.accent,
-        bgcolor: themeTokens.surface,
+        bgcolor: theme.palette.background.paper,
         transition: "opacity 0.25s ease-out",
       }}
     >
@@ -120,6 +122,7 @@ interface Props {
 }
 
 export default function ArchitectureGraph({ architecture }: Props) {
+  const theme = useTheme();
   const { nodes: initialNodes, edges: initialEdges } = useMemo(
     () => architectureToFlow(architecture),
     [architecture]
@@ -143,14 +146,14 @@ export default function ArchitectureGraph({ architecture }: Props) {
         overflow: "hidden",
         "& .react-flow__controls": {
           button: {
-            bgcolor: themeTokens.surface,
+            bgcolor: "background.paper",
             color: "text.secondary",
             borderColor: "divider",
             "&:hover": { bgcolor: "action.hover", color: "text.primary" },
           },
         },
         "& .react-flow__background": {
-          patternColor: themeTokens.border,
+          patternColor: theme.palette.divider,
         },
       }}
     >
@@ -170,7 +173,7 @@ export default function ArchitectureGraph({ architecture }: Props) {
         elementsSelectable={false}
         proOptions={{ hideAttribution: true }}
       >
-        <Background color={themeTokens.border} gap={16} size={0.5} />
+        <Background color={theme.palette.divider} gap={16} size={0.5} />
         <Controls showInteractive={false} />
       </ReactFlow>
     </Box>

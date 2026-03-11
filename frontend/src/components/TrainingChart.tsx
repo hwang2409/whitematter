@@ -11,6 +11,7 @@ import {
   ComposedChart,
 } from "recharts";
 import Box from "@mui/material/Box";
+import { useTheme } from "@mui/material/styles";
 import { themeTokens } from "@/theme";
 
 interface DataPoint {
@@ -29,6 +30,7 @@ const MUTED = "rgba(255,255,255,0.35)";
 const GRID = "rgba(255,255,255,0.06)";
 
 export default function TrainingChart({ data, singleAccent = true }: TrainingChartProps) {
+  const theme = useTheme();
   if (data.length === 0) {
     return null;
   }
@@ -97,8 +99,8 @@ export default function TrainingChart({ data, singleAccent = true }: TrainingCha
           />
           <Tooltip
             contentStyle={{
-              backgroundColor: themeTokens.surface,
-              border: `1px solid ${themeTokens.border}`,
+              backgroundColor: theme.palette.background.paper,
+              border: `1px solid ${theme.palette.divider}`,
               borderRadius: 8,
               fontFamily: '"JetBrains Mono", monospace',
             }}

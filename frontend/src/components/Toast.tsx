@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Box from "@mui/material/Box";
 import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
+import { useTheme } from "@mui/material/styles";
 import { themeTokens } from "@/theme";
 
 export interface ToastMessage {
@@ -50,6 +51,7 @@ function ToastItem({
   toast: ToastMessage;
   onDismiss: (id: string) => void;
 }) {
+  const theme = useTheme();
   const [isExiting, setIsExiting] = useState(false);
 
   useEffect(() => {
@@ -77,9 +79,9 @@ function ToastItem({
         px: 1.25,
         minWidth: 280,
         maxWidth: 400,
-        bgcolor: themeTokens.surface,
+        bgcolor: theme.palette.background.paper,
         border: "1px solid",
-        borderColor: themeTokens.border,
+        borderColor: theme.palette.divider,
         borderRadius: 1,
         boxShadow: "0 10px 25px -5px rgba(0,0,0,0.4)",
         animation: isExiting ? "toastExit 0.2s ease-out forwards" : "toastEnter 0.25s ease-out",
