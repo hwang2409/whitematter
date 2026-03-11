@@ -1071,6 +1071,71 @@ h4 {
   color: var(--text-primary);
 }
 
+.import-section {
+  background: var(--surface-2);
+  padding: 1.5rem;
+  border-radius: var(--radius-md);
+  margin-bottom: 1.25rem;
+  border: 1px solid var(--border);
+}
+
+.import-section h3 {
+  margin: 0 0 0.5rem;
+  color: var(--text-primary);
+}
+
+.import-section .help-text {
+  margin-bottom: 0.75rem;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.import-section .help-text code {
+  background: var(--surface-3);
+  padding: 0.125rem 0.375rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
+}
+
+.import-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.import-url-input {
+  flex: 1;
+  min-width: 12rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.9375rem;
+}
+
+.import-name-input {
+  width: 10rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.9375rem;
+}
+
+.import-split-select {
+  min-width: 7rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 0.9375rem;
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+
+.import-split-select:focus {
+  outline: none;
+  border-color: var(--white);
+}
+
 .file-info {
   display: flex;
   align-items: center;
@@ -1548,17 +1613,81 @@ h4 {
   font-size: 0.8125rem;
 }
 
+/* Architecture graph (React Flow) */
+.architecture-graph-section {
+  margin-bottom: 1.5rem;
+}
+.architecture-graph-section h4 {
+  margin: 0 0 0.5rem;
+  color: var(--text-primary);
+}
+.architecture-graph {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+}
+
 /* Layers List */
 .layers-section {
   margin-bottom: 1.5rem;
 }
 
+.layers-edit-hint {
+  margin: 0 0 0.5rem;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
 .layers-list {
   background: var(--surface-1);
   border-radius: var(--radius-md);
   max-height: 300px;
   overflow-y: auto;
   border: 1px solid var(--border);
+}
+.layers-list-editable {
+  max-height: none;
+}
+.layer-item-editable {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.layer-item-editable:last-child {
+  border-bottom: none;
+}
+.layer-item-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.layer-params-editable {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  padding-left: 1.5rem;
+}
+.layer-param-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.8125rem;
+}
+.layer-param-label {
+  color: var(--text-secondary);
+  min-width: 5rem;
+}
+.layer-param-field input {
+  width: 5rem;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+.layer-param-field input[type='number'] {
+  width: 4.5rem;
 }
 
 .layers-list::-webkit-scrollbar {
@@ -1664,6 +1793,50 @@ h4 {
   color: var(--text-muted);
   margin-top: 0.5rem;
   border: 1px solid var(--border);
+}
+
+/* Code preview (train.cpp / infer.cpp) */
+.code-preview-section {
+  margin-bottom: 1.5rem;
+}
+.code-preview-section .btn {
+  margin-bottom: 0.5rem;
+}
+.code-preview-details {
+  margin-top: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-1);
+}
+.code-preview-details summary {
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.code-preview-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+.code-preview-panel h5 {
+  margin: 0 0 0.25rem;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+}
+.code-preview-pre {
+  margin: 0;
+  padding: 0.75rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  overflow: auto;
+  max-height: 320px;
+  white-space: pre;
+  color: var(--text-primary);
 }
 
 /* Refinement Section */

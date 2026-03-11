@@ -19,6 +19,17 @@
   gap: 0.75rem;
 }
 
+.aws-setup-label {
+  font-size: 0.8125rem;
+  color: var(--gray-400);
+  margin-bottom: -0.25rem;
+}
+
+.aws-setup-select,
+.aws-setup-endpoint {
+  width: 100%;
+}
+
 .aws-setup-form input,
 .aws-setup-form select {
   padding: 0.5rem 0.75rem;
