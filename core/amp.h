@@ -129,15 +129,15 @@ public:
         bool found_inf = false;
 
         for (auto& param : optimizer->params) {
-            if (param->grad.empty()) continue;
+            if (param->grad_empty()) continue;
 
-            for (size_t i = 0; i < param->grad.size(); i++) {
-                float g = param->grad[i] * inv_scale;
+            for (size_t i = 0; i < param->grad_size(); i++) {
+                float g = param->grad()[i] * inv_scale;
                 if (!std::isfinite(g)) {
                     found_inf = true;
                     break;
                 }
-                param->grad[i] = g;
+                param->grad()[i] = g;
             }
             if (found_inf) break;
         }

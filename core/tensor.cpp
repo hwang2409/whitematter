@@ -1,4 +1,5 @@
 #include "tensor.h"
+#include "memory_pool.h"
 #include <algorithm>
 #include <numeric>
 #include <stdexcept>
@@ -403,19 +404,58 @@ static std::vector<size_t> compute_strides(const std::vector<size_t>& shape) {
 
 static std::mt19937 rng(42);
 
-Tensor::Tensor() : requires_grad(false) {}
+Tensor::Tensor() : requires_grad(false), data_size_(0), grad_size_(0) {}
+
+Tensor::~Tensor() {
+    // shared_ptr deleters return memory to pool when last owner is destroyed
+}
 
 Tensor::Tensor(const std::vector<size_t>& shape, bool requires_grad)
     : shape(shape), requires_grad(requires_grad) {
     size_t total = 1;
     for (auto s : shape) total *= s;
-    data.resize(total, 0.0f);
-    if (requires_grad) grad.resize(total, 0.0f);
+    data_size_ = total;
+    data_storage_ = MemoryPool::instance().acquire_shared(total);
+    if (!data_storage_) throw std::bad_alloc();
+    std::fill(data(), data() + total, 0.0f);
+    if (requires_grad) {
+        grad_size_ = total;
+        grad_storage_ = MemoryPool::instance().acquire_shared(total);
+        if (!grad_storage_) throw std::bad_alloc();
+        std::fill(grad(), grad() + total, 0.0f);
+    } else {
+        grad_size_ = 0;
+    }
 }
 
 Tensor::Tensor(const std::vector<float>& data, const std::vector<size_t>& shape, bool requires_grad)
-    : data(data), shape(shape), requires_grad(requires_grad) {
-    if (requires_grad) grad.resize(data.size(), 0.0f);
+    : shape(shape), requires_grad(requires_grad) {
+    data_size_ = data.size();
+    data_storage_ = MemoryPool::instance().acquire_shared(data_size_);
+    if (!data_storage_) throw std::bad_alloc();
+    std::memcpy(data_storage_.get(), data.data(), data_size_ * sizeof(float));
+    if (requires_grad) {
+        grad_size_ = data_size_;
+        grad_storage_ = MemoryPool::instance().acquire_shared(grad_size_);
+        if (!grad_storage_) throw std::bad_alloc();
+        std::fill(grad(), grad() + grad_size_, 0.0f);
+    } else {
+        grad_size_ = 0;
+    }
+}
+
+Tensor::Tensor(std::shared_ptr<float> data_storage, size_t data_size,
+               const std::vector<size_t>& shape, bool requires_grad)
+    : shape(shape), requires_grad(requires_grad),
+      data_storage_(std::move(data_storage)), data_size_(data_size) {
+    if (requires_grad) {
+        grad_size_ = data_size_;
+        grad_storage_ = MemoryPool::instance().acquire_shared(grad_size_);
+        if (!grad_storage_) throw std::bad_alloc();
+        std::fill(grad(), grad() + grad_size_, 0.0f);
+    } else {
+        grad_size_ = 0;
+    }
 }
 
 TensorPtr Tensor::create(const std::vector<size_t>& shape, bool requires_grad) {
@@ -428,28 +468,28 @@ TensorPtr Tensor::create(const std::vector<float>& data, const std::vector<size_
 
 TensorPtr Tensor::zeros(const std::vector<size_t>& shape, bool requires_grad) {
     auto t = create(shape, requires_grad);
-    std::fill(t->data.begin(), t->data.end(), 0.0f);
+    std::fill(t->data(), t->data() + t->size(), 0.0f);
     return t;
 }
 
 TensorPtr Tensor::ones(const std::vector<size_t>& shape, bool requires_grad) {
     auto t = create(shape, requires_grad);
-    std::fill(t->data.begin(), t->data.end(), 1.0f);
+    std::fill(t->data(), t->data() + t->size(), 1.0f);
     return t;
 }
 
 TensorPtr Tensor::randn(const std::vector<size_t>& shape, bool requires_grad) {
     auto t = create(shape, requires_grad);
     std::normal_distribution<float> dist(0.0f, 1.0f);
-    for (auto& v : t->data) v = dist(rng);
+    for (size_t i = 0; i < t->size(); i++) t->data()[i] = dist(rng);
     return t;
 }
 
 TensorPtr Tensor::xavier(size_t fan_in, size_t fan_out, bool requires_grad) {
     auto t = create({fan_in, fan_out}, requires_grad);
-    float std = std::sqrt(2.0f / (fan_in + fan_out));
-    std::normal_distribution<float> dist(0.0f, std);
-    for (auto& v : t->data) v = dist(rng);
+    float std_val = std::sqrt(2.0f / (fan_in + fan_out));
+    std::normal_distribution<float> dist(0.0f, std_val);
+    for (size_t i = 0; i < t->size(); i++) t->data()[i] = dist(rng);
     return t;
 }
 
@@ -509,7 +549,7 @@ TensorPtr Tensor::concat(const std::vector<TensorPtr>& tensors, int dim) {
         }
 
         // Copy elements
-        for (size_t i = 0; i < t->data.size(); i++) {
+        for (size_t i = 0; i < t->size(); i++) {
             // Convert linear index to multi-dimensional index
             std::vector<size_t> idx(ndim);
             size_t tmp = i;
@@ -527,7 +567,7 @@ TensorPtr Tensor::concat(const std::vector<TensorPtr>& tensors, int dim) {
                 result_idx += idx[d] * strides[d];
             }
 
-            result->data[result_idx] = t->data[i];
+            result->data()[result_idx] = t->data()[i];
         }
 
         offset_in_dim += t_dim_size;
@@ -557,7 +597,7 @@ TensorPtr Tensor::concat(const std::vector<TensorPtr>& tensors, int dim) {
                 }
 
                 // Copy gradients back
-                for (size_t i = 0; i < t->data.size(); i++) {
+                for (size_t i = 0; i < t->size(); i++) {
                     // Convert linear index to multi-dimensional index
                     std::vector<size_t> idx(ndim);
                     size_t tmp = i;
@@ -575,7 +615,7 @@ TensorPtr Tensor::concat(const std::vector<TensorPtr>& tensors, int dim) {
                         result_idx += idx[d] * strides[d];
                     }
 
-                    t->grad[i] += result->grad[result_idx];
+                    t->grad()[i] += result->grad()[result_idx];
                 }
             }
         };
@@ -641,7 +681,7 @@ TensorPtr Tensor::stack(const std::vector<TensorPtr>& tensors, int dim) {
     for (size_t t_idx = 0; t_idx < tensors.size(); t_idx++) {
         const auto& t = tensors[t_idx];
 
-        for (size_t i = 0; i < t->data.size(); i++) {
+        for (size_t i = 0; i < t->size(); i++) {
             // Convert linear index to multi-dimensional index in input tensor
             std::vector<size_t> t_idx_vec(ndim);
             size_t tmp = i;
@@ -667,7 +707,7 @@ TensorPtr Tensor::stack(const std::vector<TensorPtr>& tensors, int dim) {
                 result_idx += result_idx_vec[d] * strides[d];
             }
 
-            result->data[result_idx] = t->data[i];
+            result->data()[result_idx] = t->data()[i];
         }
     }
 
@@ -679,7 +719,7 @@ TensorPtr Tensor::stack(const std::vector<TensorPtr>& tensors, int dim) {
                 const auto& t = tensors[t_idx];
                 if (!t->requires_grad) continue;
 
-                for (size_t i = 0; i < t->data.size(); i++) {
+                for (size_t i = 0; i < t->size(); i++) {
                     // Convert linear index to multi-dimensional index in input tensor
                     std::vector<size_t> t_idx_vec(ndim);
                     size_t tmp = i;
@@ -705,7 +745,7 @@ TensorPtr Tensor::stack(const std::vector<TensorPtr>& tensors, int dim) {
                         result_idx += result_idx_vec[d] * strides[d];
                     }
 
-                    t->grad[i] += result->grad[result_idx];
+                    t->grad()[i] += result->grad()[result_idx];
                 }
             }
         };
@@ -714,20 +754,19 @@ TensorPtr Tensor::stack(const std::vector<TensorPtr>& tensors, int dim) {
     return result;
 }
 
-size_t Tensor::size() const { return data.size(); }
 size_t Tensor::ndim() const { return shape.size(); }
 
 float Tensor::item() const {
-    assert(data.size() == 1);
-    return data[0];
+    assert(size() == 1);
+    return data()[0];
 }
 
 void Tensor::zero_grad() {
-    std::fill(grad.begin(), grad.end(), 0.0f);
+    if (!grad_empty()) std::fill(grad(), grad() + grad_size(), 0.0f);
 }
 
-float& Tensor::operator[](size_t idx) { return data[idx]; }
-float Tensor::operator[](size_t idx) const { return data[idx]; }
+float& Tensor::operator[](size_t idx) { return data()[idx]; }
+float Tensor::operator[](size_t idx) const { return data()[idx]; }
 
 float& Tensor::at(const std::vector<size_t>& indices) {
     size_t idx = 0, stride = 1;
@@ -735,7 +774,7 @@ float& Tensor::at(const std::vector<size_t>& indices) {
         idx += indices[i] * stride;
         stride *= shape[i];
     }
-    return data[idx];
+    return data()[idx];
 }
 
 float Tensor::at(const std::vector<size_t>& indices) const {
@@ -744,7 +783,7 @@ float Tensor::at(const std::vector<size_t>& indices) const {
         idx += indices[i] * stride;
         stride *= shape[i];
     }
-    return data[idx];
+    return data()[idx];
 }
 
 bool Tensor::should_track_grad() const {
@@ -761,9 +800,13 @@ void Tensor::build_topo(std::vector<Tensor*>& topo, std::vector<Tensor*>& visite
 }
 
 void Tensor::backward() {
-    assert(data.size() == 1);
-    if (grad.empty()) grad.resize(1, 0.0f);
-    grad[0] = 1.0f;
+    assert(size() == 1);
+    if (grad_empty()) {
+        grad_storage_ = MemoryPool::instance().acquire_shared(1);
+        if (!grad_storage_) throw std::bad_alloc();
+        grad_size_ = 1;
+    }
+    grad()[0] = 1.0f;
 
     std::vector<Tensor*> topo, visited;
     build_topo(topo, visited);
@@ -788,7 +831,7 @@ TensorPtr Tensor::matmul(const TensorPtr& other) const {
     bool track = (requires_grad || other->requires_grad) && GradMode::is_enabled();
     auto result = create({m, n}, track);
 
-    matmul_blocked(result->data.data(), data.data(), other->data.data(), m, k, n);
+    matmul_blocked(result->data(), data(), other->data(), m, k, n);
 
     if (track) {
         auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
@@ -799,8 +842,8 @@ TensorPtr Tensor::matmul(const TensorPtr& other) const {
                 // dL/dA = dL/dC @ B^T
                 for (size_t i = 0; i < m; i++) {
                     for (size_t l = 0; l < k; l++) {
-                        self_ptr->grad[i * k + l] += simd_dot(
-                            &result->grad[i * n], &other_ptr->data[l * n], n);
+                        self_ptr->grad()[i * k + l] += simd_dot(
+                            &result->grad()[i * n], &other_ptr->data()[l * n], n);
                     }
                 }
             }
@@ -810,9 +853,9 @@ TensorPtr Tensor::matmul(const TensorPtr& other) const {
                     for (size_t j = 0; j < n; j++) {
                         float sum = 0.0f;
                         for (size_t i = 0; i < m; i++) {
-                            sum += self_ptr->data[i * k + l] * result->grad[i * n + j];
+                            sum += self_ptr->data()[i * k + l] * result->grad()[i * n + j];
                         }
-                        other_ptr->grad[l * n + j] += sum;
+                        other_ptr->grad()[l * n + j] += sum;
                     }
                 }
             }
@@ -841,9 +884,9 @@ TensorPtr Tensor::bmm(const TensorPtr& other) const {
     size_t c_batch_stride = m * n;
 
     for (size_t b_idx = 0; b_idx < batch; b_idx++) {
-        const float* a_ptr = &data[b_idx * a_batch_stride];
-        const float* b_ptr = &other->data[b_idx * b_batch_stride];
-        float* c_ptr = &result->data[b_idx * c_batch_stride];
+        const float* a_ptr = &data()[b_idx * a_batch_stride];
+        const float* b_ptr = &other->data()[b_idx * b_batch_stride];
+        float* c_ptr = &result->data()[b_idx * c_batch_stride];
 
         // Use blocked matmul for each batch
         matmul_blocked(c_ptr, a_ptr, b_ptr, m, k, n);
@@ -858,9 +901,9 @@ TensorPtr Tensor::bmm(const TensorPtr& other) const {
             for (size_t b_idx = 0; b_idx < batch; b_idx++) {
                 if (self_ptr->requires_grad) {
                     // dL/dA = dL/dC @ B^T
-                    float* a_grad = &self_ptr->grad[b_idx * a_batch_stride];
-                    const float* c_grad = &result->grad[b_idx * c_batch_stride];
-                    const float* b_data = &other_ptr->data[b_idx * b_batch_stride];
+                    float* a_grad = &self_ptr->grad()[b_idx * a_batch_stride];
+                    const float* c_grad = &result->grad()[b_idx * c_batch_stride];
+                    const float* b_data = &other_ptr->data()[b_idx * b_batch_stride];
 
                     for (size_t i = 0; i < m; i++) {
                         for (size_t l = 0; l < k; l++) {
@@ -874,9 +917,9 @@ TensorPtr Tensor::bmm(const TensorPtr& other) const {
                 }
                 if (other_ptr->requires_grad) {
                     // dL/dB = A^T @ dL/dC
-                    const float* a_data = &self_ptr->data[b_idx * a_batch_stride];
-                    const float* c_grad = &result->grad[b_idx * c_batch_stride];
-                    float* b_grad = &other_ptr->grad[b_idx * b_batch_stride];
+                    const float* a_data = &self_ptr->data()[b_idx * a_batch_stride];
+                    const float* c_grad = &result->grad()[b_idx * c_batch_stride];
+                    float* b_grad = &other_ptr->grad()[b_idx * b_batch_stride];
 
                     for (size_t l = 0; l < k; l++) {
                         for (size_t j = 0; j < n; j++) {
@@ -902,7 +945,7 @@ TensorPtr Tensor::add(const TensorPtr& other) const {
     // Fast path: same shape
     if (shape == other->shape) {
         auto result = create(shape, track);
-        simd_add(result->data.data(), data.data(), other->data.data(), data.size());
+        simd_add(result->data(), data(), other->data(), size());
 
         if (track) {
             auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
@@ -910,12 +953,12 @@ TensorPtr Tensor::add(const TensorPtr& other) const {
             result->parents = {self_ptr, other_ptr};
             result->grad_fn = [self_ptr, other_ptr, result]() {
                 if (self_ptr->requires_grad) {
-                    simd_add(self_ptr->grad.data(), self_ptr->grad.data(),
-                             result->grad.data(), self_ptr->data.size());
+                    simd_add(self_ptr->grad(), self_ptr->grad(),
+                             result->grad(), self_ptr->size());
                 }
                 if (other_ptr->requires_grad) {
-                    simd_add(other_ptr->grad.data(), other_ptr->grad.data(),
-                             result->grad.data(), other_ptr->data.size());
+                    simd_add(other_ptr->grad(), other_ptr->grad(),
+                             result->grad(), other_ptr->size());
                 }
             };
         }
@@ -933,10 +976,10 @@ TensorPtr Tensor::add(const TensorPtr& other) const {
 
     // Compute result with broadcasting
     std::vector<size_t> idx(ndim, 0);
-    for (size_t i = 0; i < result->data.size(); i++) {
+    for (size_t i = 0; i < result->size(); i++) {
         size_t a_idx = broadcast_index(idx, shape, a_strides, ndim);
         size_t b_idx = broadcast_index(idx, other->shape, b_strides, ndim);
-        result->data[i] = data[a_idx] + other->data[b_idx];
+        result->data()[i] = data()[a_idx] + other->data()[b_idx];
 
         // Increment multi-dimensional index
         for (int d = static_cast<int>(ndim) - 1; d >= 0; d--) {
@@ -956,14 +999,14 @@ TensorPtr Tensor::add(const TensorPtr& other) const {
         result->grad_fn = [self_ptr, other_ptr, result, self_shape, other_shape,
                           out_shape, a_strides, b_strides, out_strides, ndim]() {
             std::vector<size_t> idx(ndim, 0);
-            for (size_t i = 0; i < result->data.size(); i++) {
+            for (size_t i = 0; i < result->size(); i++) {
                 if (self_ptr->requires_grad) {
                     size_t a_idx = broadcast_index(idx, self_shape, a_strides, ndim);
-                    self_ptr->grad[a_idx] += result->grad[i];
+                    self_ptr->grad()[a_idx] += result->grad()[i];
                 }
                 if (other_ptr->requires_grad) {
                     size_t b_idx = broadcast_index(idx, other_shape, b_strides, ndim);
-                    other_ptr->grad[b_idx] += result->grad[i];
+                    other_ptr->grad()[b_idx] += result->grad()[i];
                 }
 
                 // Increment multi-dimensional index
@@ -986,7 +1029,7 @@ TensorPtr Tensor::sub(const TensorPtr& other) const {
     // Fast path: same shape
     if (shape == other->shape) {
         auto result = create(shape, track);
-        simd_sub(result->data.data(), data.data(), other->data.data(), data.size());
+        simd_sub(result->data(), data(), other->data(), size());
 
         if (track) {
             auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
@@ -994,12 +1037,12 @@ TensorPtr Tensor::sub(const TensorPtr& other) const {
             result->parents = {self_ptr, other_ptr};
             result->grad_fn = [self_ptr, other_ptr, result]() {
                 if (self_ptr->requires_grad) {
-                    simd_add(self_ptr->grad.data(), self_ptr->grad.data(),
-                             result->grad.data(), self_ptr->data.size());
+                    simd_add(self_ptr->grad(), self_ptr->grad(),
+                             result->grad(), self_ptr->size());
                 }
                 if (other_ptr->requires_grad) {
-                    for (size_t i = 0; i < other_ptr->data.size(); i++) {
-                        other_ptr->grad[i] -= result->grad[i];
+                    for (size_t i = 0; i < other_ptr->size(); i++) {
+                        other_ptr->grad()[i] -= result->grad()[i];
                     }
                 }
             };
@@ -1017,10 +1060,10 @@ TensorPtr Tensor::sub(const TensorPtr& other) const {
     size_t ndim = out_shape.size();
 
     std::vector<size_t> idx(ndim, 0);
-    for (size_t i = 0; i < result->data.size(); i++) {
+    for (size_t i = 0; i < result->size(); i++) {
         size_t a_idx = broadcast_index(idx, shape, a_strides, ndim);
         size_t b_idx = broadcast_index(idx, other->shape, b_strides, ndim);
-        result->data[i] = data[a_idx] - other->data[b_idx];
+        result->data()[i] = data()[a_idx] - other->data()[b_idx];
 
         for (int d = static_cast<int>(ndim) - 1; d >= 0; d--) {
             idx[d]++;
@@ -1039,14 +1082,14 @@ TensorPtr Tensor::sub(const TensorPtr& other) const {
         result->grad_fn = [self_ptr, other_ptr, result, self_shape, other_shape,
                           out_shape, a_strides, b_strides, out_strides, ndim]() {
             std::vector<size_t> idx(ndim, 0);
-            for (size_t i = 0; i < result->data.size(); i++) {
+            for (size_t i = 0; i < result->size(); i++) {
                 if (self_ptr->requires_grad) {
                     size_t a_idx = broadcast_index(idx, self_shape, a_strides, ndim);
-                    self_ptr->grad[a_idx] += result->grad[i];
+                    self_ptr->grad()[a_idx] += result->grad()[i];
                 }
                 if (other_ptr->requires_grad) {
                     size_t b_idx = broadcast_index(idx, other_shape, b_strides, ndim);
-                    other_ptr->grad[b_idx] -= result->grad[i];
+                    other_ptr->grad()[b_idx] -= result->grad()[i];
                 }
 
                 for (int d = static_cast<int>(ndim) - 1; d >= 0; d--) {
@@ -1068,7 +1111,7 @@ TensorPtr Tensor::mul(const TensorPtr& other) const {
     // Fast path: same shape
     if (shape == other->shape) {
         auto result = create(shape, track);
-        simd_mul(result->data.data(), data.data(), other->data.data(), data.size());
+        simd_mul(result->data(), data(), other->data(), size());
 
         if (track) {
             auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
@@ -1076,13 +1119,13 @@ TensorPtr Tensor::mul(const TensorPtr& other) const {
             result->parents = {self_ptr, other_ptr};
             result->grad_fn = [self_ptr, other_ptr, result]() {
                 if (self_ptr->requires_grad) {
-                    for (size_t i = 0; i < self_ptr->data.size(); i++) {
-                        self_ptr->grad[i] += result->grad[i] * other_ptr->data[i];
+                    for (size_t i = 0; i < self_ptr->size(); i++) {
+                        self_ptr->grad()[i] += result->grad()[i] * other_ptr->data()[i];
                     }
                 }
                 if (other_ptr->requires_grad) {
-                    for (size_t i = 0; i < other_ptr->data.size(); i++) {
-                        other_ptr->grad[i] += result->grad[i] * self_ptr->data[i];
+                    for (size_t i = 0; i < other_ptr->size(); i++) {
+                        other_ptr->grad()[i] += result->grad()[i] * self_ptr->data()[i];
                     }
                 }
             };
@@ -1100,10 +1143,10 @@ TensorPtr Tensor::mul(const TensorPtr& other) const {
     size_t ndim = out_shape.size();
 
     std::vector<size_t> idx(ndim, 0);
-    for (size_t i = 0; i < result->data.size(); i++) {
+    for (size_t i = 0; i < result->size(); i++) {
         size_t a_idx = broadcast_index(idx, shape, a_strides, ndim);
         size_t b_idx = broadcast_index(idx, other->shape, b_strides, ndim);
-        result->data[i] = data[a_idx] * other->data[b_idx];
+        result->data()[i] = data()[a_idx] * other->data()[b_idx];
 
         for (int d = static_cast<int>(ndim) - 1; d >= 0; d--) {
             idx[d]++;
@@ -1122,15 +1165,15 @@ TensorPtr Tensor::mul(const TensorPtr& other) const {
         result->grad_fn = [self_ptr, other_ptr, result, self_shape, other_shape,
                           out_shape, a_strides, b_strides, out_strides, ndim]() {
             std::vector<size_t> idx(ndim, 0);
-            for (size_t i = 0; i < result->data.size(); i++) {
+            for (size_t i = 0; i < result->size(); i++) {
                 size_t a_idx = broadcast_index(idx, self_shape, a_strides, ndim);
                 size_t b_idx = broadcast_index(idx, other_shape, b_strides, ndim);
 
                 if (self_ptr->requires_grad) {
-                    self_ptr->grad[a_idx] += result->grad[i] * other_ptr->data[b_idx];
+                    self_ptr->grad()[a_idx] += result->grad()[i] * other_ptr->data()[b_idx];
                 }
                 if (other_ptr->requires_grad) {
-                    other_ptr->grad[b_idx] += result->grad[i] * self_ptr->data[a_idx];
+                    other_ptr->grad()[b_idx] += result->grad()[i] * self_ptr->data()[a_idx];
                 }
 
                 for (int d = static_cast<int>(ndim) - 1; d >= 0; d--) {
@@ -1152,8 +1195,8 @@ TensorPtr Tensor::div(const TensorPtr& other) const {
     // Fast path: same shape
     if (shape == other->shape) {
         auto result = create(shape, track);
-        for (size_t i = 0; i < data.size(); i++) {
-            result->data[i] = data[i] / other->data[i];
+        for (size_t i = 0; i < size(); i++) {
+            result->data()[i] = data()[i] / other->data()[i];
         }
 
         if (track) {
@@ -1161,15 +1204,15 @@ TensorPtr Tensor::div(const TensorPtr& other) const {
             auto other_ptr = other;
             result->parents = {self_ptr, other_ptr};
             result->grad_fn = [self_ptr, other_ptr, result]() {
-                for (size_t i = 0; i < self_ptr->data.size(); i++) {
+                for (size_t i = 0; i < self_ptr->size(); i++) {
                     // d(a/b)/da = 1/b
                     if (self_ptr->requires_grad) {
-                        self_ptr->grad[i] += result->grad[i] / other_ptr->data[i];
+                        self_ptr->grad()[i] += result->grad()[i] / other_ptr->data()[i];
                     }
                     // d(a/b)/db = -a/b^2
                     if (other_ptr->requires_grad) {
-                        other_ptr->grad[i] -= result->grad[i] * self_ptr->data[i] /
-                                              (other_ptr->data[i] * other_ptr->data[i]);
+                        other_ptr->grad()[i] -= result->grad()[i] * self_ptr->data()[i] /
+                                              (other_ptr->data()[i] * other_ptr->data()[i]);
                     }
                 }
             };
@@ -1187,10 +1230,10 @@ TensorPtr Tensor::div(const TensorPtr& other) const {
     size_t ndim = out_shape.size();
 
     std::vector<size_t> idx(ndim, 0);
-    for (size_t i = 0; i < result->data.size(); i++) {
+    for (size_t i = 0; i < result->size(); i++) {
         size_t a_idx = broadcast_index(idx, shape, a_strides, ndim);
         size_t b_idx = broadcast_index(idx, other->shape, b_strides, ndim);
-        result->data[i] = data[a_idx] / other->data[b_idx];
+        result->data()[i] = data()[a_idx] / other->data()[b_idx];
 
         for (int d = static_cast<int>(ndim) - 1; d >= 0; d--) {
             idx[d]++;
@@ -1209,18 +1252,18 @@ TensorPtr Tensor::div(const TensorPtr& other) const {
         result->grad_fn = [self_ptr, other_ptr, result, self_shape, other_shape,
                           out_shape, a_strides, b_strides, out_strides, ndim]() {
             std::vector<size_t> idx(ndim, 0);
-            for (size_t i = 0; i < result->data.size(); i++) {
+            for (size_t i = 0; i < result->size(); i++) {
                 size_t a_idx = broadcast_index(idx, self_shape, a_strides, ndim);
                 size_t b_idx = broadcast_index(idx, other_shape, b_strides, ndim);
 
                 // d(a/b)/da = 1/b
                 if (self_ptr->requires_grad) {
-                    self_ptr->grad[a_idx] += result->grad[i] / other_ptr->data[b_idx];
+                    self_ptr->grad()[a_idx] += result->grad()[i] / other_ptr->data()[b_idx];
                 }
                 // d(a/b)/db = -a/b^2
                 if (other_ptr->requires_grad) {
-                    other_ptr->grad[b_idx] -= result->grad[i] * self_ptr->data[a_idx] /
-                                              (other_ptr->data[b_idx] * other_ptr->data[b_idx]);
+                    other_ptr->grad()[b_idx] -= result->grad()[i] * self_ptr->data()[a_idx] /
+                                              (other_ptr->data()[b_idx] * other_ptr->data()[b_idx]);
                 }
 
                 for (int d = static_cast<int>(ndim) - 1; d >= 0; d--) {
@@ -1238,14 +1281,14 @@ TensorPtr Tensor::mul(float scalar) const {
     bool track = requires_grad && GradMode::is_enabled();
     auto result = create(shape, track);
 
-    simd_scale(result->data.data(), data.data(), scalar, data.size());
+    simd_scale(result->data(), data(), scalar, size());
 
     if (track) {
         auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
         result->parents = {self_ptr};
         result->grad_fn = [self_ptr, result, scalar]() {
-            for (size_t i = 0; i < self_ptr->data.size(); i++) {
-                self_ptr->grad[i] += result->grad[i] * scalar;
+            for (size_t i = 0; i < self_ptr->size(); i++) {
+                self_ptr->grad()[i] += result->grad()[i] * scalar;
             }
         };
     }
@@ -1264,14 +1307,14 @@ TensorPtr Tensor::relu() const {
     bool track = requires_grad && GradMode::is_enabled();
     auto result = create(shape, track);
 
-    simd_relu(result->data.data(), data.data(), data.size());
+    simd_relu(result->data(), data(), size());
 
     if (track) {
         auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
         result->parents = {self_ptr};
         result->grad_fn = [self_ptr, result]() {
-            for (size_t i = 0; i < self_ptr->data.size(); i++) {
-                self_ptr->grad[i] += result->grad[i] * (self_ptr->data[i] > 0 ? 1.0f : 0.0f);
+            for (size_t i = 0; i < self_ptr->size(); i++) {
+                self_ptr->grad()[i] += result->grad()[i] * (self_ptr->data()[i] > 0 ? 1.0f : 0.0f);
             }
         };
     }
@@ -1282,17 +1325,17 @@ TensorPtr Tensor::sigmoid() const {
     bool track = requires_grad && GradMode::is_enabled();
     auto result = create(shape, track);
 
-    for (size_t i = 0; i < data.size(); i++) {
-        result->data[i] = 1.0f / (1.0f + std::exp(-data[i]));
+    for (size_t i = 0; i < size(); i++) {
+        result->data()[i] = 1.0f / (1.0f + std::exp(-data()[i]));
     }
 
     if (track) {
         auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
         result->parents = {self_ptr};
         result->grad_fn = [self_ptr, result]() {
-            for (size_t i = 0; i < self_ptr->data.size(); i++) {
-                float s = result->data[i];
-                self_ptr->grad[i] += result->grad[i] * s * (1.0f - s);
+            for (size_t i = 0; i < self_ptr->size(); i++) {
+                float s = result->data()[i];
+                self_ptr->grad()[i] += result->grad()[i] * s * (1.0f - s);
             }
         };
     }
@@ -1303,17 +1346,17 @@ TensorPtr Tensor::tanh_() const {
     bool track = requires_grad && GradMode::is_enabled();
     auto result = create(shape, track);
 
-    for (size_t i = 0; i < data.size(); i++) {
-        result->data[i] = std::tanh(data[i]);
+    for (size_t i = 0; i < size(); i++) {
+        result->data()[i] = std::tanh(data()[i]);
     }
 
     if (track) {
         auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
         result->parents = {self_ptr};
         result->grad_fn = [self_ptr, result]() {
-            for (size_t i = 0; i < self_ptr->data.size(); i++) {
-                float t = result->data[i];
-                self_ptr->grad[i] += result->grad[i] * (1.0f - t * t);
+            for (size_t i = 0; i < self_ptr->size(); i++) {
+                float t = result->data()[i];
+                self_ptr->grad()[i] += result->grad()[i] * (1.0f - t * t);
             }
         };
     }
@@ -1324,16 +1367,16 @@ TensorPtr Tensor::log_() const {
     bool track = requires_grad && GradMode::is_enabled();
     auto result = create(shape, track);
 
-    for (size_t i = 0; i < data.size(); i++) {
-        result->data[i] = std::log(data[i] + 1e-8f);
+    for (size_t i = 0; i < size(); i++) {
+        result->data()[i] = std::log(data()[i] + 1e-8f);
     }
 
     if (track) {
         auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
         result->parents = {self_ptr};
         result->grad_fn = [self_ptr, result]() {
-            for (size_t i = 0; i < self_ptr->data.size(); i++) {
-                self_ptr->grad[i] += result->grad[i] / (self_ptr->data[i] + 1e-8f);
+            for (size_t i = 0; i < self_ptr->size(); i++) {
+                self_ptr->grad()[i] += result->grad()[i] / (self_ptr->data()[i] + 1e-8f);
             }
         };
     }
@@ -1344,16 +1387,16 @@ TensorPtr Tensor::exp_() const {
     bool track = requires_grad && GradMode::is_enabled();
     auto result = create(shape, track);
 
-    for (size_t i = 0; i < data.size(); i++) {
-        result->data[i] = std::exp(data[i]);
+    for (size_t i = 0; i < size(); i++) {
+        result->data()[i] = std::exp(data()[i]);
     }
 
     if (track) {
         auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
         result->parents = {self_ptr};
         result->grad_fn = [self_ptr, result]() {
-            for (size_t i = 0; i < self_ptr->data.size(); i++) {
-                self_ptr->grad[i] += result->grad[i] * result->data[i];
+            for (size_t i = 0; i < self_ptr->size(); i++) {
+                self_ptr->grad()[i] += result->grad()[i] * result->data()[i];
             }
         };
     }
@@ -1364,8 +1407,8 @@ TensorPtr Tensor::pow(float exponent) const {
     bool track = requires_grad && GradMode::is_enabled();
     auto result = create(shape, track);
 
-    for (size_t i = 0; i < data.size(); i++) {
-        result->data[i] = std::pow(data[i], exponent);
+    for (size_t i = 0; i < size(); i++) {
+        result->data()[i] = std::pow(data()[i], exponent);
     }
 
     if (track) {
@@ -1373,9 +1416,9 @@ TensorPtr Tensor::pow(float exponent) const {
         result->parents = {self_ptr};
         result->grad_fn = [self_ptr, result, exponent]() {
             // d(x^n)/dx = n * x^(n-1)
-            for (size_t i = 0; i < self_ptr->data.size(); i++) {
-                self_ptr->grad[i] += result->grad[i] * exponent *
-                                     std::pow(self_ptr->data[i], exponent - 1.0f);
+            for (size_t i = 0; i < self_ptr->size(); i++) {
+                self_ptr->grad()[i] += result->grad()[i] * exponent *
+                                     std::pow(self_ptr->data()[i], exponent - 1.0f);
             }
         };
     }
@@ -1390,8 +1433,8 @@ TensorPtr Tensor::pow(const TensorPtr& exponent) const {
     // Fast path: same shape
     if (shape == exponent->shape) {
         auto result = create(shape, track);
-        for (size_t i = 0; i < data.size(); i++) {
-            result->data[i] = std::pow(data[i], exponent->data[i]);
+        for (size_t i = 0; i < size(); i++) {
+            result->data()[i] = std::pow(data()[i], exponent->data()[i]);
         }
 
         if (track) {
@@ -1399,16 +1442,16 @@ TensorPtr Tensor::pow(const TensorPtr& exponent) const {
             auto exp_ptr = exponent;
             result->parents = {self_ptr, exp_ptr};
             result->grad_fn = [self_ptr, exp_ptr, result]() {
-                for (size_t i = 0; i < self_ptr->data.size(); i++) {
+                for (size_t i = 0; i < self_ptr->size(); i++) {
                     // d(x^y)/dx = y * x^(y-1)
                     if (self_ptr->requires_grad) {
-                        self_ptr->grad[i] += result->grad[i] * exp_ptr->data[i] *
-                                             std::pow(self_ptr->data[i], exp_ptr->data[i] - 1.0f);
+                        self_ptr->grad()[i] += result->grad()[i] * exp_ptr->data()[i] *
+                                             std::pow(self_ptr->data()[i], exp_ptr->data()[i] - 1.0f);
                     }
                     // d(x^y)/dy = x^y * ln(x)
                     if (exp_ptr->requires_grad) {
-                        exp_ptr->grad[i] += result->grad[i] * result->data[i] *
-                                            std::log(self_ptr->data[i]);
+                        exp_ptr->grad()[i] += result->grad()[i] * result->data()[i] *
+                                            std::log(self_ptr->data()[i]);
                     }
                 }
             };
@@ -1426,10 +1469,10 @@ TensorPtr Tensor::pow(const TensorPtr& exponent) const {
     size_t ndim = out_shape.size();
 
     std::vector<size_t> idx(ndim, 0);
-    for (size_t i = 0; i < result->data.size(); i++) {
+    for (size_t i = 0; i < result->size(); i++) {
         size_t a_idx = broadcast_index(idx, shape, a_strides, ndim);
         size_t b_idx = broadcast_index(idx, exponent->shape, b_strides, ndim);
-        result->data[i] = std::pow(data[a_idx], exponent->data[b_idx]);
+        result->data()[i] = std::pow(data()[a_idx], exponent->data()[b_idx]);
 
         for (int d = static_cast<int>(ndim) - 1; d >= 0; d--) {
             idx[d]++;
@@ -1448,19 +1491,19 @@ TensorPtr Tensor::pow(const TensorPtr& exponent) const {
         result->grad_fn = [self_ptr, exp_ptr, result, self_shape, exp_shape,
                           out_shape, a_strides, b_strides, out_strides, ndim]() {
             std::vector<size_t> idx(ndim, 0);
-            for (size_t i = 0; i < result->data.size(); i++) {
+            for (size_t i = 0; i < result->size(); i++) {
                 size_t a_idx = broadcast_index(idx, self_shape, a_strides, ndim);
                 size_t b_idx = broadcast_index(idx, exp_shape, b_strides, ndim);
 
                 // d(x^y)/dx = y * x^(y-1)
                 if (self_ptr->requires_grad) {
-                    self_ptr->grad[a_idx] += result->grad[i] * exp_ptr->data[b_idx] *
-                                             std::pow(self_ptr->data[a_idx], exp_ptr->data[b_idx] - 1.0f);
+                    self_ptr->grad()[a_idx] += result->grad()[i] * exp_ptr->data()[b_idx] *
+                                             std::pow(self_ptr->data()[a_idx], exp_ptr->data()[b_idx] - 1.0f);
                 }
                 // d(x^y)/dy = x^y * ln(x)
                 if (exp_ptr->requires_grad) {
-                    exp_ptr->grad[b_idx] += result->grad[i] * result->data[i] *
-                                            std::log(self_ptr->data[a_idx]);
+                    exp_ptr->grad()[b_idx] += result->grad()[i] * result->data()[i] *
+                                            std::log(self_ptr->data()[a_idx]);
                 }
 
                 for (int d = static_cast<int>(ndim) - 1; d >= 0; d--) {
@@ -1478,8 +1521,8 @@ TensorPtr Tensor::sqrt() const {
     bool track = requires_grad && GradMode::is_enabled();
     auto result = create(shape, track);
 
-    for (size_t i = 0; i < data.size(); i++) {
-        result->data[i] = std::sqrt(data[i]);
+    for (size_t i = 0; i < size(); i++) {
+        result->data()[i] = std::sqrt(data()[i]);
     }
 
     if (track) {
@@ -1487,8 +1530,8 @@ TensorPtr Tensor::sqrt() const {
         result->parents = {self_ptr};
         result->grad_fn = [self_ptr, result]() {
             // d(sqrt(x))/dx = 1 / (2 * sqrt(x))
-            for (size_t i = 0; i < self_ptr->data.size(); i++) {
-                self_ptr->grad[i] += result->grad[i] / (2.0f * result->data[i]);
+            for (size_t i = 0; i < self_ptr->size(); i++) {
+                self_ptr->grad()[i] += result->grad()[i] / (2.0f * result->data()[i]);
             }
         };
     }
@@ -1499,8 +1542,8 @@ TensorPtr Tensor::abs() const {
     bool track = requires_grad && GradMode::is_enabled();
     auto result = create(shape, track);
 
-    for (size_t i = 0; i < data.size(); i++) {
-        result->data[i] = std::abs(data[i]);
+    for (size_t i = 0; i < size(); i++) {
+        result->data()[i] = std::abs(data()[i]);
     }
 
     if (track) {
@@ -1508,11 +1551,11 @@ TensorPtr Tensor::abs() const {
         result->parents = {self_ptr};
         result->grad_fn = [self_ptr, result]() {
             // d|x|/dx = sign(x) = x / |x| (undefined at 0, we use 0)
-            for (size_t i = 0; i < self_ptr->data.size(); i++) {
-                if (self_ptr->data[i] > 0) {
-                    self_ptr->grad[i] += result->grad[i];
-                } else if (self_ptr->data[i] < 0) {
-                    self_ptr->grad[i] -= result->grad[i];
+            for (size_t i = 0; i < self_ptr->size(); i++) {
+                if (self_ptr->data()[i] > 0) {
+                    self_ptr->grad()[i] += result->grad()[i];
+                } else if (self_ptr->data()[i] < 0) {
+                    self_ptr->grad()[i] -= result->grad()[i];
                 }
                 // gradient is 0 when x == 0 (subgradient convention)
             }
@@ -1525,8 +1568,8 @@ TensorPtr Tensor::clamp(float min_val, float max_val) const {
     bool track = requires_grad && GradMode::is_enabled();
     auto result = create(shape, track);
 
-    for (size_t i = 0; i < data.size(); i++) {
-        result->data[i] = std::max(min_val, std::min(max_val, data[i]));
+    for (size_t i = 0; i < size(); i++) {
+        result->data()[i] = std::max(min_val, std::min(max_val, data()[i]));
     }
 
     if (track) {
@@ -1534,9 +1577,9 @@ TensorPtr Tensor::clamp(float min_val, float max_val) const {
         result->parents = {self_ptr};
         result->grad_fn = [self_ptr, result, min_val, max_val]() {
             // Gradient passes through only where value was not clamped
-            for (size_t i = 0; i < self_ptr->data.size(); i++) {
-                if (self_ptr->data[i] > min_val && self_ptr->data[i] < max_val) {
-                    self_ptr->grad[i] += result->grad[i];
+            for (size_t i = 0; i < self_ptr->size(); i++) {
+                if (self_ptr->data()[i] > min_val && self_ptr->data()[i] < max_val) {
+                    self_ptr->grad()[i] += result->grad()[i];
                 }
                 // gradient is 0 where clamped
             }
@@ -1554,20 +1597,20 @@ TensorPtr Tensor::softmax(int dim) const {
     size_t rows = shape[0], cols = shape[1];
 
     for (size_t i = 0; i < rows; i++) {
-        float max_val = data[i * cols];
+        float max_val = data()[i * cols];
         for (size_t j = 1; j < cols; j++) {
-            max_val = std::max(max_val, data[i * cols + j]);
+            max_val = std::max(max_val, data()[i * cols + j]);
         }
 
         float sum = 0.0f;
         for (size_t j = 0; j < cols; j++) {
-            result->data[i * cols + j] = std::exp(data[i * cols + j] - max_val);
-            sum += result->data[i * cols + j];
+            result->data()[i * cols + j] = std::exp(data()[i * cols + j] - max_val);
+            sum += result->data()[i * cols + j];
         }
 
         float inv_sum = 1.0f / sum;
         for (size_t j = 0; j < cols; j++) {
-            result->data[i * cols + j] *= inv_sum;
+            result->data()[i * cols + j] *= inv_sum;
         }
     }
 
@@ -1577,11 +1620,11 @@ TensorPtr Tensor::softmax(int dim) const {
         result->grad_fn = [self_ptr, result, rows, cols]() {
             for (size_t i = 0; i < rows; i++) {
                 for (size_t j = 0; j < cols; j++) {
-                    float sj = result->data[i * cols + j];
+                    float sj = result->data()[i * cols + j];
                     for (size_t k = 0; k < cols; k++) {
-                        float sk = result->data[i * cols + k];
+                        float sk = result->data()[i * cols + k];
                         float grad = (j == k) ? sj * (1.0f - sj) : -sj * sk;
-                        self_ptr->grad[i * cols + j] += result->grad[i * cols + k] * grad;
+                        self_ptr->grad()[i * cols + j] += result->grad()[i * cols + k] * grad;
                     }
                 }
             }
@@ -1599,19 +1642,19 @@ TensorPtr Tensor::log_softmax(int dim) const {
     size_t rows = shape[0], cols = shape[1];
 
     for (size_t i = 0; i < rows; i++) {
-        float max_val = data[i * cols];
+        float max_val = data()[i * cols];
         for (size_t j = 1; j < cols; j++) {
-            max_val = std::max(max_val, data[i * cols + j]);
+            max_val = std::max(max_val, data()[i * cols + j]);
         }
 
         float sum = 0.0f;
         for (size_t j = 0; j < cols; j++) {
-            sum += std::exp(data[i * cols + j] - max_val);
+            sum += std::exp(data()[i * cols + j] - max_val);
         }
         float log_sum = max_val + std::log(sum);
 
         for (size_t j = 0; j < cols; j++) {
-            result->data[i * cols + j] = data[i * cols + j] - log_sum;
+            result->data()[i * cols + j] = data()[i * cols + j] - log_sum;
         }
     }
 
@@ -1622,11 +1665,11 @@ TensorPtr Tensor::log_softmax(int dim) const {
             for (size_t i = 0; i < rows; i++) {
                 float grad_sum = 0.0f;
                 for (size_t j = 0; j < cols; j++) {
-                    grad_sum += result->grad[i * cols + j];
+                    grad_sum += result->grad()[i * cols + j];
                 }
                 for (size_t j = 0; j < cols; j++) {
-                    float softmax_j = std::exp(result->data[i * cols + j]);
-                    self_ptr->grad[i * cols + j] += result->grad[i * cols + j] - softmax_j * grad_sum;
+                    float softmax_j = std::exp(result->data()[i * cols + j]);
+                    self_ptr->grad()[i * cols + j] += result->grad()[i * cols + j] - softmax_j * grad_sum;
                 }
             }
         };
@@ -1638,17 +1681,17 @@ TensorPtr Tensor::sum(int dim, bool keepdim) const {
     if (dim == -1) {
         bool track = requires_grad && GradMode::is_enabled();
         auto result = create({1}, track);
-        result->data[0] = 0.0f;
-        for (size_t i = 0; i < data.size(); i++) {
-            result->data[0] += data[i];
+        result->data()[0] = 0.0f;
+        for (size_t i = 0; i < size(); i++) {
+            result->data()[0] += data()[i];
         }
 
         if (track) {
             auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
             result->parents = {self_ptr};
             result->grad_fn = [self_ptr, result]() {
-                for (size_t i = 0; i < self_ptr->data.size(); i++) {
-                    self_ptr->grad[i] += result->grad[0];
+                for (size_t i = 0; i < self_ptr->size(); i++) {
+                    self_ptr->grad()[i] += result->grad()[0];
                 }
             };
         }
@@ -1664,9 +1707,9 @@ TensorPtr Tensor::sum(int dim, bool keepdim) const {
         for (size_t j = 0; j < cols; j++) {
             float sum = 0.0f;
             for (size_t i = 0; i < rows; i++) {
-                sum += data[i * cols + j];
+                sum += data()[i * cols + j];
             }
-            result->data[j] = sum;
+            result->data()[j] = sum;
         }
 
         if (track) {
@@ -1675,7 +1718,7 @@ TensorPtr Tensor::sum(int dim, bool keepdim) const {
             result->grad_fn = [self_ptr, result, rows, cols]() {
                 for (size_t i = 0; i < rows; i++) {
                     for (size_t j = 0; j < cols; j++) {
-                        self_ptr->grad[i * cols + j] += result->grad[j];
+                        self_ptr->grad()[i * cols + j] += result->grad()[j];
                     }
                 }
             };
@@ -1686,9 +1729,9 @@ TensorPtr Tensor::sum(int dim, bool keepdim) const {
         for (size_t i = 0; i < rows; i++) {
             float sum = 0.0f;
             for (size_t j = 0; j < cols; j++) {
-                sum += data[i * cols + j];
+                sum += data()[i * cols + j];
             }
-            result->data[i] = sum;
+            result->data()[i] = sum;
         }
 
         if (track) {
@@ -1697,7 +1740,7 @@ TensorPtr Tensor::sum(int dim, bool keepdim) const {
             result->grad_fn = [self_ptr, result, rows, cols]() {
                 for (size_t i = 0; i < rows; i++) {
                     for (size_t j = 0; j < cols; j++) {
-                        self_ptr->grad[i * cols + j] += result->grad[i];
+                        self_ptr->grad()[i * cols + j] += result->grad()[i];
                     }
                 }
             };
@@ -1709,14 +1752,14 @@ TensorPtr Tensor::sum(int dim, bool keepdim) const {
 TensorPtr Tensor::mean(int dim, bool keepdim) const {
     if (dim == -1) {
         auto result = sum(-1, keepdim);
-        float n = static_cast<float>(data.size());
-        result->data[0] /= n;
+        float n = static_cast<float>(size());
+        result->data()[0] /= n;
         return result;
     }
 
     auto result = sum(dim, keepdim);
     float n = static_cast<float>(dim == 0 ? shape[0] : shape[1]);
-    for (auto& v : result->data) v /= n;
+    for (size_t i = 0; i < result->size(); i++) result->data()[i] /= n;
     return result;
 }
 
@@ -1728,20 +1771,20 @@ TensorPtr Tensor::max(int dim, bool keepdim) const {
         auto result = keepdim ? create(std::vector<size_t>(shape.size(), 1), track)
                               : create({1}, track);
         size_t max_idx = 0;
-        float max_val = data[0];
-        for (size_t i = 1; i < data.size(); i++) {
-            if (data[i] > max_val) {
-                max_val = data[i];
+        float max_val = data()[0];
+        for (size_t i = 1; i < size(); i++) {
+            if (data()[i] > max_val) {
+                max_val = data()[i];
                 max_idx = i;
             }
         }
-        result->data[0] = max_val;
+        result->data()[0] = max_val;
 
         if (track) {
             auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
             result->parents = {self_ptr};
             result->grad_fn = [self_ptr, result, max_idx]() {
-                self_ptr->grad[max_idx] += result->grad[0];
+                self_ptr->grad()[max_idx] += result->grad()[0];
             };
         }
         return result;
@@ -1757,14 +1800,14 @@ TensorPtr Tensor::max(int dim, bool keepdim) const {
 
         for (size_t j = 0; j < cols; j++) {
             size_t max_i = 0;
-            float max_val = data[j];
+            float max_val = data()[j];
             for (size_t i = 1; i < rows; i++) {
-                if (data[i * cols + j] > max_val) {
-                    max_val = data[i * cols + j];
+                if (data()[i * cols + j] > max_val) {
+                    max_val = data()[i * cols + j];
                     max_i = i;
                 }
             }
-            result->data[j] = max_val;
+            result->data()[j] = max_val;
             max_indices[j] = max_i;
         }
 
@@ -1773,7 +1816,7 @@ TensorPtr Tensor::max(int dim, bool keepdim) const {
             result->parents = {self_ptr};
             result->grad_fn = [self_ptr, result, cols, max_indices]() {
                 for (size_t j = 0; j < cols; j++) {
-                    self_ptr->grad[max_indices[j] * cols + j] += result->grad[j];
+                    self_ptr->grad()[max_indices[j] * cols + j] += result->grad()[j];
                 }
             };
         }
@@ -1785,14 +1828,14 @@ TensorPtr Tensor::max(int dim, bool keepdim) const {
 
         for (size_t i = 0; i < rows; i++) {
             size_t max_j = 0;
-            float max_val = data[i * cols];
+            float max_val = data()[i * cols];
             for (size_t j = 1; j < cols; j++) {
-                if (data[i * cols + j] > max_val) {
-                    max_val = data[i * cols + j];
+                if (data()[i * cols + j] > max_val) {
+                    max_val = data()[i * cols + j];
                     max_j = j;
                 }
             }
-            result->data[i] = max_val;
+            result->data()[i] = max_val;
             max_indices[i] = max_j;
         }
 
@@ -1801,7 +1844,7 @@ TensorPtr Tensor::max(int dim, bool keepdim) const {
             result->parents = {self_ptr};
             result->grad_fn = [self_ptr, result, rows, cols, max_indices]() {
                 for (size_t i = 0; i < rows; i++) {
-                    self_ptr->grad[i * cols + max_indices[i]] += result->grad[i];
+                    self_ptr->grad()[i * cols + max_indices[i]] += result->grad()[i];
                 }
             };
         }
@@ -1817,20 +1860,20 @@ TensorPtr Tensor::min(int dim, bool keepdim) const {
         auto result = keepdim ? create(std::vector<size_t>(shape.size(), 1), track)
                               : create({1}, track);
         size_t min_idx = 0;
-        float min_val = data[0];
-        for (size_t i = 1; i < data.size(); i++) {
-            if (data[i] < min_val) {
-                min_val = data[i];
+        float min_val = data()[0];
+        for (size_t i = 1; i < size(); i++) {
+            if (data()[i] < min_val) {
+                min_val = data()[i];
                 min_idx = i;
             }
         }
-        result->data[0] = min_val;
+        result->data()[0] = min_val;
 
         if (track) {
             auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
             result->parents = {self_ptr};
             result->grad_fn = [self_ptr, result, min_idx]() {
-                self_ptr->grad[min_idx] += result->grad[0];
+                self_ptr->grad()[min_idx] += result->grad()[0];
             };
         }
         return result;
@@ -1846,14 +1889,14 @@ TensorPtr Tensor::min(int dim, bool keepdim) const {
 
         for (size_t j = 0; j < cols; j++) {
             size_t min_i = 0;
-            float min_val = data[j];
+            float min_val = data()[j];
             for (size_t i = 1; i < rows; i++) {
-                if (data[i * cols + j] < min_val) {
-                    min_val = data[i * cols + j];
+                if (data()[i * cols + j] < min_val) {
+                    min_val = data()[i * cols + j];
                     min_i = i;
                 }
             }
-            result->data[j] = min_val;
+            result->data()[j] = min_val;
             min_indices[j] = min_i;
         }
 
@@ -1862,7 +1905,7 @@ TensorPtr Tensor::min(int dim, bool keepdim) const {
             result->parents = {self_ptr};
             result->grad_fn = [self_ptr, result, cols, min_indices]() {
                 for (size_t j = 0; j < cols; j++) {
-                    self_ptr->grad[min_indices[j] * cols + j] += result->grad[j];
+                    self_ptr->grad()[min_indices[j] * cols + j] += result->grad()[j];
                 }
             };
         }
@@ -1874,14 +1917,14 @@ TensorPtr Tensor::min(int dim, bool keepdim) const {
 
         for (size_t i = 0; i < rows; i++) {
             size_t min_j = 0;
-            float min_val = data[i * cols];
+            float min_val = data()[i * cols];
             for (size_t j = 1; j < cols; j++) {
-                if (data[i * cols + j] < min_val) {
-                    min_val = data[i * cols + j];
+                if (data()[i * cols + j] < min_val) {
+                    min_val = data()[i * cols + j];
                     min_j = j;
                 }
             }
-            result->data[i] = min_val;
+            result->data()[i] = min_val;
             min_indices[i] = min_j;
         }
 
@@ -1890,7 +1933,7 @@ TensorPtr Tensor::min(int dim, bool keepdim) const {
             result->parents = {self_ptr};
             result->grad_fn = [self_ptr, result, rows, cols, min_indices]() {
                 for (size_t i = 0; i < rows; i++) {
-                    self_ptr->grad[i * cols + min_indices[i]] += result->grad[i];
+                    self_ptr->grad()[i * cols + min_indices[i]] += result->grad()[i];
                 }
             };
         }
@@ -1906,8 +1949,8 @@ TensorPtr Tensor::max(const TensorPtr& other) const {
     // Fast path: same shape
     if (shape == other->shape) {
         auto result = create(shape, track);
-        for (size_t i = 0; i < data.size(); i++) {
-            result->data[i] = std::max(data[i], other->data[i]);
+        for (size_t i = 0; i < size(); i++) {
+            result->data()[i] = std::max(data()[i], other->data()[i]);
         }
 
         if (track) {
@@ -1915,14 +1958,14 @@ TensorPtr Tensor::max(const TensorPtr& other) const {
             auto other_ptr = other;
             result->parents = {self_ptr, other_ptr};
             result->grad_fn = [self_ptr, other_ptr, result]() {
-                for (size_t i = 0; i < self_ptr->data.size(); i++) {
+                for (size_t i = 0; i < self_ptr->size(); i++) {
                     // Gradient goes to whichever was larger
-                    if (self_ptr->data[i] >= other_ptr->data[i]) {
+                    if (self_ptr->data()[i] >= other_ptr->data()[i]) {
                         if (self_ptr->requires_grad)
-                            self_ptr->grad[i] += result->grad[i];
+                            self_ptr->grad()[i] += result->grad()[i];
                     } else {
                         if (other_ptr->requires_grad)
-                            other_ptr->grad[i] += result->grad[i];
+                            other_ptr->grad()[i] += result->grad()[i];
                     }
                 }
             };
@@ -1940,10 +1983,10 @@ TensorPtr Tensor::max(const TensorPtr& other) const {
     size_t ndim = out_shape.size();
 
     std::vector<size_t> idx(ndim, 0);
-    for (size_t i = 0; i < result->data.size(); i++) {
+    for (size_t i = 0; i < result->size(); i++) {
         size_t a_idx = broadcast_index(idx, shape, a_strides, ndim);
         size_t b_idx = broadcast_index(idx, other->shape, b_strides, ndim);
-        result->data[i] = std::max(data[a_idx], other->data[b_idx]);
+        result->data()[i] = std::max(data()[a_idx], other->data()[b_idx]);
 
         for (int d = static_cast<int>(ndim) - 1; d >= 0; d--) {
             idx[d]++;
@@ -1962,16 +2005,16 @@ TensorPtr Tensor::max(const TensorPtr& other) const {
         result->grad_fn = [self_ptr, other_ptr, result, self_shape, other_shape,
                           out_shape, a_strides, b_strides, out_strides, ndim]() {
             std::vector<size_t> idx(ndim, 0);
-            for (size_t i = 0; i < result->data.size(); i++) {
+            for (size_t i = 0; i < result->size(); i++) {
                 size_t a_idx = broadcast_index(idx, self_shape, a_strides, ndim);
                 size_t b_idx = broadcast_index(idx, other_shape, b_strides, ndim);
 
-                if (self_ptr->data[a_idx] >= other_ptr->data[b_idx]) {
+                if (self_ptr->data()[a_idx] >= other_ptr->data()[b_idx]) {
                     if (self_ptr->requires_grad)
-                        self_ptr->grad[a_idx] += result->grad[i];
+                        self_ptr->grad()[a_idx] += result->grad()[i];
                 } else {
                     if (other_ptr->requires_grad)
-                        other_ptr->grad[b_idx] += result->grad[i];
+                        other_ptr->grad()[b_idx] += result->grad()[i];
                 }
 
                 for (int d = static_cast<int>(ndim) - 1; d >= 0; d--) {
@@ -1993,8 +2036,8 @@ TensorPtr Tensor::min(const TensorPtr& other) const {
     // Fast path: same shape
     if (shape == other->shape) {
         auto result = create(shape, track);
-        for (size_t i = 0; i < data.size(); i++) {
-            result->data[i] = std::min(data[i], other->data[i]);
+        for (size_t i = 0; i < size(); i++) {
+            result->data()[i] = std::min(data()[i], other->data()[i]);
         }
 
         if (track) {
@@ -2002,14 +2045,14 @@ TensorPtr Tensor::min(const TensorPtr& other) const {
             auto other_ptr = other;
             result->parents = {self_ptr, other_ptr};
             result->grad_fn = [self_ptr, other_ptr, result]() {
-                for (size_t i = 0; i < self_ptr->data.size(); i++) {
+                for (size_t i = 0; i < self_ptr->size(); i++) {
                     // Gradient goes to whichever was smaller
-                    if (self_ptr->data[i] <= other_ptr->data[i]) {
+                    if (self_ptr->data()[i] <= other_ptr->data()[i]) {
                         if (self_ptr->requires_grad)
-                            self_ptr->grad[i] += result->grad[i];
+                            self_ptr->grad()[i] += result->grad()[i];
                     } else {
                         if (other_ptr->requires_grad)
-                            other_ptr->grad[i] += result->grad[i];
+                            other_ptr->grad()[i] += result->grad()[i];
                     }
                 }
             };
@@ -2027,10 +2070,10 @@ TensorPtr Tensor::min(const TensorPtr& other) const {
     size_t ndim = out_shape.size();
 
     std::vector<size_t> idx(ndim, 0);
-    for (size_t i = 0; i < result->data.size(); i++) {
+    for (size_t i = 0; i < result->size(); i++) {
         size_t a_idx = broadcast_index(idx, shape, a_strides, ndim);
         size_t b_idx = broadcast_index(idx, other->shape, b_strides, ndim);
-        result->data[i] = std::min(data[a_idx], other->data[b_idx]);
+        result->data()[i] = std::min(data()[a_idx], other->data()[b_idx]);
 
         for (int d = static_cast<int>(ndim) - 1; d >= 0; d--) {
             idx[d]++;
@@ -2049,16 +2092,16 @@ TensorPtr Tensor::min(const TensorPtr& other) const {
         result->grad_fn = [self_ptr, other_ptr, result, self_shape, other_shape,
                           out_shape, a_strides, b_strides, out_strides, ndim]() {
             std::vector<size_t> idx(ndim, 0);
-            for (size_t i = 0; i < result->data.size(); i++) {
+            for (size_t i = 0; i < result->size(); i++) {
                 size_t a_idx = broadcast_index(idx, self_shape, a_strides, ndim);
                 size_t b_idx = broadcast_index(idx, other_shape, b_strides, ndim);
 
-                if (self_ptr->data[a_idx] <= other_ptr->data[b_idx]) {
+                if (self_ptr->data()[a_idx] <= other_ptr->data()[b_idx]) {
                     if (self_ptr->requires_grad)
-                        self_ptr->grad[a_idx] += result->grad[i];
+                        self_ptr->grad()[a_idx] += result->grad()[i];
                 } else {
                     if (other_ptr->requires_grad)
-                        other_ptr->grad[b_idx] += result->grad[i];
+                        other_ptr->grad()[b_idx] += result->grad()[i];
                 }
 
                 for (int d = static_cast<int>(ndim) - 1; d >= 0; d--) {
@@ -2123,16 +2166,16 @@ TensorPtr Tensor::argmax(int dim, bool keepdim) const {
         }
 
         // Find argmax along dim
-        float max_val = data[base_idx];
+        float max_val = data()[base_idx];
         size_t max_idx = 0;
         for (size_t d = 1; d < dim_size; d++) {
-            float val = data[base_idx + d * dim_stride];
+            float val = data()[base_idx + d * dim_stride];
             if (val > max_val) {
                 max_val = val;
                 max_idx = d;
             }
         }
-        result->data[out_idx++] = static_cast<float>(max_idx);
+        result->data()[out_idx++] = static_cast<float>(max_idx);
 
         // Increment indices (skip dim dimension)
         for (int i = static_cast<int>(ndims) - 1; i >= 0; i--) {
@@ -2197,16 +2240,16 @@ TensorPtr Tensor::argmin(int dim, bool keepdim) const {
         }
 
         // Find argmin along dim
-        float min_val = data[base_idx];
+        float min_val = data()[base_idx];
         size_t min_idx = 0;
         for (size_t d = 1; d < dim_size; d++) {
-            float val = data[base_idx + d * dim_stride];
+            float val = data()[base_idx + d * dim_stride];
             if (val < min_val) {
                 min_val = val;
                 min_idx = d;
             }
         }
-        result->data[out_idx++] = static_cast<float>(min_idx);
+        result->data()[out_idx++] = static_cast<float>(min_idx);
 
         // Increment indices (skip dim dimension)
         for (int i = static_cast<int>(ndims) - 1; i >= 0; i--) {
@@ -2229,7 +2272,7 @@ TensorPtr Tensor::transpose() const {
 
     for (size_t i = 0; i < rows; i++) {
         for (size_t j = 0; j < cols; j++) {
-            result->data[j * rows + i] = data[i * cols + j];
+            result->data()[j * rows + i] = data()[i * cols + j];
         }
     }
 
@@ -2239,7 +2282,7 @@ TensorPtr Tensor::transpose() const {
         result->grad_fn = [self_ptr, result, rows, cols]() {
             for (size_t i = 0; i < rows; i++) {
                 for (size_t j = 0; j < cols; j++) {
-                    self_ptr->grad[i * cols + j] += result->grad[j * rows + i];
+                    self_ptr->grad()[i * cols + j] += result->grad()[j * rows + i];
                 }
             }
         };
@@ -2250,18 +2293,18 @@ TensorPtr Tensor::transpose() const {
 TensorPtr Tensor::reshape(const std::vector<size_t>& new_shape) const {
     size_t total = 1;
     for (auto s : new_shape) total *= s;
-    assert(total == data.size());
+    assert(total == size());
 
     bool track = requires_grad && GradMode::is_enabled();
-    auto result = create(data, new_shape, track);
-    if (track) result->grad = grad;
+    auto result = std::make_shared<Tensor>(data_storage_, data_size_, new_shape, track);
+    if (track && !grad_empty()) std::memcpy(result->grad(), grad(), size() * sizeof(float));
 
     if (track) {
         auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
         result->parents = {self_ptr};
         result->grad_fn = [self_ptr, result]() {
-            simd_add(self_ptr->grad.data(), self_ptr->grad.data(),
-                     result->grad.data(), self_ptr->data.size());
+            simd_add(self_ptr->grad(), self_ptr->grad(),
+                     result->grad(), self_ptr->size());
         };
     }
     return result;
@@ -2277,14 +2320,14 @@ TensorPtr Tensor::slice(size_t start, size_t end, int dim) const {
     bool track = requires_grad && GradMode::is_enabled();
     auto result = create({num_rows, cols}, track);
 
-    std::memcpy(result->data.data(), &data[start * cols], num_rows * cols * sizeof(float));
+    std::memcpy(result->data(), &data()[start * cols], num_rows * cols * sizeof(float));
 
     if (track) {
         auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
         result->parents = {self_ptr};
         result->grad_fn = [self_ptr, result, start, cols, num_rows]() {
             for (size_t i = 0; i < num_rows * cols; i++) {
-                self_ptr->grad[start * cols + i] += result->grad[i];
+                self_ptr->grad()[start * cols + i] += result->grad()[i];
             }
         };
     }
@@ -2299,10 +2342,10 @@ void Tensor::print(const char* name) const {
     }
     printf("]");
 
-    if (data.size() <= 10) {
+    if (size() <= 10) {
         printf(", data=[");
-        for (size_t i = 0; i < data.size(); i++) {
-            printf("%.4f%s", data[i], i < data.size() - 1 ? ", " : "");
+        for (size_t i = 0; i < size(); i++) {
+            printf("%.4f%s", data()[i], i < size() - 1 ? ", " : "");
         }
         printf("]");
     }
@@ -2417,8 +2460,8 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
     std::vector<float> col_buffer(col_h * col_w);
 
     for (size_t b = 0; b < batch; b++) {
-        const float* input_ptr = data.data() + b * in_channels * in_h * in_w;
-        float* output_ptr = result->data.data() + b * out_channels * out_h * out_w;
+        const float* input_ptr = data() + b * in_channels * in_h * in_w;
+        float* output_ptr = result->data() + b * out_channels * out_h * out_w;
 
         // Convert input patches to columns
         im2col(input_ptr, col_buffer.data(),
@@ -2427,14 +2470,14 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
                out_h, out_w, stride, padding);
 
         // GEMM: weight [out_channels, col_h] @ col [col_h, col_w] -> output [out_channels, col_w]
-        matmul_blocked(output_ptr, weight->data.data(), col_buffer.data(),
+        matmul_blocked(output_ptr, weight->data(), col_buffer.data(),
                        out_channels, col_h, col_w);
 
         // Add bias
         if (bias) {
             for (size_t oc = 0; oc < out_channels; oc++) {
                 for (size_t i = 0; i < col_w; i++) {
-                    output_ptr[oc * col_w + i] += bias->data[oc];
+                    output_ptr[oc * col_w + i] += bias->data()[oc];
                 }
             }
         }
@@ -2466,15 +2509,15 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
                 // Transpose weight: [out_channels, col_h] -> [col_h, out_channels]
                 for (size_t oc = 0; oc < out_channels; oc++) {
                     for (size_t k = 0; k < col_h; k++) {
-                        weight_T[k * out_channels + oc] = weight_ptr->data[oc * col_h + k];
+                        weight_T[k * out_channels + oc] = weight_ptr->data()[oc * col_h + k];
                     }
                 }
 
                 std::vector<float> col_grad(col_h * col_w);
 
                 for (size_t b = 0; b < batch; b++) {
-                    const float* grad_out = result->grad.data() + b * out_channels * col_w;
-                    float* grad_in = self_ptr->grad.data() + b * in_channels * in_h * in_w;
+                    const float* grad_out = result->grad() + b * out_channels * col_w;
+                    float* grad_in = self_ptr->grad() + b * in_channels * in_h * in_w;
 
                     // GEMM: weight_T [col_h, out_channels] @ grad_out [out_channels, col_w] -> col_grad [col_h, col_w]
                     matmul_blocked(col_grad.data(), weight_T.data(), grad_out,
@@ -2499,8 +2542,8 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
                 std::vector<float> col_T(col_w * col_h);
 
                 for (size_t b = 0; b < batch; b++) {
-                    const float* input_ptr = self_ptr->data.data() + b * in_channels * in_h * in_w;
-                    const float* grad_out = result->grad.data() + b * out_channels * col_w;
+                    const float* input_ptr = self_ptr->data() + b * in_channels * in_h * in_w;
+                    const float* grad_out = result->grad() + b * out_channels * col_w;
 
                     // im2col for this batch
                     im2col(input_ptr, col_buffer.data(),
@@ -2522,7 +2565,7 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
                                    out_channels, col_w, col_h);
 
                     for (size_t i = 0; i < out_channels * col_h; i++) {
-                        weight_ptr->grad[i] += grad_w_batch[i];
+                        weight_ptr->grad()[i] += grad_w_batch[i];
                     }
                 }
             }
@@ -2534,10 +2577,10 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
                     for (size_t b = 0; b < batch; b++) {
                         for (size_t i = 0; i < col_w; i++) {
                             size_t out_idx = b * out_channels * col_w + oc * col_w + i;
-                            grad_sum += result->grad[out_idx];
+                            grad_sum += result->grad()[out_idx];
                         }
                     }
-                    bias_ptr->grad[oc] += grad_sum;
+                    bias_ptr->grad()[oc] += grad_sum;
                 }
             }
         };
@@ -2580,7 +2623,7 @@ TensorPtr Tensor::conv_transpose2d(const TensorPtr& weight, const TensorPtr& bia
     auto result = create({batch, out_channels, out_h, out_w}, track);
 
     // Initialize output to zeros
-    std::fill(result->data.begin(), result->data.end(), 0.0f);
+    std::fill(result->data(), result->data() + result->size(), 0.0f);
 
     // Forward pass: for each input position, scatter the kernel values to output
     // This is equivalent to the backward pass of a regular convolution w.r.t. input
@@ -2592,7 +2635,7 @@ TensorPtr Tensor::conv_transpose2d(const TensorPtr& weight, const TensorPtr& bia
                     size_t in_idx = b * in_channels * in_h * in_w +
                                     ic * in_h * in_w +
                                     ih * in_w + iw;
-                    float in_val = data[in_idx];
+                    float in_val = data()[in_idx];
 
                     // Scatter to output for each output channel and kernel position
                     for (size_t oc = 0; oc < out_channels; oc++) {
@@ -2613,7 +2656,7 @@ TensorPtr Tensor::conv_transpose2d(const TensorPtr& weight, const TensorPtr& bia
                                                      oc * out_h * out_w +
                                                      static_cast<size_t>(oh) * out_w +
                                                      static_cast<size_t>(ow);
-                                    result->data[out_idx] += in_val * weight->data[w_idx];
+                                    result->data()[out_idx] += in_val * weight->data()[w_idx];
                                 }
                             }
                         }
@@ -2632,7 +2675,7 @@ TensorPtr Tensor::conv_transpose2d(const TensorPtr& weight, const TensorPtr& bia
                         size_t idx = b * out_channels * out_h * out_w +
                                      oc * out_h * out_w +
                                      oh * out_w + ow;
-                        result->data[idx] += bias->data[oc];
+                        result->data()[idx] += bias->data()[oc];
                     }
                 }
             }
@@ -2674,7 +2717,7 @@ TensorPtr Tensor::conv_transpose2d(const TensorPtr& weight, const TensorPtr& bia
                                                                  oc * out_h * out_w +
                                                                  static_cast<size_t>(oh) * out_w +
                                                                  static_cast<size_t>(ow);
-                                                grad_sum += result->grad[out_idx] * weight_ptr->data[w_idx];
+                                                grad_sum += result->grad()[out_idx] * weight_ptr->data()[w_idx];
                                             }
                                         }
                                     }
@@ -2683,7 +2726,7 @@ TensorPtr Tensor::conv_transpose2d(const TensorPtr& weight, const TensorPtr& bia
                                 size_t in_idx = b * in_channels * in_h * in_w +
                                                 ic * in_h * in_w +
                                                 ih * in_w + iw;
-                                self_ptr->grad[in_idx] += grad_sum;
+                                self_ptr->grad()[in_idx] += grad_sum;
                             }
                         }
                     }
@@ -2699,7 +2742,7 @@ TensorPtr Tensor::conv_transpose2d(const TensorPtr& weight, const TensorPtr& bia
                                 size_t in_idx = b * in_channels * in_h * in_w +
                                                 ic * in_h * in_w +
                                                 ih * in_w + iw;
-                                float in_val = self_ptr->data[in_idx];
+                                float in_val = self_ptr->data()[in_idx];
 
                                 for (size_t oc = 0; oc < out_channels; oc++) {
                                     for (size_t kh = 0; kh < kernel_h; kh++) {
@@ -2716,7 +2759,7 @@ TensorPtr Tensor::conv_transpose2d(const TensorPtr& weight, const TensorPtr& bia
                                                                  oc * out_h * out_w +
                                                                  static_cast<size_t>(oh) * out_w +
                                                                  static_cast<size_t>(ow);
-                                                weight_ptr->grad[w_idx] += in_val * result->grad[out_idx];
+                                                weight_ptr->grad()[w_idx] += in_val * result->grad()[out_idx];
                                             }
                                         }
                                     }
@@ -2737,11 +2780,11 @@ TensorPtr Tensor::conv_transpose2d(const TensorPtr& weight, const TensorPtr& bia
                                 size_t idx = b * out_channels * out_h * out_w +
                                              oc * out_h * out_w +
                                              oh * out_w + ow;
-                                grad_sum += result->grad[idx];
+                                grad_sum += result->grad()[idx];
                             }
                         }
                     }
-                    bias_ptr->grad[oc] += grad_sum;
+                    bias_ptr->grad()[oc] += grad_sum;
                 }
             }
         };
@@ -2768,7 +2811,7 @@ TensorPtr Tensor::maxpool2d(size_t kernel_size, size_t stride) const {
     auto result = create({batch, channels, out_h, out_w}, track);
 
     // Store indices for backward pass
-    std::vector<size_t> max_indices(result->data.size());
+    std::vector<size_t> max_indices(result->size());
 
     // Forward pass
     for (size_t b = 0; b < batch; b++) {
@@ -2785,8 +2828,8 @@ TensorPtr Tensor::maxpool2d(size_t kernel_size, size_t stride) const {
                             size_t input_idx = b * (channels * in_h * in_w) +
                                                c * (in_h * in_w) +
                                                ih * in_w + iw;
-                            if (data[input_idx] > max_val) {
-                                max_val = data[input_idx];
+                            if (data()[input_idx] > max_val) {
+                                max_val = data()[input_idx];
                                 max_idx = input_idx;
                             }
                         }
@@ -2795,7 +2838,7 @@ TensorPtr Tensor::maxpool2d(size_t kernel_size, size_t stride) const {
                     size_t output_idx = b * (channels * out_h * out_w) +
                                         c * (out_h * out_w) +
                                         oh * out_w + ow;
-                    result->data[output_idx] = max_val;
+                    result->data()[output_idx] = max_val;
                     max_indices[output_idx] = max_idx;
                 }
             }
@@ -2806,8 +2849,8 @@ TensorPtr Tensor::maxpool2d(size_t kernel_size, size_t stride) const {
         auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
         result->parents = {self_ptr};
         result->grad_fn = [self_ptr, result, max_indices]() {
-            for (size_t i = 0; i < result->data.size(); i++) {
-                self_ptr->grad[max_indices[i]] += result->grad[i];
+            for (size_t i = 0; i < result->size(); i++) {
+                self_ptr->grad()[max_indices[i]] += result->grad()[i];
             }
         };
     }
@@ -2848,14 +2891,14 @@ TensorPtr Tensor::avgpool2d(size_t kernel_size, size_t stride) const {
                             size_t input_idx = b * (channels * in_h * in_w) +
                                                c * (in_h * in_w) +
                                                ih * in_w + iw;
-                            sum += data[input_idx];
+                            sum += data()[input_idx];
                         }
                     }
 
                     size_t output_idx = b * (channels * out_h * out_w) +
                                         c * (out_h * out_w) +
                                         oh * out_w + ow;
-                    result->data[output_idx] = sum / pool_size;
+                    result->data()[output_idx] = sum / pool_size;
                 }
             }
         }
@@ -2873,7 +2916,7 @@ TensorPtr Tensor::avgpool2d(size_t kernel_size, size_t stride) const {
                             size_t out_idx = b * (channels * out_h * out_w) +
                                              c * (out_h * out_w) +
                                              oh * out_w + ow;
-                            float grad_val = result->grad[out_idx] / pool_size;
+                            float grad_val = result->grad()[out_idx] / pool_size;
 
                             for (size_t kh = 0; kh < kernel_size; kh++) {
                                 for (size_t kw = 0; kw < kernel_size; kw++) {
@@ -2882,7 +2925,7 @@ TensorPtr Tensor::avgpool2d(size_t kernel_size, size_t stride) const {
                                     size_t input_idx = b * (channels * in_h * in_w) +
                                                        c * (in_h * in_w) +
                                                        ih * in_w + iw;
-                                    self_ptr->grad[input_idx] += grad_val;
+                                    self_ptr->grad()[input_idx] += grad_val;
                                 }
                             }
                         }
@@ -2948,27 +2991,17 @@ TensorPtr Tensor::squeeze(int dim) const {
 
     // If shape unchanged, return self (no-op)
     if (new_shape == shape) {
-        auto result = Tensor::create(data, shape, requires_grad);
-        if (should_track_grad()) {
-            result->parents = {self};
-            result->grad_fn = [self, result]() {
-                for (size_t i = 0; i < self->data.size(); i++) {
-                    self->grad[i] += result->grad[i];
-                }
-            };
-        }
-        return result;
+        return self;
     }
 
-    auto result = Tensor::create(data, new_shape, requires_grad);
+    bool track = should_track_grad();
+    auto result = std::make_shared<Tensor>(data_storage_, data_size_, new_shape, track);
 
-    if (should_track_grad()) {
+    if (track) {
         result->parents = {self};
-        auto orig_shape = shape;
-        result->grad_fn = [self, result, orig_shape]() {
-            // Gradient is just passed through unchanged (reshape)
-            for (size_t i = 0; i < self->data.size(); i++) {
-                self->grad[i] += result->grad[i];
+        result->grad_fn = [self, result]() {
+            for (size_t i = 0; i < self->size(); i++) {
+                self->grad()[i] += result->grad()[i];
             }
         };
     }
@@ -2995,14 +3028,14 @@ TensorPtr Tensor::unsqueeze(int dim) const {
         }
     }
 
-    auto result = Tensor::create(data, new_shape, requires_grad);
+    bool track = should_track_grad();
+    auto result = std::make_shared<Tensor>(data_storage_, data_size_, new_shape, track);
 
-    if (should_track_grad()) {
+    if (track) {
         result->parents = {self};
         result->grad_fn = [self, result]() {
-            // Gradient is just passed through unchanged (reshape)
-            for (size_t i = 0; i < self->data.size(); i++) {
-                self->grad[i] += result->grad[i];
+            for (size_t i = 0; i < self->size(); i++) {
+                self->grad()[i] += result->grad()[i];
             }
         };
     }
@@ -3052,7 +3085,7 @@ TensorPtr Tensor::permute(const std::vector<int>& dims) const {
     auto result = Tensor::create(new_shape, requires_grad);
 
     // Permute data
-    for (size_t i = 0; i < data.size(); i++) {
+    for (size_t i = 0; i < size(); i++) {
         // Convert linear index to multi-dim index in new tensor
         std::vector<size_t> new_idx(ndims);
         size_t tmp = i;
@@ -3067,7 +3100,7 @@ TensorPtr Tensor::permute(const std::vector<int>& dims) const {
             old_linear += new_idx[d] * old_strides[perm[d]];
         }
 
-        result->data[i] = data[old_linear];
+        result->data()[i] = data()[old_linear];
     }
 
     if (should_track_grad()) {
@@ -3082,7 +3115,7 @@ TensorPtr Tensor::permute(const std::vector<int>& dims) const {
 
         result->grad_fn = [self, result, perm, inv_perm, old_strides, new_strides, ndims]() {
             // Permute gradients back using inverse permutation
-            for (size_t i = 0; i < result->data.size(); i++) {
+            for (size_t i = 0; i < result->size(); i++) {
                 // Convert linear index to multi-dim index in result (new) tensor
                 std::vector<size_t> new_idx(ndims);
                 size_t tmp = i;
@@ -3097,7 +3130,7 @@ TensorPtr Tensor::permute(const std::vector<int>& dims) const {
                     old_linear += new_idx[d] * old_strides[perm[d]];
                 }
 
-                self->grad[old_linear] += result->grad[i];
+                self->grad()[old_linear] += result->grad()[i];
             }
         };
     }
@@ -3138,7 +3171,7 @@ TensorPtr Tensor::flip_horizontal() const {
                         src_idx = c * height * width + h * width + w;
                         dst_idx = c * height * width + h * width + (width - 1 - w);
                     }
-                    result->data[dst_idx] = data[src_idx];
+                    result->data()[dst_idx] = data()[src_idx];
                 }
             }
         }
@@ -3170,7 +3203,7 @@ TensorPtr Tensor::random_flip_horizontal(float p) const {
                         size_t src_idx = n * img_size + c * height * width + h * width + w;
                         size_t dst_w = do_flip ? (width - 1 - w) : w;
                         size_t dst_idx = n * img_size + c * height * width + h * width + dst_w;
-                        result->data[dst_idx] = data[src_idx];
+                        result->data()[dst_idx] = data()[src_idx];
                     }
                 }
             }
@@ -3182,7 +3215,7 @@ TensorPtr Tensor::random_flip_horizontal(float p) const {
             return flip_horizontal();
         } else {
             auto result = Tensor::create(shape, false);
-            std::copy(data.begin(), data.end(), result->data.begin());
+            std::copy(data(), data() + size(), result->data());
             return result;
         }
     }
@@ -3226,7 +3259,7 @@ TensorPtr Tensor::pad2d(size_t padding) const {
                         src_idx = c * height * width + h * width + w;
                         dst_idx = c * new_height * new_width + (h + padding) * new_width + (w + padding);
                     }
-                    result->data[dst_idx] = data[src_idx];
+                    result->data()[dst_idx] = data()[src_idx];
                 }
             }
         }
@@ -3274,7 +3307,7 @@ TensorPtr Tensor::crop(size_t top, size_t left, size_t crop_height, size_t crop_
                         src_idx = c * height * width + (top + h) * width + (left + w);
                         dst_idx = c * crop_height * crop_width + h * crop_width + w;
                     }
-                    result->data[dst_idx] = data[src_idx];
+                    result->data()[dst_idx] = data()[src_idx];
                 }
             }
         }
@@ -3331,7 +3364,7 @@ TensorPtr Tensor::random_crop(size_t crop_height, size_t crop_width) const {
                         src_idx = c * height * width + (top + h) * width + (left + w);
                         dst_idx = c * crop_height * crop_width + h * crop_width + w;
                     }
-                    result->data[dst_idx] = data[src_idx];
+                    result->data()[dst_idx] = data()[src_idx];
                 }
             }
         }

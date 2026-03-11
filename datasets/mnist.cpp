@@ -32,7 +32,7 @@ TensorPtr load_mnist_images(const std::string& filepath) {
     for (uint32_t i = 0; i < num_images; i++) {
         file.read(reinterpret_cast<char*>(buffer.data()), image_size);
         for (size_t j = 0; j < image_size; j++) {
-            images->data[i * image_size + j] = buffer[j] / 255.0f;
+            images->data()[i * image_size + j] = buffer[j] / 255.0f;
         }
     }
 
@@ -56,7 +56,7 @@ TensorPtr load_mnist_labels(const std::string& filepath) {
     std::vector<unsigned char> buffer(num_labels);
     file.read(reinterpret_cast<char*>(buffer.data()), num_labels);
     for (uint32_t i = 0; i < num_labels; i++) {
-        labels->data[i] = static_cast<float>(buffer[i]);
+        labels->data()[i] = static_cast<float>(buffer[i]);
     }
 
     return labels;
@@ -113,9 +113,9 @@ std::pair<TensorPtr, TensorPtr> DataLoader::next_batch() {
     for (size_t i = 0; i < actual_batch_size; i++) {
         size_t idx = indices[current_idx + i];
         for (size_t j = 0; j < image_size; j++) {
-            batch_images->data[i * image_size + j] = images->data[idx * image_size + j];
+            batch_images->data()[i * image_size + j] = images->data()[idx * image_size + j];
         }
-        batch_labels->data[i] = labels->data[idx];
+        batch_labels->data()[i] = labels->data()[idx];
     }
 
     current_idx = end_idx;

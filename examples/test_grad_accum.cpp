@@ -60,15 +60,15 @@ int main() {
 
         // Compare gradients
         float max_diff = 0.0f;
-        for (size_t i = 0; i < w1->grad.size(); i++) {
-            float diff = std::abs(w1->grad[i] - w2->grad[i]);
+        for (size_t i = 0; i < w1->grad_size(); i++) {
+            float diff = std::abs(w1->grad()[i] - w2->grad()[i]);
             max_diff = std::max(max_diff, diff);
         }
 
         printf("   Large batch gradients: [%.4f, %.4f, %.4f, %.4f]\n",
-               w1->grad[0], w1->grad[1], w1->grad[2], w1->grad[3]);
+               w1->grad()[0], w1->grad()[1], w1->grad()[2], w1->grad()[3]);
         printf("   Accumulated gradients: [%.4f, %.4f, %.4f, %.4f]\n",
-               w2->grad[0], w2->grad[1], w2->grad[2], w2->grad[3]);
+               w2->grad()[0], w2->grad()[1], w2->grad()[2], w2->grad()[3]);
         printf("   Max difference: %.6f\n", max_diff);
         printf("   %s\n\n", max_diff < 0.01f ? "PASSED" : "FAILED");
     }
@@ -105,8 +105,8 @@ int main() {
                 auto pred = model.forward(x_batch);
                 auto loss = criterion(pred, y_batch);
 
-                if (epoch == 0 && batch == 0) initial_loss = loss->data[0];
-                if (epoch == 9 && batch == 3) final_loss = loss->data[0];
+                if (epoch == 0 && batch == 0) initial_loss = loss->data()[0];
+                if (epoch == 9 && batch == 3) final_loss = loss->data()[0];
 
                 // Accumulate gradients
                 accumulator.backward(loss);
@@ -155,8 +155,8 @@ int main() {
                 auto pred = model.forward(x_batch);
                 auto loss = criterion(pred, y_batch);
 
-                if (epoch == 0 && batch == 0) initial_loss = loss->data[0];
-                if (epoch == 19 && batch == 3) final_loss = loss->data[0];
+                if (epoch == 0 && batch == 0) initial_loss = loss->data()[0];
+                if (epoch == 19 && batch == 3) final_loss = loss->data()[0];
 
                 // Scale for accumulation, then scale for mixed precision
                 auto accum_scaled = accumulator.scale(loss);

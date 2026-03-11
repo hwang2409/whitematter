@@ -31,10 +31,10 @@ CXXFLAGS += -I$(CORE_DIR) -I$(DATASETS_DIR)
 LDFLAGS = $(OPENMP_LIBS)
 
 # Core library objects
-CORE_SRCS = $(CORE_DIR)/tensor.cpp $(CORE_DIR)/layer.cpp $(CORE_DIR)/loss.cpp \
+CORE_SRCS = $(CORE_DIR)/memory_pool.cpp $(CORE_DIR)/tensor.cpp $(CORE_DIR)/layer.cpp $(CORE_DIR)/loss.cpp \
             $(CORE_DIR)/optimizer.cpp $(CORE_DIR)/serialize.cpp $(CORE_DIR)/dataloader.cpp \
             $(CORE_DIR)/model_zoo.cpp $(CORE_DIR)/onnx_export.cpp
-CORE_OBJS = $(BUILD_DIR)/tensor.o $(BUILD_DIR)/layer.o $(BUILD_DIR)/loss.o \
+CORE_OBJS = $(BUILD_DIR)/memory_pool.o $(BUILD_DIR)/tensor.o $(BUILD_DIR)/layer.o $(BUILD_DIR)/loss.o \
             $(BUILD_DIR)/optimizer.o $(BUILD_DIR)/serialize.o $(BUILD_DIR)/dataloader.o \
             $(BUILD_DIR)/model_zoo.o $(BUILD_DIR)/onnx_export.o
 
@@ -73,7 +73,10 @@ $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
 # Core library compilation
-$(BUILD_DIR)/tensor.o: $(CORE_DIR)/tensor.cpp $(CORE_DIR)/tensor.h | $(BUILD_DIR)
+$(BUILD_DIR)/memory_pool.o: $(CORE_DIR)/memory_pool.cpp $(CORE_DIR)/memory_pool.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/tensor.o: $(CORE_DIR)/tensor.cpp $(CORE_DIR)/tensor.h $(CORE_DIR)/memory_pool.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/layer.o: $(CORE_DIR)/layer.cpp $(CORE_DIR)/layer.h $(CORE_DIR)/tensor.h | $(BUILD_DIR)

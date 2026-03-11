@@ -203,7 +203,7 @@ int main() {
             loss->backward();
             optimizer.step();
 
-            float loss_val = loss->data[0];
+            float loss_val = loss->data()[0];
             logger.log("loss", loss_val);
             logger.log("lr", optimizer.lr);
             logger.step();

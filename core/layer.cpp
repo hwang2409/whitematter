@@ -53,18 +53,18 @@ TensorPtr Dropout::forward(const TensorPtr& input) {
     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
 
     float scale = 1.0f / (1.0f - p);
-    std::vector<float> mask(input->data.size());
+    std::vector<float> mask(input->size());
 
-    for (size_t i = 0; i < input->data.size(); i++) {
+    for (size_t i = 0; i < input->size(); i++) {
         mask[i] = (dist(layer_rng) > p) ? scale : 0.0f;
-        result->data[i] = input->data[i] * mask[i];
+        result->data()[i] = input->data()[i] * mask[i];
     }
 
     if (result->requires_grad) {
         result->parents = {input};
         result->grad_fn = [input, result, mask]() {
-            for (size_t i = 0; i < input->data.size(); i++) {
-                input->grad[i] += result->grad[i] * mask[i];
+            for (size_t i = 0; i < input->size(); i++) {
+                input->grad()[i] += result->grad()[i] * mask[i];
             }
         };
     }
@@ -135,7 +135,7 @@ Conv2d::Conv2d(size_t in_channels, size_t out_channels, size_t kernel_size,
     std::normal_distribution<float> dist(0.0f, std);
 
     weight = Tensor::create({out_channels, in_channels, kernel_size, kernel_size}, true);
-    for (auto& v : weight->data) v = dist(layer_rng);
+    for (size_t i = 0; i < weight->size(); i++) weight->data()[i] = dist(layer_rng);
 
     bias = Tensor::zeros({out_channels}, true);
 }
@@ -161,7 +161,7 @@ ConvTranspose2d::ConvTranspose2d(size_t in_channels, size_t out_channels, size_t
     // Weight shape: [in_channels, out_channels, kernel_size, kernel_size]
     // Note: transposed compared to Conv2d
     weight = Tensor::create({in_channels, out_channels, kernel_size, kernel_size}, true);
-    for (auto& v : weight->data) v = dist(layer_rng);
+    for (size_t i = 0; i < weight->size(); i++) weight->data()[i] = dist(layer_rng);
 
     bias = Tensor::zeros({out_channels}, true);
 }
@@ -226,7 +226,7 @@ TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
                 for (size_t h = 0; h < height; h++) {
                     for (size_t w = 0; w < width; w++) {
                         size_t idx = b * (channels * spatial_size) + c * spatial_size + h * width + w;
-                        sum += input->data[idx];
+                        sum += input->data()[idx];
                     }
                 }
             }
@@ -239,7 +239,7 @@ TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
                 for (size_t h = 0; h < height; h++) {
                     for (size_t w = 0; w < width; w++) {
                         size_t idx = b * (channels * spatial_size) + c * spatial_size + h * width + w;
-                        float diff = input->data[idx] - mean[c];
+                        float diff = input->data()[idx] - mean[c];
                         sum_sq += diff * diff;
                     }
                 }
@@ -249,14 +249,14 @@ TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
 
         // Update running statistics
         for (size_t c = 0; c < channels; c++) {
-            running_mean->data[c] = (1.0f - momentum) * running_mean->data[c] + momentum * mean[c];
-            running_var->data[c] = (1.0f - momentum) * running_var->data[c] + momentum * var[c];
+            running_mean->data()[c] = (1.0f - momentum) * running_mean->data()[c] + momentum * mean[c];
+            running_var->data()[c] = (1.0f - momentum) * running_var->data()[c] + momentum * var[c];
         }
     } else {
         // Use running statistics for inference
         for (size_t c = 0; c < channels; c++) {
-            mean[c] = running_mean->data[c];
-            var[c] = running_var->data[c];
+            mean[c] = running_mean->data()[c];
+            var[c] = running_var->data()[c];
         }
     }
 
@@ -271,8 +271,8 @@ TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
             for (size_t h = 0; h < height; h++) {
                 for (size_t w = 0; w < width; w++) {
                     size_t idx = b * (channels * spatial_size) + c * spatial_size + h * width + w;
-                    float x_norm = (input->data[idx] - mean[c]) * inv_std[c];
-                    result->data[idx] = gamma->data[c] * x_norm + beta->data[c];
+                    float x_norm = (input->data()[idx] - mean[c]) * inv_std[c];
+                    result->data()[idx] = gamma->data()[c] * x_norm + beta->data()[c];
                 }
             }
         }
@@ -303,9 +303,9 @@ TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
                     for (size_t h = 0; h < height; h++) {
                         for (size_t w = 0; w < width; w++) {
                             size_t idx = b * (channels * spatial_size) + c * spatial_size + h * width + w;
-                            float x_norm = (input_ptr->data[idx] - mean[c]) * inv_std[c];
-                            dgamma[c] += result->grad[idx] * x_norm;
-                            dbeta[c] += result->grad[idx];
+                            float x_norm = (input_ptr->data()[idx] - mean[c]) * inv_std[c];
+                            dgamma[c] += result->grad()[idx] * x_norm;
+                            dbeta[c] += result->grad()[idx];
                         }
                     }
                 }
@@ -317,8 +317,8 @@ TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
                     for (size_t h = 0; h < height; h++) {
                         for (size_t w = 0; w < width; w++) {
                             size_t idx = b * (channels * spatial_size) + c * spatial_size + h * width + w;
-                            float dx_norm = result->grad[idx] * gamma_ptr->data[c];
-                            dvar[c] += dx_norm * (input_ptr->data[idx] - mean[c]) * -0.5f * inv_std[c] * inv_std[c] * inv_std[c];
+                            float dx_norm = result->grad()[idx] * gamma_ptr->data()[c];
+                            dvar[c] += dx_norm * (input_ptr->data()[idx] - mean[c]) * -0.5f * inv_std[c] * inv_std[c] * inv_std[c];
                         }
                     }
                 }
@@ -332,8 +332,8 @@ TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
                     for (size_t h = 0; h < height; h++) {
                         for (size_t w = 0; w < width; w++) {
                             size_t idx = b * (channels * spatial_size) + c * spatial_size + h * width + w;
-                            sum_dx_norm += result->grad[idx] * gamma_ptr->data[c] * (-inv_std[c]);
-                            sum_x_diff += -2.0f * (input_ptr->data[idx] - mean[c]);
+                            sum_dx_norm += result->grad()[idx] * gamma_ptr->data()[c] * (-inv_std[c]);
+                            sum_x_diff += -2.0f * (input_ptr->data()[idx] - mean[c]);
                         }
                     }
                 }
@@ -347,9 +347,9 @@ TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
                         for (size_t h = 0; h < height; h++) {
                             for (size_t w = 0; w < width; w++) {
                                 size_t idx = b * (channels * spatial_size) + c * spatial_size + h * width + w;
-                                float dx_norm = result->grad[idx] * gamma_ptr->data[c];
-                                input_ptr->grad[idx] += dx_norm * inv_std[c]
-                                    + dvar[c] * 2.0f * (input_ptr->data[idx] - mean[c]) / static_cast<float>(n)
+                                float dx_norm = result->grad()[idx] * gamma_ptr->data()[c];
+                                input_ptr->grad()[idx] += dx_norm * inv_std[c]
+                                    + dvar[c] * 2.0f * (input_ptr->data()[idx] - mean[c]) / static_cast<float>(n)
                                     + dmean[c] / static_cast<float>(n);
                             }
                         }
@@ -360,12 +360,12 @@ TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
             // Apply gradients to gamma and beta
             if (gamma_ptr->requires_grad) {
                 for (size_t c = 0; c < channels; c++) {
-                    gamma_ptr->grad[c] += dgamma[c];
+                    gamma_ptr->grad()[c] += dgamma[c];
                 }
             }
             if (beta_ptr->requires_grad) {
                 for (size_t c = 0; c < channels; c++) {
-                    beta_ptr->grad[c] += dbeta[c];
+                    beta_ptr->grad()[c] += dbeta[c];
                 }
             }
         };
@@ -423,13 +423,13 @@ TensorPtr LayerNorm::forward(const TensorPtr& input) {
     for (size_t n = 0; n < num_instances; n++) {
         float sum = 0.0f;
         for (size_t i = 0; i < norm_size; i++) {
-            sum += input->data[n * norm_size + i];
+            sum += input->data()[n * norm_size + i];
         }
         mean[n] = sum / static_cast<float>(norm_size);
 
         float var_sum = 0.0f;
         for (size_t i = 0; i < norm_size; i++) {
-            float diff = input->data[n * norm_size + i] - mean[n];
+            float diff = input->data()[n * norm_size + i] - mean[n];
             var_sum += diff * diff;
         }
         float var = var_sum / static_cast<float>(norm_size);
@@ -439,8 +439,8 @@ TensorPtr LayerNorm::forward(const TensorPtr& input) {
     // Normalize and apply scale/shift
     for (size_t n = 0; n < num_instances; n++) {
         for (size_t i = 0; i < norm_size; i++) {
-            float x_norm = (input->data[n * norm_size + i] - mean[n]) * inv_std[n];
-            result->data[n * norm_size + i] = gamma->data[i] * x_norm + beta->data[i];
+            float x_norm = (input->data()[n * norm_size + i] - mean[n]) * inv_std[n];
+            result->data()[n * norm_size + i] = gamma->data()[i] * x_norm + beta->data()[i];
         }
     }
 
@@ -458,9 +458,9 @@ TensorPtr LayerNorm::forward(const TensorPtr& input) {
             for (size_t n = 0; n < num_instances; n++) {
                 // Compute dgamma and dbeta
                 for (size_t i = 0; i < norm_size; i++) {
-                    float x_norm = (input_ptr->data[n * norm_size + i] - mean[n]) * inv_std[n];
-                    dgamma[i] += result->grad[n * norm_size + i] * x_norm;
-                    dbeta[i] += result->grad[n * norm_size + i];
+                    float x_norm = (input_ptr->data()[n * norm_size + i] - mean[n]) * inv_std[n];
+                    dgamma[i] += result->grad()[n * norm_size + i] * x_norm;
+                    dbeta[i] += result->grad()[n * norm_size + i];
                 }
 
                 // Compute dx using the LayerNorm backward formula
@@ -469,10 +469,10 @@ TensorPtr LayerNorm::forward(const TensorPtr& input) {
                 float sum_dy_gamma_xnorm = 0.0f;
 
                 for (size_t i = 0; i < norm_size; i++) {
-                    float dy = result->grad[n * norm_size + i];
-                    float x_norm = (input_ptr->data[n * norm_size + i] - mean[n]) * inv_std[n];
-                    sum_dy_gamma += dy * gamma_ptr->data[i];
-                    sum_dy_gamma_xnorm += dy * gamma_ptr->data[i] * x_norm;
+                    float dy = result->grad()[n * norm_size + i];
+                    float x_norm = (input_ptr->data()[n * norm_size + i] - mean[n]) * inv_std[n];
+                    sum_dy_gamma += dy * gamma_ptr->data()[i];
+                    sum_dy_gamma_xnorm += dy * gamma_ptr->data()[i] * x_norm;
                 }
 
                 float mean_dy_gamma = sum_dy_gamma / static_cast<float>(norm_size);
@@ -480,10 +480,10 @@ TensorPtr LayerNorm::forward(const TensorPtr& input) {
 
                 if (input_ptr->requires_grad) {
                     for (size_t i = 0; i < norm_size; i++) {
-                        float dy = result->grad[n * norm_size + i];
-                        float x_norm = (input_ptr->data[n * norm_size + i] - mean[n]) * inv_std[n];
-                        input_ptr->grad[n * norm_size + i] += inv_std[n] *
-                            (dy * gamma_ptr->data[i] - mean_dy_gamma - x_norm * mean_dy_gamma_xnorm);
+                        float dy = result->grad()[n * norm_size + i];
+                        float x_norm = (input_ptr->data()[n * norm_size + i] - mean[n]) * inv_std[n];
+                        input_ptr->grad()[n * norm_size + i] += inv_std[n] *
+                            (dy * gamma_ptr->data()[i] - mean_dy_gamma - x_norm * mean_dy_gamma_xnorm);
                     }
                 }
             }
@@ -491,12 +491,12 @@ TensorPtr LayerNorm::forward(const TensorPtr& input) {
             // Apply gradients to gamma and beta
             if (gamma_ptr->requires_grad) {
                 for (size_t i = 0; i < norm_size; i++) {
-                    gamma_ptr->grad[i] += dgamma[i];
+                    gamma_ptr->grad()[i] += dgamma[i];
                 }
             }
             if (beta_ptr->requires_grad) {
                 for (size_t i = 0; i < norm_size; i++) {
-                    beta_ptr->grad[i] += dbeta[i];
+                    beta_ptr->grad()[i] += dbeta[i];
                 }
             }
         };
@@ -531,16 +531,16 @@ TensorPtr Embedding::forward(const TensorPtr& indices) {
     }
     out_shape.push_back(embedding_dim);
 
-    size_t num_indices = indices->data.size();
+    size_t num_indices = indices->size();
     bool track = weight->requires_grad && GradMode::is_enabled();
     auto result = Tensor::create(out_shape, track);
 
     // Forward: lookup embeddings
     for (size_t i = 0; i < num_indices; i++) {
-        size_t idx = static_cast<size_t>(indices->data[i]);
+        size_t idx = static_cast<size_t>(indices->data()[i]);
         assert(idx < num_embeddings);
         for (size_t j = 0; j < embedding_dim; j++) {
-            result->data[i * embedding_dim + j] = weight->data[idx * embedding_dim + j];
+            result->data()[i * embedding_dim + j] = weight->data()[idx * embedding_dim + j];
         }
     }
 
@@ -551,9 +551,9 @@ TensorPtr Embedding::forward(const TensorPtr& indices) {
         result->grad_fn = [weight_ptr, indices_ptr, result, num_indices, this]() {
             // Backward: accumulate gradients for each embedding
             for (size_t i = 0; i < num_indices; i++) {
-                size_t idx = static_cast<size_t>(indices_ptr->data[i]);
+                size_t idx = static_cast<size_t>(indices_ptr->data()[i]);
                 for (size_t j = 0; j < embedding_dim; j++) {
-                    weight_ptr->grad[idx * embedding_dim + j] += result->grad[i * embedding_dim + j];
+                    weight_ptr->grad()[idx * embedding_dim + j] += result->grad()[i * embedding_dim + j];
                 }
             }
         };
@@ -581,12 +581,12 @@ LSTM::LSTM(size_t input_size, size_t hidden_size, bool batch_first)
     bias_ih = Tensor::zeros({4 * hidden_size}, true);
     bias_hh = Tensor::zeros({4 * hidden_size}, true);
 
-    for (auto& v : weight_ih->data) v = dist_ih(layer_rng);
-    for (auto& v : weight_hh->data) v = dist_hh(layer_rng);
+    for (size_t i = 0; i < weight_ih->size(); i++) weight_ih->data()[i] = dist_ih(layer_rng);
+    for (size_t i = 0; i < weight_hh->size(); i++) weight_hh->data()[i] = dist_hh(layer_rng);
 
     // Initialize forget gate bias to 1.0 for better gradient flow
     for (size_t i = hidden_size; i < 2 * hidden_size; i++) {
-        bias_ih->data[i] = 1.0f;
+        bias_ih->data()[i] = 1.0f;
     }
 }
 
@@ -634,8 +634,8 @@ TensorPtr LSTM::forward(const TensorPtr& input, const TensorPtr& h0, const Tenso
     all_h[0].resize(batch_size * hidden_size);
     all_c[0].resize(batch_size * hidden_size);
     for (size_t i = 0; i < batch_size * hidden_size; i++) {
-        all_h[0][i] = h0->data[i];
-        all_c[0][i] = c0->data[i];
+        all_h[0][i] = h0->data()[i];
+        all_c[0][i] = c0->data()[i];
     }
 
     // Forward through time
@@ -660,17 +660,17 @@ TensorPtr LSTM::forward(const TensorPtr& input, const TensorPtr& h0, const Tenso
 
             for (size_t g = 0; g < 4 * hidden_size; g++) {
                 for (size_t i = 0; i < input_size; i++) {
-                    gates[g] += input->data[x_offset + i] * weight_ih->data[g * input_size + i];
+                    gates[g] += input->data()[x_offset + i] * weight_ih->data()[g * input_size + i];
                 }
-                gates[g] += bias_ih->data[g];
+                gates[g] += bias_ih->data()[g];
             }
 
             // h_{t-1} @ W_hh^T
             for (size_t g = 0; g < 4 * hidden_size; g++) {
                 for (size_t h = 0; h < hidden_size; h++) {
-                    gates[g] += all_h[t][b * hidden_size + h] * weight_hh->data[g * hidden_size + h];
+                    gates[g] += all_h[t][b * hidden_size + h] * weight_hh->data()[g * hidden_size + h];
                 }
-                gates[g] += bias_hh->data[g];
+                gates[g] += bias_hh->data()[g];
             }
 
             // Split into i, f, g, o and apply activations
@@ -700,7 +700,7 @@ TensorPtr LSTM::forward(const TensorPtr& input, const TensorPtr& h0, const Tenso
                 size_t out_offset = batch_first ?
                     (b * seq_len * hidden_size + t * hidden_size + h) :
                     (t * batch_size * hidden_size + b * hidden_size + h);
-                output->data[out_offset] = h_new;
+                output->data()[out_offset] = h_new;
             }
         }
     }
@@ -709,8 +709,8 @@ TensorPtr LSTM::forward(const TensorPtr& input, const TensorPtr& h0, const Tenso
     h_n = Tensor::create({batch_size, hidden_size}, false);
     c_n = Tensor::create({batch_size, hidden_size}, false);
     for (size_t i = 0; i < batch_size * hidden_size; i++) {
-        h_n->data[i] = all_h[seq_len][i];
-        c_n->data[i] = all_c[seq_len][i];
+        h_n->data()[i] = all_h[seq_len][i];
+        c_n->data()[i] = all_c[seq_len][i];
     }
 
     if (track) {
@@ -738,7 +738,7 @@ TensorPtr LSTM::forward(const TensorPtr& input, const TensorPtr& h0, const Tenso
                             (t * batch_size * hs + b * hs + h);
 
                         // Gradient from output and from next time step
-                        float dh = output->grad[out_offset] + dh_next[idx];
+                        float dh = output->grad()[out_offset] + dh_next[idx];
 
                         // h_t = o_t * tanh(c_t)
                         float do_gate = dh * all_tanh_c[t][idx];
@@ -767,40 +767,40 @@ TensorPtr LSTM::forward(const TensorPtr& input, const TensorPtr& h0, const Tenso
                             (t * batch_size * is + b * is);
 
                         // d_bias_ih and d_bias_hh
-                        bias_ih_ptr->grad[h] += di_pre;
-                        bias_ih_ptr->grad[hs + h] += df_pre;
-                        bias_ih_ptr->grad[2 * hs + h] += dg_pre;
-                        bias_ih_ptr->grad[3 * hs + h] += do_pre;
+                        bias_ih_ptr->grad()[h] += di_pre;
+                        bias_ih_ptr->grad()[hs + h] += df_pre;
+                        bias_ih_ptr->grad()[2 * hs + h] += dg_pre;
+                        bias_ih_ptr->grad()[3 * hs + h] += do_pre;
 
-                        bias_hh_ptr->grad[h] += di_pre;
-                        bias_hh_ptr->grad[hs + h] += df_pre;
-                        bias_hh_ptr->grad[2 * hs + h] += dg_pre;
-                        bias_hh_ptr->grad[3 * hs + h] += do_pre;
+                        bias_hh_ptr->grad()[h] += di_pre;
+                        bias_hh_ptr->grad()[hs + h] += df_pre;
+                        bias_hh_ptr->grad()[2 * hs + h] += dg_pre;
+                        bias_hh_ptr->grad()[3 * hs + h] += do_pre;
 
                         // d_weight_ih: [4*hs, is]
                         for (size_t i = 0; i < is; i++) {
-                            weight_ih_ptr->grad[h * is + i] += di_pre * input_ptr->data[x_offset + i];
-                            weight_ih_ptr->grad[(hs + h) * is + i] += df_pre * input_ptr->data[x_offset + i];
-                            weight_ih_ptr->grad[(2 * hs + h) * is + i] += dg_pre * input_ptr->data[x_offset + i];
-                            weight_ih_ptr->grad[(3 * hs + h) * is + i] += do_pre * input_ptr->data[x_offset + i];
+                            weight_ih_ptr->grad()[h * is + i] += di_pre * input_ptr->data()[x_offset + i];
+                            weight_ih_ptr->grad()[(hs + h) * is + i] += df_pre * input_ptr->data()[x_offset + i];
+                            weight_ih_ptr->grad()[(2 * hs + h) * is + i] += dg_pre * input_ptr->data()[x_offset + i];
+                            weight_ih_ptr->grad()[(3 * hs + h) * is + i] += do_pre * input_ptr->data()[x_offset + i];
                         }
 
                         // d_weight_hh: [4*hs, hs]
                         for (size_t hh = 0; hh < hs; hh++) {
-                            weight_hh_ptr->grad[h * hs + hh] += di_pre * all_h[t][b * hs + hh];
-                            weight_hh_ptr->grad[(hs + h) * hs + hh] += df_pre * all_h[t][b * hs + hh];
-                            weight_hh_ptr->grad[(2 * hs + h) * hs + hh] += dg_pre * all_h[t][b * hs + hh];
-                            weight_hh_ptr->grad[(3 * hs + h) * hs + hh] += do_pre * all_h[t][b * hs + hh];
+                            weight_hh_ptr->grad()[h * hs + hh] += di_pre * all_h[t][b * hs + hh];
+                            weight_hh_ptr->grad()[(hs + h) * hs + hh] += df_pre * all_h[t][b * hs + hh];
+                            weight_hh_ptr->grad()[(2 * hs + h) * hs + hh] += dg_pre * all_h[t][b * hs + hh];
+                            weight_hh_ptr->grad()[(3 * hs + h) * hs + hh] += do_pre * all_h[t][b * hs + hh];
                         }
 
                         // d_input
                         if (input_ptr->requires_grad) {
                             for (size_t i = 0; i < is; i++) {
-                                input_ptr->grad[x_offset + i] +=
-                                    di_pre * weight_ih_ptr->data[h * is + i] +
-                                    df_pre * weight_ih_ptr->data[(hs + h) * is + i] +
-                                    dg_pre * weight_ih_ptr->data[(2 * hs + h) * is + i] +
-                                    do_pre * weight_ih_ptr->data[(3 * hs + h) * is + i];
+                                input_ptr->grad()[x_offset + i] +=
+                                    di_pre * weight_ih_ptr->data()[h * is + i] +
+                                    df_pre * weight_ih_ptr->data()[(hs + h) * is + i] +
+                                    dg_pre * weight_ih_ptr->data()[(2 * hs + h) * is + i] +
+                                    do_pre * weight_ih_ptr->data()[(3 * hs + h) * is + i];
                             }
                         }
 
@@ -808,10 +808,10 @@ TensorPtr LSTM::forward(const TensorPtr& input, const TensorPtr& h0, const Tenso
                         dh_next[idx] = 0.0f;
                         for (size_t hh = 0; hh < hs; hh++) {
                             dh_next[b * hs + hh] +=
-                                di_pre * weight_hh_ptr->data[h * hs + hh] +
-                                df_pre * weight_hh_ptr->data[(hs + h) * hs + hh] +
-                                dg_pre * weight_hh_ptr->data[(2 * hs + h) * hs + hh] +
-                                do_pre * weight_hh_ptr->data[(3 * hs + h) * hs + hh];
+                                di_pre * weight_hh_ptr->data()[h * hs + hh] +
+                                df_pre * weight_hh_ptr->data()[(hs + h) * hs + hh] +
+                                dg_pre * weight_hh_ptr->data()[(2 * hs + h) * hs + hh] +
+                                do_pre * weight_hh_ptr->data()[(3 * hs + h) * hs + hh];
                         }
                     }
                 }
@@ -841,8 +841,8 @@ GRU::GRU(size_t input_size, size_t hidden_size, bool batch_first)
     bias_ih = Tensor::zeros({3 * hidden_size}, true);
     bias_hh = Tensor::zeros({3 * hidden_size}, true);
 
-    for (auto& v : weight_ih->data) v = dist_ih(layer_rng);
-    for (auto& v : weight_hh->data) v = dist_hh(layer_rng);
+    for (size_t i = 0; i < weight_ih->size(); i++) weight_ih->data()[i] = dist_ih(layer_rng);
+    for (size_t i = 0; i < weight_hh->size(); i++) weight_hh->data()[i] = dist_hh(layer_rng);
 }
 
 TensorPtr GRU::forward(const TensorPtr& input) {
@@ -887,7 +887,7 @@ TensorPtr GRU::forward(const TensorPtr& input, const TensorPtr& h0) {
     // Initialize h from h0
     all_h[0].resize(batch_size * hidden_size);
     for (size_t i = 0; i < batch_size * hidden_size; i++) {
-        all_h[0][i] = h0->data[i];
+        all_h[0][i] = h0->data()[i];
     }
 
     // Forward through time
@@ -915,17 +915,17 @@ TensorPtr GRU::forward(const TensorPtr& input, const TensorPtr& h0) {
             // x @ W_ih^T + b_ih
             for (size_t g = 0; g < 3 * hidden_size; g++) {
                 for (size_t i = 0; i < input_size; i++) {
-                    gates_ih[g] += input->data[x_offset + i] * weight_ih->data[g * input_size + i];
+                    gates_ih[g] += input->data()[x_offset + i] * weight_ih->data()[g * input_size + i];
                 }
-                gates_ih[g] += bias_ih->data[g];
+                gates_ih[g] += bias_ih->data()[g];
             }
 
             // h @ W_hh^T + b_hh
             for (size_t g = 0; g < 3 * hidden_size; g++) {
                 for (size_t h = 0; h < hidden_size; h++) {
-                    gates_hh[g] += all_h[t][b * hidden_size + h] * weight_hh->data[g * hidden_size + h];
+                    gates_hh[g] += all_h[t][b * hidden_size + h] * weight_hh->data()[g * hidden_size + h];
                 }
-                gates_hh[g] += bias_hh->data[g];
+                gates_hh[g] += bias_hh->data()[g];
             }
 
             // Apply gates
@@ -956,7 +956,7 @@ TensorPtr GRU::forward(const TensorPtr& input, const TensorPtr& h0) {
                 size_t out_offset = batch_first ?
                     (b * seq_len * hidden_size + t * hidden_size + h) :
                     (t * batch_size * hidden_size + b * hidden_size + h);
-                output->data[out_offset] = h_new;
+                output->data()[out_offset] = h_new;
             }
         }
     }
@@ -964,7 +964,7 @@ TensorPtr GRU::forward(const TensorPtr& input, const TensorPtr& h0) {
     // Store final hidden state
     h_n = Tensor::create({batch_size, hidden_size}, false);
     for (size_t i = 0; i < batch_size * hidden_size; i++) {
-        h_n->data[i] = all_h[seq_len][i];
+        h_n->data()[i] = all_h[seq_len][i];
     }
 
     if (track) {
@@ -991,7 +991,7 @@ TensorPtr GRU::forward(const TensorPtr& input, const TensorPtr& h0) {
                             (t * batch_size * hs + b * hs + h);
 
                         // Gradient from output and from next time step
-                        float dh = output->grad[out_offset] + dh_next[idx];
+                        float dh = output->grad()[out_offset] + dh_next[idx];
 
                         // h_t = (1 - z_t) * n_t + z_t * h_{t-1}
                         float dz = dh * (all_h[t][idx] - all_n[t][idx]);
@@ -1016,44 +1016,44 @@ TensorPtr GRU::forward(const TensorPtr& input, const TensorPtr& h0) {
                             (t * batch_size * is + b * is);
 
                         // Gradients for biases
-                        bias_ih_ptr->grad[h] += dr_pre;
-                        bias_ih_ptr->grad[hs + h] += dz_pre;
-                        bias_ih_ptr->grad[2 * hs + h] += dn_pre;
+                        bias_ih_ptr->grad()[h] += dr_pre;
+                        bias_ih_ptr->grad()[hs + h] += dz_pre;
+                        bias_ih_ptr->grad()[2 * hs + h] += dn_pre;
 
-                        bias_hh_ptr->grad[h] += dr_pre;
-                        bias_hh_ptr->grad[hs + h] += dz_pre;
-                        bias_hh_ptr->grad[2 * hs + h] += dn_pre * all_r[t][idx];
+                        bias_hh_ptr->grad()[h] += dr_pre;
+                        bias_hh_ptr->grad()[hs + h] += dz_pre;
+                        bias_hh_ptr->grad()[2 * hs + h] += dn_pre * all_r[t][idx];
 
                         // Gradients for weight_ih
                         for (size_t i = 0; i < is; i++) {
-                            weight_ih_ptr->grad[h * is + i] += dr_pre * input_ptr->data[x_offset + i];
-                            weight_ih_ptr->grad[(hs + h) * is + i] += dz_pre * input_ptr->data[x_offset + i];
-                            weight_ih_ptr->grad[(2 * hs + h) * is + i] += dn_pre * input_ptr->data[x_offset + i];
+                            weight_ih_ptr->grad()[h * is + i] += dr_pre * input_ptr->data()[x_offset + i];
+                            weight_ih_ptr->grad()[(hs + h) * is + i] += dz_pre * input_ptr->data()[x_offset + i];
+                            weight_ih_ptr->grad()[(2 * hs + h) * is + i] += dn_pre * input_ptr->data()[x_offset + i];
                         }
 
                         // Gradients for weight_hh
                         for (size_t hh = 0; hh < hs; hh++) {
-                            weight_hh_ptr->grad[h * hs + hh] += dr_pre * all_h[t][b * hs + hh];
-                            weight_hh_ptr->grad[(hs + h) * hs + hh] += dz_pre * all_h[t][b * hs + hh];
-                            weight_hh_ptr->grad[(2 * hs + h) * hs + hh] += dn_pre * all_r[t][idx] * all_h[t][b * hs + hh];
+                            weight_hh_ptr->grad()[h * hs + hh] += dr_pre * all_h[t][b * hs + hh];
+                            weight_hh_ptr->grad()[(hs + h) * hs + hh] += dz_pre * all_h[t][b * hs + hh];
+                            weight_hh_ptr->grad()[(2 * hs + h) * hs + hh] += dn_pre * all_r[t][idx] * all_h[t][b * hs + hh];
                         }
 
                         // Gradient for input
                         if (input_ptr->requires_grad) {
                             for (size_t i = 0; i < is; i++) {
-                                input_ptr->grad[x_offset + i] +=
-                                    dr_pre * weight_ih_ptr->data[h * is + i] +
-                                    dz_pre * weight_ih_ptr->data[(hs + h) * is + i] +
-                                    dn_pre * weight_ih_ptr->data[(2 * hs + h) * is + i];
+                                input_ptr->grad()[x_offset + i] +=
+                                    dr_pre * weight_ih_ptr->data()[h * is + i] +
+                                    dz_pre * weight_ih_ptr->data()[(hs + h) * is + i] +
+                                    dn_pre * weight_ih_ptr->data()[(2 * hs + h) * is + i];
                             }
                         }
 
                         // Gradient for h_{t-1} (accumulate for next iteration)
                         for (size_t hh = 0; hh < hs; hh++) {
                             dh_next[b * hs + hh] +=
-                                dr_pre * weight_hh_ptr->data[h * hs + hh] +
-                                dz_pre * weight_hh_ptr->data[(hs + h) * hs + hh] +
-                                dn_pre * all_r[t][idx] * weight_hh_ptr->data[(2 * hs + h) * hs + hh];
+                                dr_pre * weight_hh_ptr->data()[h * hs + hh] +
+                                dz_pre * weight_hh_ptr->data()[(hs + h) * hs + hh] +
+                                dn_pre * all_r[t][idx] * weight_hh_ptr->data()[(2 * hs + h) * hs + hh];
                         }
                     }
                 }
@@ -1084,10 +1084,10 @@ MultiHeadAttention::MultiHeadAttention(size_t embed_dim, size_t num_heads)
     W_v = Tensor::create({embed_dim, embed_dim}, true);
     W_o = Tensor::create({embed_dim, embed_dim}, true);
 
-    for (auto& v : W_q->data) v = dist(layer_rng);
-    for (auto& v : W_k->data) v = dist(layer_rng);
-    for (auto& v : W_v->data) v = dist(layer_rng);
-    for (auto& v : W_o->data) v = dist(layer_rng);
+    for (size_t i = 0; i < W_q->size(); i++) W_q->data()[i] = dist(layer_rng);
+    for (size_t i = 0; i < W_k->size(); i++) W_k->data()[i] = dist(layer_rng);
+    for (size_t i = 0; i < W_v->size(); i++) W_v->data()[i] = dist(layer_rng);
+    for (size_t i = 0; i < W_o->size(); i++) W_o->data()[i] = dist(layer_rng);
 
     // Biases
     b_q = Tensor::zeros({embed_dim}, true);
@@ -1134,12 +1134,12 @@ TensorPtr MultiHeadAttention::forward(const TensorPtr& query, const TensorPtr& k
     for (size_t b = 0; b < batch; b++) {
         for (size_t s = 0; s < seq_q; s++) {
             for (size_t d = 0; d < embed_dim; d++) {
-                float sum = b_q->data[d];
+                float sum = b_q->data()[d];
                 for (size_t k = 0; k < embed_dim; k++) {
-                    sum += query->data[b * seq_q * embed_dim + s * embed_dim + k] *
-                           W_q->data[d * embed_dim + k];
+                    sum += query->data()[b * seq_q * embed_dim + s * embed_dim + k] *
+                           W_q->data()[d * embed_dim + k];
                 }
-                Q->data[b * seq_q * embed_dim + s * embed_dim + d] = sum;
+                Q->data()[b * seq_q * embed_dim + s * embed_dim + d] = sum;
             }
         }
     }
@@ -1148,12 +1148,12 @@ TensorPtr MultiHeadAttention::forward(const TensorPtr& query, const TensorPtr& k
     for (size_t b = 0; b < batch; b++) {
         for (size_t s = 0; s < seq_k; s++) {
             for (size_t d = 0; d < embed_dim; d++) {
-                float sum = b_k->data[d];
+                float sum = b_k->data()[d];
                 for (size_t k = 0; k < embed_dim; k++) {
-                    sum += key->data[b * seq_k * embed_dim + s * embed_dim + k] *
-                           W_k->data[d * embed_dim + k];
+                    sum += key->data()[b * seq_k * embed_dim + s * embed_dim + k] *
+                           W_k->data()[d * embed_dim + k];
                 }
-                K->data[b * seq_k * embed_dim + s * embed_dim + d] = sum;
+                K->data()[b * seq_k * embed_dim + s * embed_dim + d] = sum;
             }
         }
     }
@@ -1162,12 +1162,12 @@ TensorPtr MultiHeadAttention::forward(const TensorPtr& query, const TensorPtr& k
     for (size_t b = 0; b < batch; b++) {
         for (size_t s = 0; s < seq_k; s++) {
             for (size_t d = 0; d < embed_dim; d++) {
-                float sum = b_v->data[d];
+                float sum = b_v->data()[d];
                 for (size_t k = 0; k < embed_dim; k++) {
-                    sum += value->data[b * seq_k * embed_dim + s * embed_dim + k] *
-                           W_v->data[d * embed_dim + k];
+                    sum += value->data()[b * seq_k * embed_dim + s * embed_dim + k] *
+                           W_v->data()[d * embed_dim + k];
                 }
-                V->data[b * seq_k * embed_dim + s * embed_dim + d] = sum;
+                V->data()[b * seq_k * embed_dim + s * embed_dim + d] = sum;
             }
         }
     }
@@ -1190,17 +1190,17 @@ TensorPtr MultiHeadAttention::forward(const TensorPtr& query, const TensorPtr& k
                         // Q[b, i, h*head_dim + d] * K[b, j, h*head_dim + d]
                         size_t q_idx = b * seq_q * embed_dim + i * embed_dim + h * head_dim + d;
                         size_t k_idx = b * seq_k * embed_dim + j * embed_dim + h * head_dim + d;
-                        dot += Q->data[q_idx] * K->data[k_idx];
+                        dot += Q->data()[q_idx] * K->data()[k_idx];
                     }
                     size_t score_idx = b * num_heads * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j;
-                    scores->data[score_idx] = dot * scale;
+                    scores->data()[score_idx] = dot * scale;
 
                     // Apply mask if provided
                     if (mask != nullptr) {
                         // mask shape: [batch, 1, seq_q, seq_k] or [1, 1, seq_q, seq_k]
                         size_t mb = (mask->shape[0] == 1) ? 0 : b;
                         size_t mask_idx = mb * seq_q * seq_k + i * seq_k + j;
-                        scores->data[score_idx] += mask->data[mask_idx];
+                        scores->data()[score_idx] += mask->data()[mask_idx];
                     }
                 }
             }
@@ -1216,21 +1216,21 @@ TensorPtr MultiHeadAttention::forward(const TensorPtr& query, const TensorPtr& k
                 float max_val = -std::numeric_limits<float>::max();
                 for (size_t j = 0; j < seq_k; j++) {
                     size_t idx = b * num_heads * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j;
-                    max_val = std::max(max_val, scores->data[idx]);
+                    max_val = std::max(max_val, scores->data()[idx]);
                 }
 
                 // Compute exp and sum
                 float sum_exp = 0.0f;
                 for (size_t j = 0; j < seq_k; j++) {
                     size_t idx = b * num_heads * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j;
-                    attn->data[idx] = std::exp(scores->data[idx] - max_val);
-                    sum_exp += attn->data[idx];
+                    attn->data()[idx] = std::exp(scores->data()[idx] - max_val);
+                    sum_exp += attn->data()[idx];
                 }
 
                 // Normalize
                 for (size_t j = 0; j < seq_k; j++) {
                     size_t idx = b * num_heads * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j;
-                    attn->data[idx] /= sum_exp;
+                    attn->data()[idx] /= sum_exp;
                 }
             }
         }
@@ -1251,11 +1251,11 @@ TensorPtr MultiHeadAttention::forward(const TensorPtr& query, const TensorPtr& k
                     for (size_t j = 0; j < seq_k; j++) {
                         size_t attn_idx = b * num_heads * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j;
                         size_t v_idx = b * seq_k * embed_dim + j * embed_dim + h * head_dim + d;
-                        sum += attn->data[attn_idx] * V->data[v_idx];
+                        sum += attn->data()[attn_idx] * V->data()[v_idx];
                     }
                     // Store in [batch, seq_q, embed_dim] format
                     size_t out_idx = b * seq_q * embed_dim + i * embed_dim + h * head_dim + d;
-                    context->data[out_idx] = sum;
+                    context->data()[out_idx] = sum;
                 }
             }
         }
@@ -1267,12 +1267,12 @@ TensorPtr MultiHeadAttention::forward(const TensorPtr& query, const TensorPtr& k
     for (size_t b = 0; b < batch; b++) {
         for (size_t s = 0; s < seq_q; s++) {
             for (size_t d = 0; d < embed_dim; d++) {
-                float sum = b_o->data[d];
+                float sum = b_o->data()[d];
                 for (size_t k = 0; k < embed_dim; k++) {
-                    sum += context->data[b * seq_q * embed_dim + s * embed_dim + k] *
-                           W_o->data[d * embed_dim + k];
+                    sum += context->data()[b * seq_q * embed_dim + s * embed_dim + k] *
+                           W_o->data()[d * embed_dim + k];
                 }
-                output->data[b * seq_q * embed_dim + s * embed_dim + d] = sum;
+                output->data()[b * seq_q * embed_dim + s * embed_dim + d] = sum;
             }
         }
     }
@@ -1302,17 +1302,17 @@ TensorPtr MultiHeadAttention::forward(const TensorPtr& query, const TensorPtr& k
 
             // Gradient of output projection
             auto d_context = Tensor::create({batch, seq_q, ed}, false);
-            for (size_t i = 0; i < d_context->data.size(); i++) d_context->data[i] = 0;
+            for (size_t i = 0; i < d_context->size(); i++) d_context->data()[i] = 0;
 
             for (size_t b = 0; b < batch; b++) {
                 for (size_t s = 0; s < seq_q; s++) {
                     for (size_t d = 0; d < ed; d++) {
-                        float dout = output->grad[b * seq_q * ed + s * ed + d];
-                        b_o_ptr->grad[d] += dout;
+                        float dout = output->grad()[b * seq_q * ed + s * ed + d];
+                        b_o_ptr->grad()[d] += dout;
 
                         for (size_t k = 0; k < ed; k++) {
-                            W_o_ptr->grad[d * ed + k] += dout * context->data[b * seq_q * ed + s * ed + k];
-                            d_context->data[b * seq_q * ed + s * ed + k] += dout * W_o_ptr->data[d * ed + k];
+                            W_o_ptr->grad()[d * ed + k] += dout * context->data()[b * seq_q * ed + s * ed + k];
+                            d_context->data()[b * seq_q * ed + s * ed + k] += dout * W_o_ptr->data()[d * ed + k];
                         }
                     }
                 }
@@ -1321,19 +1321,19 @@ TensorPtr MultiHeadAttention::forward(const TensorPtr& query, const TensorPtr& k
             // Gradient of attn @ V
             auto d_attn = Tensor::create({batch, nh, seq_q, seq_k}, false);
             auto d_V = Tensor::create({batch, seq_k, ed}, false);
-            for (size_t i = 0; i < d_attn->data.size(); i++) d_attn->data[i] = 0;
-            for (size_t i = 0; i < d_V->data.size(); i++) d_V->data[i] = 0;
+            for (size_t i = 0; i < d_attn->size(); i++) d_attn->data()[i] = 0;
+            for (size_t i = 0; i < d_V->size(); i++) d_V->data()[i] = 0;
 
             for (size_t b = 0; b < batch; b++) {
                 for (size_t h = 0; h < nh; h++) {
                     for (size_t i = 0; i < seq_q; i++) {
                         for (size_t d = 0; d < hd; d++) {
-                            float d_ctx = d_context->data[b * seq_q * ed + i * ed + h * hd + d];
+                            float d_ctx = d_context->data()[b * seq_q * ed + i * ed + h * hd + d];
                             for (size_t j = 0; j < seq_k; j++) {
                                 size_t attn_idx = b * nh * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j;
                                 size_t v_idx = b * seq_k * ed + j * ed + h * hd + d;
-                                d_attn->data[attn_idx] += d_ctx * V->data[v_idx];
-                                d_V->data[v_idx] += d_ctx * attn->data[attn_idx];
+                                d_attn->data()[attn_idx] += d_ctx * V->data()[v_idx];
+                                d_V->data()[v_idx] += d_ctx * attn->data()[attn_idx];
                             }
                         }
                     }
@@ -1349,11 +1349,11 @@ TensorPtr MultiHeadAttention::forward(const TensorPtr& query, const TensorPtr& k
                         float dot_sum = 0.0f;
                         for (size_t j = 0; j < seq_k; j++) {
                             size_t idx = b * nh * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j;
-                            dot_sum += attn->data[idx] * d_attn->data[idx];
+                            dot_sum += attn->data()[idx] * d_attn->data()[idx];
                         }
                         for (size_t j = 0; j < seq_k; j++) {
                             size_t idx = b * nh * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j;
-                            d_scores->data[idx] = attn->data[idx] * (d_attn->data[idx] - dot_sum);
+                            d_scores->data()[idx] = attn->data()[idx] * (d_attn->data()[idx] - dot_sum);
                         }
                     }
                 }
@@ -1362,20 +1362,20 @@ TensorPtr MultiHeadAttention::forward(const TensorPtr& query, const TensorPtr& k
             // Gradient of Q @ K^T / sqrt(head_dim)
             auto d_Q = Tensor::create({batch, seq_q, ed}, false);
             auto d_K = Tensor::create({batch, seq_k, ed}, false);
-            for (size_t i = 0; i < d_Q->data.size(); i++) d_Q->data[i] = 0;
-            for (size_t i = 0; i < d_K->data.size(); i++) d_K->data[i] = 0;
+            for (size_t i = 0; i < d_Q->size(); i++) d_Q->data()[i] = 0;
+            for (size_t i = 0; i < d_K->size(); i++) d_K->data()[i] = 0;
 
             for (size_t b = 0; b < batch; b++) {
                 for (size_t h = 0; h < nh; h++) {
                     for (size_t i = 0; i < seq_q; i++) {
                         for (size_t j = 0; j < seq_k; j++) {
                             size_t score_idx = b * nh * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j;
-                            float d_s = d_scores->data[score_idx] * scale;
+                            float d_s = d_scores->data()[score_idx] * scale;
                             for (size_t d = 0; d < hd; d++) {
                                 size_t q_idx = b * seq_q * ed + i * ed + h * hd + d;
                                 size_t k_idx = b * seq_k * ed + j * ed + h * hd + d;
-                                d_Q->data[q_idx] += d_s * K->data[k_idx];
-                                d_K->data[k_idx] += d_s * Q->data[q_idx];
+                                d_Q->data()[q_idx] += d_s * K->data()[k_idx];
+                                d_K->data()[k_idx] += d_s * Q->data()[q_idx];
                             }
                         }
                     }
@@ -1386,13 +1386,13 @@ TensorPtr MultiHeadAttention::forward(const TensorPtr& query, const TensorPtr& k
             for (size_t b = 0; b < batch; b++) {
                 for (size_t s = 0; s < seq_k; s++) {
                     for (size_t d = 0; d < ed; d++) {
-                        float dv = d_V->data[b * seq_k * ed + s * ed + d];
-                        b_v_ptr->grad[d] += dv;
+                        float dv = d_V->data()[b * seq_k * ed + s * ed + d];
+                        b_v_ptr->grad()[d] += dv;
 
                         for (size_t k = 0; k < ed; k++) {
-                            W_v_ptr->grad[d * ed + k] += dv * value_ptr->data[b * seq_k * ed + s * ed + k];
+                            W_v_ptr->grad()[d * ed + k] += dv * value_ptr->data()[b * seq_k * ed + s * ed + k];
                             if (value_ptr->requires_grad) {
-                                value_ptr->grad[b * seq_k * ed + s * ed + k] += dv * W_v_ptr->data[d * ed + k];
+                                value_ptr->grad()[b * seq_k * ed + s * ed + k] += dv * W_v_ptr->data()[d * ed + k];
                             }
                         }
                     }
@@ -1403,13 +1403,13 @@ TensorPtr MultiHeadAttention::forward(const TensorPtr& query, const TensorPtr& k
             for (size_t b = 0; b < batch; b++) {
                 for (size_t s = 0; s < seq_k; s++) {
                     for (size_t d = 0; d < ed; d++) {
-                        float dk = d_K->data[b * seq_k * ed + s * ed + d];
-                        b_k_ptr->grad[d] += dk;
+                        float dk = d_K->data()[b * seq_k * ed + s * ed + d];
+                        b_k_ptr->grad()[d] += dk;
 
                         for (size_t k = 0; k < ed; k++) {
-                            W_k_ptr->grad[d * ed + k] += dk * key_ptr->data[b * seq_k * ed + s * ed + k];
+                            W_k_ptr->grad()[d * ed + k] += dk * key_ptr->data()[b * seq_k * ed + s * ed + k];
                             if (key_ptr->requires_grad) {
-                                key_ptr->grad[b * seq_k * ed + s * ed + k] += dk * W_k_ptr->data[d * ed + k];
+                                key_ptr->grad()[b * seq_k * ed + s * ed + k] += dk * W_k_ptr->data()[d * ed + k];
                             }
                         }
                     }
@@ -1420,13 +1420,13 @@ TensorPtr MultiHeadAttention::forward(const TensorPtr& query, const TensorPtr& k
             for (size_t b = 0; b < batch; b++) {
                 for (size_t s = 0; s < seq_q; s++) {
                     for (size_t d = 0; d < ed; d++) {
-                        float dq = d_Q->data[b * seq_q * ed + s * ed + d];
-                        b_q_ptr->grad[d] += dq;
+                        float dq = d_Q->data()[b * seq_q * ed + s * ed + d];
+                        b_q_ptr->grad()[d] += dq;
 
                         for (size_t k = 0; k < ed; k++) {
-                            W_q_ptr->grad[d * ed + k] += dq * query_ptr->data[b * seq_q * ed + s * ed + k];
+                            W_q_ptr->grad()[d * ed + k] += dq * query_ptr->data()[b * seq_q * ed + s * ed + k];
                             if (query_ptr->requires_grad) {
-                                query_ptr->grad[b * seq_q * ed + s * ed + k] += dq * W_q_ptr->data[d * ed + k];
+                                query_ptr->grad()[b * seq_q * ed + s * ed + k] += dq * W_q_ptr->data()[d * ed + k];
                             }
                         }
                     }
@@ -1452,9 +1452,9 @@ TensorPtr MultiHeadAttention::causal_mask(size_t seq_len) {
         for (size_t j = 0; j < seq_len; j++) {
             size_t idx = i * seq_len + j;
             if (j > i) {
-                mask->data[idx] = -1e9f;  // Large negative value (effectively -inf for softmax)
+                mask->data()[idx] = -1e9f;  // Large negative value (effectively -inf for softmax)
             } else {
-                mask->data[idx] = 0.0f;
+                mask->data()[idx] = 0.0f;
             }
         }
     }

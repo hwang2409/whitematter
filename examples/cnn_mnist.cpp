@@ -1,4 +1,5 @@
 #include <cstdio>
+#include <cstring>
 #include "tensor.h"
 #include "layer.h"
 #include "loss.h"
@@ -11,7 +12,7 @@
 TensorPtr reshape_images(const TensorPtr& flat_images) {
     size_t batch = flat_images->shape[0];
     auto reshaped = Tensor::create({batch, 1, 28, 28}, false);
-    reshaped->data = flat_images->data;
+    std::memcpy(reshaped->data(), flat_images->data(), flat_images->size() * sizeof(float));
     return reshaped;
 }
 
@@ -33,14 +34,14 @@ float compute_accuracy(Sequential& model, ThreadedDataLoader& loader) {
 
         for (size_t i = 0; i < batch_size; i++) {
             size_t predicted = 0;
-            float max_val = output->data[i * num_classes];
+            float max_val = output->data()[i * num_classes];
             for (size_t j = 1; j < num_classes; j++) {
-                if (output->data[i * num_classes + j] > max_val) {
-                    max_val = output->data[i * num_classes + j];
+                if (output->data()[i * num_classes + j] > max_val) {
+                    max_val = output->data()[i * num_classes + j];
                     predicted = j;
                 }
             }
-            if (predicted == static_cast<size_t>(labels->data[i])) {
+            if (predicted == static_cast<size_t>(labels->data()[i])) {
                 correct++;
             }
             total++;
@@ -152,7 +153,7 @@ int main(int argc, char* argv[]) {
             loss->backward();
             optimizer.step();
 
-            total_loss += loss->data[0];
+            total_loss += loss->data()[0];
             num_batches++;
 
             // Progress indicator

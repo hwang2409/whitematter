@@ -22,12 +22,12 @@ void test_sgd_step() {
     loss->backward();
 
     // Store original weights
-    float orig_w = layer.weight->data[0];
+    float orig_w = layer.weight->data()[0];
 
     optimizer.step();
 
     // Weights should have changed
-    TEST_ASSERT(layer.weight->data[0] != orig_w);
+    TEST_ASSERT(layer.weight->data()[0] != orig_w);
 }
 
 void test_sgd_zero_grad() {
@@ -44,16 +44,16 @@ void test_sgd_zero_grad() {
 
     // Gradients should be non-zero
     bool has_grad = false;
-    for (float g : layer.weight->grad) {
-        if (std::abs(g) > 1e-6f) has_grad = true;
+    for (size_t i = 0; i < layer.weight->grad_size(); i++) {
+        if (std::abs(layer.weight->grad()[i]) > 1e-6f) has_grad = true;
     }
     TEST_ASSERT(has_grad);
 
     optimizer.zero_grad();
 
     // Gradients should be zero
-    for (float g : layer.weight->grad) {
-        TEST_ASSERT_NEAR(g, 0.0f, 1e-6f);
+    for (size_t i = 0; i < layer.weight->grad_size(); i++) {
+        TEST_ASSERT_NEAR(layer.weight->grad()[i], 0.0f, 1e-6f);
     }
 }
 
@@ -89,7 +89,7 @@ void test_sgd_loss_decreases() {
     // Get initial loss
     auto output0 = layer.forward(input);
     auto loss0 = criterion(output0, target);
-    float initial_loss = loss0->data[0];
+    float initial_loss = loss0->data()[0];
 
     // Train for several steps
     for (int i = 0; i < 50; i++) {
@@ -103,7 +103,7 @@ void test_sgd_loss_decreases() {
     // Get final loss
     auto output_final = layer.forward(input);
     auto loss_final = criterion(output_final, target);
-    float final_loss = loss_final->data[0];
+    float final_loss = loss_final->data()[0];
 
     TEST_ASSERT(final_loss < initial_loss);
 }
@@ -124,10 +124,10 @@ void test_adam_step() {
     auto loss = criterion(output, target);
     loss->backward();
 
-    float orig_w = layer.weight->data[0];
+    float orig_w = layer.weight->data()[0];
     optimizer.step();
 
-    TEST_ASSERT(layer.weight->data[0] != orig_w);
+    TEST_ASSERT(layer.weight->data()[0] != orig_w);
 }
 
 void test_adam_moments() {
@@ -163,7 +163,7 @@ void test_adam_loss_decreases() {
 
     auto output0 = layer.forward(input);
     auto loss0 = criterion(output0, target);
-    float initial_loss = loss0->data[0];
+    float initial_loss = loss0->data()[0];
 
     for (int i = 0; i < 50; i++) {
         optimizer.zero_grad();
@@ -175,7 +175,7 @@ void test_adam_loss_decreases() {
 
     auto output_final = layer.forward(input);
     auto loss_final = criterion(output_final, target);
-    float final_loss = loss_final->data[0];
+    float final_loss = loss_final->data()[0];
 
     TEST_ASSERT(final_loss < initial_loss);
 }
@@ -196,10 +196,10 @@ void test_adamw_step() {
     auto loss = criterion(output, target);
     loss->backward();
 
-    float orig_w = layer.weight->data[0];
+    float orig_w = layer.weight->data()[0];
     optimizer.step();
 
-    TEST_ASSERT(layer.weight->data[0] != orig_w);
+    TEST_ASSERT(layer.weight->data()[0] != orig_w);
 }
 
 void test_adamw_weight_decay() {
@@ -210,7 +210,8 @@ void test_adamw_weight_decay() {
 
     // Store initial weight magnitude
     float initial_norm = 0.0f;
-    for (float w : layer.weight->data) {
+    for (size_t i = 0; i < layer.weight->size(); i++) {
+        float w = layer.weight->data()[i];
         initial_norm += w * w;
     }
     initial_norm = std::sqrt(initial_norm);
@@ -229,7 +230,8 @@ void test_adamw_weight_decay() {
 
     // Weight magnitude should decrease due to weight decay
     float final_norm = 0.0f;
-    for (float w : layer.weight->data) {
+    for (size_t i = 0; i < layer.weight->size(); i++) {
+        float w = layer.weight->data()[i];
         final_norm += w * w;
     }
     final_norm = std::sqrt(final_norm);
@@ -253,10 +255,10 @@ void test_rmsprop_step() {
     auto loss = criterion(output, target);
     loss->backward();
 
-    float orig_w = layer.weight->data[0];
+    float orig_w = layer.weight->data()[0];
     optimizer.step();
 
-    TEST_ASSERT(layer.weight->data[0] != orig_w);
+    TEST_ASSERT(layer.weight->data()[0] != orig_w);
 }
 
 // =============================================================================
@@ -270,8 +272,8 @@ void test_clip_grad_norm() {
     };
 
     // Set gradients
-    params[0]->grad = {10.0f, 20.0f, 30.0f};
-    params[1]->grad = {40.0f, 50.0f};
+    params[0]->grad()[0] = 10.0f; params[0]->grad()[1] = 20.0f; params[0]->grad()[2] = 30.0f;
+    params[1]->grad()[0] = 40.0f; params[1]->grad()[1] = 50.0f;
 
     float original_norm = get_grad_norm(params);
     clip_grad_norm_(params, 1.0f);
@@ -286,25 +288,25 @@ void test_clip_grad_value() {
         Tensor::create({1.0f, 2.0f, 3.0f}, {3}, true)
     };
 
-    params[0]->grad = {10.0f, -20.0f, 5.0f};
+    params[0]->grad()[0] = 10.0f; params[0]->grad()[1] = -20.0f; params[0]->grad()[2] = 5.0f;
 
     clip_grad_value_(params, 8.0f);
 
-    TEST_ASSERT_NEAR(params[0]->grad[0], 8.0f, 1e-5f);   // Clipped from 10
-    TEST_ASSERT_NEAR(params[0]->grad[1], -8.0f, 1e-5f); // Clipped from -20
-    TEST_ASSERT_NEAR(params[0]->grad[2], 5.0f, 1e-5f);  // Unchanged
+    TEST_ASSERT_NEAR(params[0]->grad()[0], 8.0f, 1e-5f);   // Clipped from 10
+    TEST_ASSERT_NEAR(params[0]->grad()[1], -8.0f, 1e-5f); // Clipped from -20
+    TEST_ASSERT_NEAR(params[0]->grad()[2], 5.0f, 1e-5f);  // Unchanged
 }
 
 void test_get_grad_norm() {
     auto params = std::vector<TensorPtr>{
         Tensor::create({1.0f}, std::vector<size_t>{1}, true)
     };
-    params[0]->grad = {3.0f};
+    params[0]->grad()[0] = 3.0f;
 
     auto params2 = std::vector<TensorPtr>{
         Tensor::create({1.0f}, std::vector<size_t>{1}, true)
     };
-    params2[0]->grad = {4.0f};
+    params2[0]->grad()[0] = 4.0f;
 
     float norm1 = get_grad_norm(params);
     float norm2 = get_grad_norm(params2);
@@ -348,7 +350,7 @@ void test_gradient_accumulator_scale() {
     auto loss = Tensor::create({4.0f}, std::vector<size_t>{1});
     auto scaled = accumulator.scale(loss);
 
-    TEST_ASSERT_NEAR(scaled->data[0], 1.0f, 1e-5f);  // 4 / 4 = 1
+    TEST_ASSERT_NEAR(scaled->data()[0], 1.0f, 1e-5f);  // 4 / 4 = 1
 }
 
 void test_gradient_accumulator_backward() {
@@ -366,7 +368,7 @@ void test_gradient_accumulator_backward() {
 
     TEST_ASSERT(accumulator.should_step());
     // Gradients should have accumulated
-    TEST_ASSERT(std::abs(x->grad[0]) > 0.0f);
+    TEST_ASSERT(std::abs(x->grad()[0]) > 0.0f);
 }
 
 // =============================================================================

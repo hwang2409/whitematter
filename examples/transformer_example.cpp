@@ -36,9 +36,9 @@ TensorPtr positional_encoding(size_t seq_len, size_t embed_dim) {
         for (size_t i = 0; i < embed_dim; i++) {
             float angle = static_cast<float>(pos) / std::pow(10000.0f, (2.0f * (i / 2)) / embed_dim);
             if (i % 2 == 0) {
-                pe->data[pos * embed_dim + i] = std::sin(angle);
+                pe->data()[pos * embed_dim + i] = std::sin(angle);
             } else {
-                pe->data[pos * embed_dim + i] = std::cos(angle);
+                pe->data()[pos * embed_dim + i] = std::cos(angle);
             }
         }
     }
@@ -87,12 +87,12 @@ public:
         for (size_t b = 0; b < batch; b++) {
             for (size_t s = 0; s < seq_len; s++) {
                 for (size_t o = 0; o < out_features; o++) {
-                    float sum = linear->bias->data[o];
+                    float sum = linear->bias->data()[o];
                     for (size_t i = 0; i < in_features; i++) {
-                        sum += input->data[b * seq_len * in_features + s * in_features + i] *
-                               linear->weight->data[o * in_features + i];
+                        sum += input->data()[b * seq_len * in_features + s * in_features + i] *
+                               linear->weight->data()[o * in_features + i];
                     }
-                    output->data[b * seq_len * out_features + s * out_features + o] = sum;
+                    output->data()[b * seq_len * out_features + s * out_features + o] = sum;
                 }
             }
         }
@@ -106,11 +106,11 @@ public:
                 for (size_t b = 0; b < batch; b++) {
                     for (size_t s = 0; s < seq_len; s++) {
                         for (size_t o = 0; o < out_features; o++) {
-                            float dout = output->grad[b * seq_len * out_features + s * out_features + o];
-                            bias->grad[o] += dout;
+                            float dout = output->grad()[b * seq_len * out_features + s * out_features + o];
+                            bias->grad()[o] += dout;
                             for (size_t i = 0; i < in_features; i++) {
-                                weight->grad[o * in_features + i] += dout * input_ptr->data[b * seq_len * in_features + s * in_features + i];
-                                input_ptr->grad[b * seq_len * in_features + s * in_features + i] += dout * weight->data[o * in_features + i];
+                                weight->grad()[o * in_features + i] += dout * input_ptr->data()[b * seq_len * in_features + s * in_features + i];
+                                input_ptr->grad()[b * seq_len * in_features + s * in_features + i] += dout * weight->data()[o * in_features + i];
                             }
                         }
                     }
@@ -127,15 +127,15 @@ public:
 
         // Residual connection: x + attn_out
         auto res1 = Tensor::create(x->shape, x->requires_grad && GradMode::is_enabled());
-        for (size_t i = 0; i < x->data.size(); i++) {
-            res1->data[i] = x->data[i] + attn_out->data[i];
+        for (size_t i = 0; i < x->size(); i++) {
+            res1->data()[i] = x->data()[i] + attn_out->data()[i];
         }
         if (res1->requires_grad) {
             res1->parents = {x, attn_out};
             res1->grad_fn = [x, attn_out, res1]() {
-                for (size_t i = 0; i < x->data.size(); i++) {
-                    x->grad[i] += res1->grad[i];
-                    attn_out->grad[i] += res1->grad[i];
+                for (size_t i = 0; i < x->size(); i++) {
+                    x->grad()[i] += res1->grad()[i];
+                    attn_out->grad()[i] += res1->grad()[i];
                 }
             };
         }
@@ -148,15 +148,15 @@ public:
 
         // ReLU activation
         auto ff_relu = Tensor::create(ff_hidden->shape, ff_hidden->requires_grad && GradMode::is_enabled());
-        for (size_t i = 0; i < ff_hidden->data.size(); i++) {
-            ff_relu->data[i] = std::max(0.0f, ff_hidden->data[i]);
+        for (size_t i = 0; i < ff_hidden->size(); i++) {
+            ff_relu->data()[i] = std::max(0.0f, ff_hidden->data()[i]);
         }
         if (ff_relu->requires_grad) {
             ff_relu->parents = {ff_hidden};
             ff_relu->grad_fn = [ff_hidden, ff_relu]() {
-                for (size_t i = 0; i < ff_hidden->data.size(); i++) {
-                    if (ff_hidden->data[i] > 0) {
-                        ff_hidden->grad[i] += ff_relu->grad[i];
+                for (size_t i = 0; i < ff_hidden->size(); i++) {
+                    if (ff_hidden->data()[i] > 0) {
+                        ff_hidden->grad()[i] += ff_relu->grad()[i];
                     }
                 }
             };
@@ -166,15 +166,15 @@ public:
 
         // Residual connection: norm1 + ff_out
         auto res2 = Tensor::create(norm1->shape, norm1->requires_grad && GradMode::is_enabled());
-        for (size_t i = 0; i < norm1->data.size(); i++) {
-            res2->data[i] = norm1->data[i] + ff_out->data[i];
+        for (size_t i = 0; i < norm1->size(); i++) {
+            res2->data()[i] = norm1->data()[i] + ff_out->data()[i];
         }
         if (res2->requires_grad) {
             res2->parents = {norm1, ff_out};
             res2->grad_fn = [norm1, ff_out, res2]() {
-                for (size_t i = 0; i < norm1->data.size(); i++) {
-                    norm1->grad[i] += res2->grad[i];
-                    ff_out->grad[i] += res2->grad[i];
+                for (size_t i = 0; i < norm1->size(); i++) {
+                    norm1->grad()[i] += res2->grad()[i];
+                    ff_out->grad()[i] += res2->grad()[i];
                 }
             };
         }
@@ -248,17 +248,17 @@ public:
         for (size_t b = 0; b < batch; b++) {
             for (size_t s = 0; s < seq_len; s++) {
                 for (size_t d = 0; d < embed_dim; d++) {
-                    x->data[b * seq_len * embed_dim + s * embed_dim + d] =
-                        embeds->data[b * seq_len * embed_dim + s * embed_dim + d] +
-                        pos_encoding->data[s * embed_dim + d];
+                    x->data()[b * seq_len * embed_dim + s * embed_dim + d] =
+                        embeds->data()[b * seq_len * embed_dim + s * embed_dim + d] +
+                        pos_encoding->data()[s * embed_dim + d];
                 }
             }
         }
         if (x->requires_grad) {
             x->parents = {embeds};
             x->grad_fn = [embeds, x]() {
-                for (size_t i = 0; i < embeds->data.size(); i++) {
-                    embeds->grad[i] += x->grad[i];
+                for (size_t i = 0; i < embeds->size(); i++) {
+                    embeds->grad()[i] += x->grad()[i];
                 }
             };
         }
@@ -267,7 +267,7 @@ public:
         auto mask = Tensor::create({1, 1, seq_len, seq_len}, false);
         for (size_t i = 0; i < seq_len; i++) {
             for (size_t j = 0; j < seq_len; j++) {
-                mask->data[i * seq_len + j] = (j > i) ? -1e9f : 0.0f;
+                mask->data()[i * seq_len + j] = (j > i) ? -1e9f : 0.0f;
             }
         }
 
@@ -283,12 +283,12 @@ public:
         for (size_t b = 0; b < batch; b++) {
             for (size_t s = 0; s < seq_len; s++) {
                 for (size_t v = 0; v < vocab_size; v++) {
-                    float sum = output_proj->bias->data[v];
+                    float sum = output_proj->bias->data()[v];
                     for (size_t d = 0; d < embed_dim; d++) {
-                        sum += x->data[b * seq_len * embed_dim + s * embed_dim + d] *
-                               output_proj->weight->data[v * embed_dim + d];
+                        sum += x->data()[b * seq_len * embed_dim + s * embed_dim + d] *
+                               output_proj->weight->data()[v * embed_dim + d];
                     }
-                    logits->data[b * seq_len * vocab_size + s * vocab_size + v] = sum;
+                    logits->data()[b * seq_len * vocab_size + s * vocab_size + v] = sum;
                 }
             }
         }
@@ -302,11 +302,11 @@ public:
                 for (size_t b = 0; b < batch; b++) {
                     for (size_t s = 0; s < seq_len; s++) {
                         for (size_t v = 0; v < vocab_size; v++) {
-                            float dout = logits->grad[b * seq_len * vocab_size + s * vocab_size + v];
-                            bias->grad[v] += dout;
+                            float dout = logits->grad()[b * seq_len * vocab_size + s * vocab_size + v];
+                            bias->grad()[v] += dout;
                             for (size_t d = 0; d < embed_dim; d++) {
-                                weight->grad[v * embed_dim + d] += dout * x_ptr->data[b * seq_len * embed_dim + s * embed_dim + d];
-                                x_ptr->grad[b * seq_len * embed_dim + s * embed_dim + d] += dout * weight->data[v * embed_dim + d];
+                                weight->grad()[v * embed_dim + d] += dout * x_ptr->data()[b * seq_len * embed_dim + s * embed_dim + d];
+                                x_ptr->grad()[b * seq_len * embed_dim + s * embed_dim + d] += dout * weight->data()[v * embed_dim + d];
                             }
                         }
                     }
@@ -345,7 +345,7 @@ TensorPtr lm_cross_entropy(const TensorPtr& logits, const TensorPtr& targets) {
     size_t vocab_size = logits->shape[2];
 
     auto loss = Tensor::create({1}, logits->requires_grad);
-    loss->data[0] = 0.0f;
+    loss->data()[0] = 0.0f;
 
     // Compute log-softmax and NLL loss
     std::vector<float> log_probs(batch * seq_len * vocab_size);
@@ -355,44 +355,44 @@ TensorPtr lm_cross_entropy(const TensorPtr& logits, const TensorPtr& targets) {
             // Find max for numerical stability
             float max_val = -std::numeric_limits<float>::max();
             for (size_t v = 0; v < vocab_size; v++) {
-                max_val = std::max(max_val, logits->data[b * seq_len * vocab_size + s * vocab_size + v]);
+                max_val = std::max(max_val, logits->data()[b * seq_len * vocab_size + s * vocab_size + v]);
             }
 
             // Compute log-softmax
             float sum_exp = 0.0f;
             for (size_t v = 0; v < vocab_size; v++) {
-                sum_exp += std::exp(logits->data[b * seq_len * vocab_size + s * vocab_size + v] - max_val);
+                sum_exp += std::exp(logits->data()[b * seq_len * vocab_size + s * vocab_size + v] - max_val);
             }
             float log_sum_exp = max_val + std::log(sum_exp);
 
             for (size_t v = 0; v < vocab_size; v++) {
                 log_probs[b * seq_len * vocab_size + s * vocab_size + v] =
-                    logits->data[b * seq_len * vocab_size + s * vocab_size + v] - log_sum_exp;
+                    logits->data()[b * seq_len * vocab_size + s * vocab_size + v] - log_sum_exp;
             }
 
             // NLL loss
-            size_t target_idx = static_cast<size_t>(targets->data[b * seq_len + s]);
-            loss->data[0] -= log_probs[b * seq_len * vocab_size + s * vocab_size + target_idx];
+            size_t target_idx = static_cast<size_t>(targets->data()[b * seq_len + s]);
+            loss->data()[0] -= log_probs[b * seq_len * vocab_size + s * vocab_size + target_idx];
         }
     }
-    loss->data[0] /= static_cast<float>(batch * seq_len);
+    loss->data()[0] /= static_cast<float>(batch * seq_len);
 
     if (loss->requires_grad) {
         auto logits_ptr = logits;
         loss->parents = {logits_ptr};
         loss->grad_fn = [=]() {
-            float scale = loss->grad[0] / static_cast<float>(batch * seq_len);
+            float scale = loss->grad()[0] / static_cast<float>(batch * seq_len);
 
             for (size_t b = 0; b < batch; b++) {
                 for (size_t s = 0; s < seq_len; s++) {
-                    size_t target_idx = static_cast<size_t>(targets->data[b * seq_len + s]);
+                    size_t target_idx = static_cast<size_t>(targets->data()[b * seq_len + s]);
 
                     // Gradient of cross-entropy w.r.t. logits is: softmax(logits) - one_hot(target)
                     for (size_t v = 0; v < vocab_size; v++) {
                         float softmax_v = std::exp(log_probs[b * seq_len * vocab_size + s * vocab_size + v]);
                         float grad = softmax_v;
                         if (v == target_idx) grad -= 1.0f;
-                        logits_ptr->grad[b * seq_len * vocab_size + s * vocab_size + v] += scale * grad;
+                        logits_ptr->grad()[b * seq_len * vocab_size + s * vocab_size + v] += scale * grad;
                     }
                 }
             }
@@ -422,7 +422,7 @@ std::string generate(TransformerLM& model, const std::string& prompt,
 
         for (size_t j = 0; j < seq_len; j++) {
             char c = result[result.size() - seq_len + j];
-            tokens->data[j] = static_cast<float>(char_to_idx[c]);
+            tokens->data()[j] = static_cast<float>(char_to_idx[c]);
         }
 
         // Forward pass
@@ -435,7 +435,7 @@ std::string generate(TransformerLM& model, const std::string& prompt,
         float max_logit = -std::numeric_limits<float>::max();
         size_t best_idx = 0;
         for (size_t v = 0; v < model.vocab_size; v++) {
-            float logit = logits->data[last_pos * model.vocab_size + v];
+            float logit = logits->data()[last_pos * model.vocab_size + v];
             if (logit > max_logit) {
                 max_logit = logit;
                 best_idx = v;
@@ -499,7 +499,7 @@ int main() {
     auto params = model.parameters();
     size_t total_params = 0;
     for (auto& p : params) {
-        total_params += p->data.size();
+        total_params += p->size();
     }
     std::cout << "Total parameters: " << total_params << std::endl;
     std::cout << std::endl;
@@ -526,8 +526,8 @@ int main() {
                 size_t pos = rng() % (train_text.size() - max_seq_len - 1);
 
                 for (size_t s = 0; s < max_seq_len; s++) {
-                    input_tokens->data[b * max_seq_len + s] = static_cast<float>(char_to_idx[train_text[pos + s]]);
-                    target_tokens->data[b * max_seq_len + s] = static_cast<float>(char_to_idx[train_text[pos + s + 1]]);
+                    input_tokens->data()[b * max_seq_len + s] = static_cast<float>(char_to_idx[train_text[pos + s]]);
+                    target_tokens->data()[b * max_seq_len + s] = static_cast<float>(char_to_idx[train_text[pos + s + 1]]);
                 }
             }
 
@@ -545,7 +545,7 @@ int main() {
             // Update
             optimizer.step();
 
-            epoch_loss += loss->data[0];
+            epoch_loss += loss->data()[0];
             num_batches++;
 
             if (num_batches >= 10) break;  // Limit batches per epoch

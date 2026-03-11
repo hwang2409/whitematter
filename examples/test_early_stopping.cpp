@@ -173,7 +173,7 @@ int main() {
                 auto val_pred = model.forward(X_val);
                 auto val_loss = criterion(val_pred, Y_val);
 
-                float val_loss_val = val_loss->data[0];
+                float val_loss_val = val_loss->data()[0];
                 if (val_loss_val < best_val_loss) {
                     best_val_loss = val_loss_val;
                 }
@@ -268,7 +268,7 @@ int main() {
             loss->backward();
             optimizer.step();
 
-            float val_loss = loss->data[0];
+            float val_loss = loss->data()[0];
 
             if (checkpoint.step(val_loss, &model)) {
                 checkpoint_saves++;

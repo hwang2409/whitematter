@@ -11,7 +11,7 @@ void test_tensor_create_zeros() {
     TEST_ASSERT_SHAPE(t, std::vector<size_t>({2, 3}));
     TEST_ASSERT_EQ(t->size(), 6u);
     for (size_t i = 0; i < t->size(); i++) {
-        TEST_ASSERT_NEAR(t->data[i], 0.0f, 1e-6f);
+        TEST_ASSERT_NEAR(t->data()[i], 0.0f, 1e-6f);
     }
 }
 
@@ -20,7 +20,7 @@ void test_tensor_create_ones() {
     TEST_ASSERT_SHAPE(t, std::vector<size_t>({3, 2}));
     TEST_ASSERT_EQ(t->size(), 6u);
     for (size_t i = 0; i < t->size(); i++) {
-        TEST_ASSERT_NEAR(t->data[i], 1.0f, 1e-6f);
+        TEST_ASSERT_NEAR(t->data()[i], 1.0f, 1e-6f);
     }
 }
 
@@ -31,14 +31,14 @@ void test_tensor_create_randn() {
     // Check mean is approximately 0 and std is approximately 1
     float sum = 0.0f;
     for (size_t i = 0; i < t->size(); i++) {
-        sum += t->data[i];
+        sum += t->data()[i];
     }
     float mean = sum / t->size();
     TEST_ASSERT_NEAR(mean, 0.0f, 0.1f); // Should be close to 0
 
     float var_sum = 0.0f;
     for (size_t i = 0; i < t->size(); i++) {
-        var_sum += (t->data[i] - mean) * (t->data[i] - mean);
+        var_sum += (t->data()[i] - mean) * (t->data()[i] - mean);
     }
     float std = std::sqrt(var_sum / t->size());
     TEST_ASSERT_NEAR(std, 1.0f, 0.1f); // Should be close to 1
@@ -53,13 +53,13 @@ void test_tensor_create_xavier() {
 
     float sum = 0.0f;
     for (size_t i = 0; i < t->size(); i++) {
-        sum += t->data[i];
+        sum += t->data()[i];
     }
     float mean = sum / t->size();
 
     float var_sum = 0.0f;
     for (size_t i = 0; i < t->size(); i++) {
-        var_sum += (t->data[i] - mean) * (t->data[i] - mean);
+        var_sum += (t->data()[i] - mean) * (t->data()[i] - mean);
     }
     float std = std::sqrt(var_sum / t->size());
     TEST_ASSERT_NEAR(std, expected_std, 0.05f);
@@ -70,7 +70,7 @@ void test_tensor_create_from_data() {
     auto t = Tensor::create(data, {2, 3});
     TEST_ASSERT_SHAPE(t, std::vector<size_t>({2, 3}));
     for (size_t i = 0; i < 6; i++) {
-        TEST_ASSERT_NEAR(t->data[i], data[i], 1e-6f);
+        TEST_ASSERT_NEAR(t->data()[i], data[i], 1e-6f);
     }
 }
 
@@ -83,9 +83,9 @@ void test_tensor_add() {
     auto b = Tensor::create({4.0f, 5.0f, 6.0f}, std::vector<size_t>{3});
     auto c = a->add(b);
 
-    TEST_ASSERT_NEAR(c->data[0], 5.0f, 1e-6f);
-    TEST_ASSERT_NEAR(c->data[1], 7.0f, 1e-6f);
-    TEST_ASSERT_NEAR(c->data[2], 9.0f, 1e-6f);
+    TEST_ASSERT_NEAR(c->data()[0], 5.0f, 1e-6f);
+    TEST_ASSERT_NEAR(c->data()[1], 7.0f, 1e-6f);
+    TEST_ASSERT_NEAR(c->data()[2], 9.0f, 1e-6f);
 }
 
 void test_tensor_sub() {
@@ -93,9 +93,9 @@ void test_tensor_sub() {
     auto b = Tensor::create({1.0f, 2.0f, 3.0f}, std::vector<size_t>{3});
     auto c = a->sub(b);
 
-    TEST_ASSERT_NEAR(c->data[0], 4.0f, 1e-6f);
-    TEST_ASSERT_NEAR(c->data[1], 5.0f, 1e-6f);
-    TEST_ASSERT_NEAR(c->data[2], 6.0f, 1e-6f);
+    TEST_ASSERT_NEAR(c->data()[0], 4.0f, 1e-6f);
+    TEST_ASSERT_NEAR(c->data()[1], 5.0f, 1e-6f);
+    TEST_ASSERT_NEAR(c->data()[2], 6.0f, 1e-6f);
 }
 
 void test_tensor_mul() {
@@ -103,9 +103,9 @@ void test_tensor_mul() {
     auto b = Tensor::create({5.0f, 6.0f, 7.0f}, std::vector<size_t>{3});
     auto c = a->mul(b);
 
-    TEST_ASSERT_NEAR(c->data[0], 10.0f, 1e-6f);
-    TEST_ASSERT_NEAR(c->data[1], 18.0f, 1e-6f);
-    TEST_ASSERT_NEAR(c->data[2], 28.0f, 1e-6f);
+    TEST_ASSERT_NEAR(c->data()[0], 10.0f, 1e-6f);
+    TEST_ASSERT_NEAR(c->data()[1], 18.0f, 1e-6f);
+    TEST_ASSERT_NEAR(c->data()[2], 28.0f, 1e-6f);
 }
 
 void test_tensor_div() {
@@ -113,36 +113,36 @@ void test_tensor_div() {
     auto b = Tensor::create({2.0f, 4.0f, 5.0f}, std::vector<size_t>{3});
     auto c = a->div(b);
 
-    TEST_ASSERT_NEAR(c->data[0], 5.0f, 1e-6f);
-    TEST_ASSERT_NEAR(c->data[1], 5.0f, 1e-6f);
-    TEST_ASSERT_NEAR(c->data[2], 6.0f, 1e-6f);
+    TEST_ASSERT_NEAR(c->data()[0], 5.0f, 1e-6f);
+    TEST_ASSERT_NEAR(c->data()[1], 5.0f, 1e-6f);
+    TEST_ASSERT_NEAR(c->data()[2], 6.0f, 1e-6f);
 }
 
 void test_tensor_scalar_mul() {
     auto a = Tensor::create({1.0f, 2.0f, 3.0f}, std::vector<size_t>{3});
     auto b = a->mul(2.5f);
 
-    TEST_ASSERT_NEAR(b->data[0], 2.5f, 1e-6f);
-    TEST_ASSERT_NEAR(b->data[1], 5.0f, 1e-6f);
-    TEST_ASSERT_NEAR(b->data[2], 7.5f, 1e-6f);
+    TEST_ASSERT_NEAR(b->data()[0], 2.5f, 1e-6f);
+    TEST_ASSERT_NEAR(b->data()[1], 5.0f, 1e-6f);
+    TEST_ASSERT_NEAR(b->data()[2], 7.5f, 1e-6f);
 }
 
 void test_tensor_scalar_div() {
     auto a = Tensor::create({10.0f, 20.0f, 30.0f}, std::vector<size_t>{3});
     auto b = a->div(2.0f);
 
-    TEST_ASSERT_NEAR(b->data[0], 5.0f, 1e-6f);
-    TEST_ASSERT_NEAR(b->data[1], 10.0f, 1e-6f);
-    TEST_ASSERT_NEAR(b->data[2], 15.0f, 1e-6f);
+    TEST_ASSERT_NEAR(b->data()[0], 5.0f, 1e-6f);
+    TEST_ASSERT_NEAR(b->data()[1], 10.0f, 1e-6f);
+    TEST_ASSERT_NEAR(b->data()[2], 15.0f, 1e-6f);
 }
 
 void test_tensor_neg() {
     auto a = Tensor::create({1.0f, -2.0f, 3.0f}, std::vector<size_t>{3});
     auto b = a->neg();
 
-    TEST_ASSERT_NEAR(b->data[0], -1.0f, 1e-6f);
-    TEST_ASSERT_NEAR(b->data[1], 2.0f, 1e-6f);
-    TEST_ASSERT_NEAR(b->data[2], -3.0f, 1e-6f);
+    TEST_ASSERT_NEAR(b->data()[0], -1.0f, 1e-6f);
+    TEST_ASSERT_NEAR(b->data()[1], 2.0f, 1e-6f);
+    TEST_ASSERT_NEAR(b->data()[2], -3.0f, 1e-6f);
 }
 
 // =============================================================================
@@ -158,10 +158,10 @@ void test_tensor_matmul_2d() {
     TEST_ASSERT_SHAPE(c, std::vector<size_t>({2, 2}));
     // Row 0: [1,2,3] dot [[1,2],[3,4],[5,6]] = [22, 28]
     // Row 1: [4,5,6] dot [[1,2],[3,4],[5,6]] = [49, 64]
-    TEST_ASSERT_NEAR(c->data[0], 22.0f, 1e-5f);
-    TEST_ASSERT_NEAR(c->data[1], 28.0f, 1e-5f);
-    TEST_ASSERT_NEAR(c->data[2], 49.0f, 1e-5f);
-    TEST_ASSERT_NEAR(c->data[3], 64.0f, 1e-5f);
+    TEST_ASSERT_NEAR(c->data()[0], 22.0f, 1e-5f);
+    TEST_ASSERT_NEAR(c->data()[1], 28.0f, 1e-5f);
+    TEST_ASSERT_NEAR(c->data()[2], 49.0f, 1e-5f);
+    TEST_ASSERT_NEAR(c->data()[3], 64.0f, 1e-5f);
 }
 
 void test_tensor_matmul_batch() {
@@ -180,12 +180,12 @@ void test_tensor_transpose() {
     TEST_ASSERT_SHAPE(b, std::vector<size_t>({3, 2}));
     // Original: [[1,2,3], [4,5,6]]
     // Transposed: [[1,4], [2,5], [3,6]]
-    TEST_ASSERT_NEAR(b->data[0], 1.0f, 1e-6f);
-    TEST_ASSERT_NEAR(b->data[1], 4.0f, 1e-6f);
-    TEST_ASSERT_NEAR(b->data[2], 2.0f, 1e-6f);
-    TEST_ASSERT_NEAR(b->data[3], 5.0f, 1e-6f);
-    TEST_ASSERT_NEAR(b->data[4], 3.0f, 1e-6f);
-    TEST_ASSERT_NEAR(b->data[5], 6.0f, 1e-6f);
+    TEST_ASSERT_NEAR(b->data()[0], 1.0f, 1e-6f);
+    TEST_ASSERT_NEAR(b->data()[1], 4.0f, 1e-6f);
+    TEST_ASSERT_NEAR(b->data()[2], 2.0f, 1e-6f);
+    TEST_ASSERT_NEAR(b->data()[3], 5.0f, 1e-6f);
+    TEST_ASSERT_NEAR(b->data()[4], 3.0f, 1e-6f);
+    TEST_ASSERT_NEAR(b->data()[5], 6.0f, 1e-6f);
 }
 
 // =============================================================================
@@ -196,43 +196,43 @@ void test_tensor_relu() {
     auto a = Tensor::create({-2.0f, -1.0f, 0.0f, 1.0f, 2.0f}, std::vector<size_t>{5});
     auto b = a->relu();
 
-    TEST_ASSERT_NEAR(b->data[0], 0.0f, 1e-6f);
-    TEST_ASSERT_NEAR(b->data[1], 0.0f, 1e-6f);
-    TEST_ASSERT_NEAR(b->data[2], 0.0f, 1e-6f);
-    TEST_ASSERT_NEAR(b->data[3], 1.0f, 1e-6f);
-    TEST_ASSERT_NEAR(b->data[4], 2.0f, 1e-6f);
+    TEST_ASSERT_NEAR(b->data()[0], 0.0f, 1e-6f);
+    TEST_ASSERT_NEAR(b->data()[1], 0.0f, 1e-6f);
+    TEST_ASSERT_NEAR(b->data()[2], 0.0f, 1e-6f);
+    TEST_ASSERT_NEAR(b->data()[3], 1.0f, 1e-6f);
+    TEST_ASSERT_NEAR(b->data()[4], 2.0f, 1e-6f);
 }
 
 void test_tensor_sigmoid() {
     auto a = Tensor::create({0.0f}, std::vector<size_t>{1});
     auto b = a->sigmoid();
-    TEST_ASSERT_NEAR(b->data[0], 0.5f, 1e-6f);
+    TEST_ASSERT_NEAR(b->data()[0], 0.5f, 1e-6f);
 
     // Large positive -> ~1
     auto c = Tensor::create({10.0f}, std::vector<size_t>{1});
     auto d = c->sigmoid();
-    TEST_ASSERT(d->data[0] > 0.999f);
+    TEST_ASSERT(d->data()[0] > 0.999f);
 
     // Large negative -> ~0
     auto e = Tensor::create({-10.0f}, std::vector<size_t>{1});
     auto f = e->sigmoid();
-    TEST_ASSERT(f->data[0] < 0.001f);
+    TEST_ASSERT(f->data()[0] < 0.001f);
 }
 
 void test_tensor_tanh() {
     auto a = Tensor::create({0.0f}, std::vector<size_t>{1});
     auto b = a->tanh_();
-    TEST_ASSERT_NEAR(b->data[0], 0.0f, 1e-6f);
+    TEST_ASSERT_NEAR(b->data()[0], 0.0f, 1e-6f);
 
     // Large positive -> ~1
     auto c = Tensor::create({10.0f}, std::vector<size_t>{1});
     auto d = c->tanh_();
-    TEST_ASSERT(d->data[0] > 0.999f);
+    TEST_ASSERT(d->data()[0] > 0.999f);
 
     // Large negative -> ~-1
     auto e = Tensor::create({-10.0f}, std::vector<size_t>{1});
     auto f = e->tanh_();
-    TEST_ASSERT(f->data[0] < -0.999f);
+    TEST_ASSERT(f->data()[0] < -0.999f);
 }
 
 void test_tensor_softmax() {
@@ -240,12 +240,12 @@ void test_tensor_softmax() {
     auto b = a->softmax(-1);
 
     // Softmax should sum to 1
-    float sum = b->data[0] + b->data[1] + b->data[2];
+    float sum = b->data()[0] + b->data()[1] + b->data()[2];
     TEST_ASSERT_NEAR(sum, 1.0f, 1e-5f);
 
     // Values should be in increasing order
-    TEST_ASSERT(b->data[0] < b->data[1]);
-    TEST_ASSERT(b->data[1] < b->data[2]);
+    TEST_ASSERT(b->data()[0] < b->data()[1]);
+    TEST_ASSERT(b->data()[1] < b->data()[2]);
 }
 
 // =============================================================================
@@ -256,55 +256,55 @@ void test_tensor_exp() {
     auto a = Tensor::create({0.0f, 1.0f, 2.0f}, std::vector<size_t>{3});
     auto b = a->exp_();
 
-    TEST_ASSERT_NEAR(b->data[0], 1.0f, 1e-5f);
-    TEST_ASSERT_NEAR(b->data[1], std::exp(1.0f), 1e-5f);
-    TEST_ASSERT_NEAR(b->data[2], std::exp(2.0f), 1e-5f);
+    TEST_ASSERT_NEAR(b->data()[0], 1.0f, 1e-5f);
+    TEST_ASSERT_NEAR(b->data()[1], std::exp(1.0f), 1e-5f);
+    TEST_ASSERT_NEAR(b->data()[2], std::exp(2.0f), 1e-5f);
 }
 
 void test_tensor_log() {
     auto a = Tensor::create({1.0f, std::exp(1.0f), std::exp(2.0f)}, std::vector<size_t>{3});
     auto b = a->log_();
 
-    TEST_ASSERT_NEAR(b->data[0], 0.0f, 1e-5f);
-    TEST_ASSERT_NEAR(b->data[1], 1.0f, 1e-5f);
-    TEST_ASSERT_NEAR(b->data[2], 2.0f, 1e-5f);
+    TEST_ASSERT_NEAR(b->data()[0], 0.0f, 1e-5f);
+    TEST_ASSERT_NEAR(b->data()[1], 1.0f, 1e-5f);
+    TEST_ASSERT_NEAR(b->data()[2], 2.0f, 1e-5f);
 }
 
 void test_tensor_pow() {
     auto a = Tensor::create({2.0f, 3.0f, 4.0f}, std::vector<size_t>{3});
     auto b = a->pow(2.0f);
 
-    TEST_ASSERT_NEAR(b->data[0], 4.0f, 1e-5f);
-    TEST_ASSERT_NEAR(b->data[1], 9.0f, 1e-5f);
-    TEST_ASSERT_NEAR(b->data[2], 16.0f, 1e-5f);
+    TEST_ASSERT_NEAR(b->data()[0], 4.0f, 1e-5f);
+    TEST_ASSERT_NEAR(b->data()[1], 9.0f, 1e-5f);
+    TEST_ASSERT_NEAR(b->data()[2], 16.0f, 1e-5f);
 }
 
 void test_tensor_sqrt() {
     auto a = Tensor::create({4.0f, 9.0f, 16.0f}, std::vector<size_t>{3});
     auto b = a->sqrt();
 
-    TEST_ASSERT_NEAR(b->data[0], 2.0f, 1e-5f);
-    TEST_ASSERT_NEAR(b->data[1], 3.0f, 1e-5f);
-    TEST_ASSERT_NEAR(b->data[2], 4.0f, 1e-5f);
+    TEST_ASSERT_NEAR(b->data()[0], 2.0f, 1e-5f);
+    TEST_ASSERT_NEAR(b->data()[1], 3.0f, 1e-5f);
+    TEST_ASSERT_NEAR(b->data()[2], 4.0f, 1e-5f);
 }
 
 void test_tensor_abs() {
     auto a = Tensor::create({-2.0f, 0.0f, 3.0f}, std::vector<size_t>{3});
     auto b = a->abs();
 
-    TEST_ASSERT_NEAR(b->data[0], 2.0f, 1e-5f);
-    TEST_ASSERT_NEAR(b->data[1], 0.0f, 1e-5f);
-    TEST_ASSERT_NEAR(b->data[2], 3.0f, 1e-5f);
+    TEST_ASSERT_NEAR(b->data()[0], 2.0f, 1e-5f);
+    TEST_ASSERT_NEAR(b->data()[1], 0.0f, 1e-5f);
+    TEST_ASSERT_NEAR(b->data()[2], 3.0f, 1e-5f);
 }
 
 void test_tensor_clamp() {
     auto a = Tensor::create({-5.0f, 0.0f, 5.0f, 10.0f}, std::vector<size_t>{4});
     auto b = a->clamp(0.0f, 6.0f);
 
-    TEST_ASSERT_NEAR(b->data[0], 0.0f, 1e-5f);  // Clamped from -5
-    TEST_ASSERT_NEAR(b->data[1], 0.0f, 1e-5f);  // Unchanged
-    TEST_ASSERT_NEAR(b->data[2], 5.0f, 1e-5f);  // Unchanged
-    TEST_ASSERT_NEAR(b->data[3], 6.0f, 1e-5f);  // Clamped from 10
+    TEST_ASSERT_NEAR(b->data()[0], 0.0f, 1e-5f);  // Clamped from -5
+    TEST_ASSERT_NEAR(b->data()[1], 0.0f, 1e-5f);  // Unchanged
+    TEST_ASSERT_NEAR(b->data()[2], 5.0f, 1e-5f);  // Unchanged
+    TEST_ASSERT_NEAR(b->data()[3], 6.0f, 1e-5f);  // Clamped from 10
 }
 
 // =============================================================================
@@ -316,20 +316,20 @@ void test_tensor_sum() {
 
     // Sum all
     auto sum_all = a->sum();
-    TEST_ASSERT_NEAR(sum_all->data[0], 21.0f, 1e-5f);
+    TEST_ASSERT_NEAR(sum_all->data()[0], 21.0f, 1e-5f);
 
     // Sum along dim 0
     auto sum_0 = a->sum(0);
     TEST_ASSERT_SHAPE(sum_0, std::vector<size_t>({3}));
-    TEST_ASSERT_NEAR(sum_0->data[0], 5.0f, 1e-5f);  // 1+4
-    TEST_ASSERT_NEAR(sum_0->data[1], 7.0f, 1e-5f);  // 2+5
-    TEST_ASSERT_NEAR(sum_0->data[2], 9.0f, 1e-5f);  // 3+6
+    TEST_ASSERT_NEAR(sum_0->data()[0], 5.0f, 1e-5f);  // 1+4
+    TEST_ASSERT_NEAR(sum_0->data()[1], 7.0f, 1e-5f);  // 2+5
+    TEST_ASSERT_NEAR(sum_0->data()[2], 9.0f, 1e-5f);  // 3+6
 
     // Sum along dim 1
     auto sum_1 = a->sum(1);
     TEST_ASSERT_SHAPE(sum_1, std::vector<size_t>({2}));
-    TEST_ASSERT_NEAR(sum_1->data[0], 6.0f, 1e-5f);   // 1+2+3
-    TEST_ASSERT_NEAR(sum_1->data[1], 15.0f, 1e-5f);  // 4+5+6
+    TEST_ASSERT_NEAR(sum_1->data()[0], 6.0f, 1e-5f);   // 1+2+3
+    TEST_ASSERT_NEAR(sum_1->data()[1], 15.0f, 1e-5f);  // 4+5+6
 }
 
 void test_tensor_mean() {
@@ -337,14 +337,14 @@ void test_tensor_mean() {
 
     // Mean all
     auto mean_all = a->mean();
-    TEST_ASSERT_NEAR(mean_all->data[0], 3.5f, 1e-5f);
+    TEST_ASSERT_NEAR(mean_all->data()[0], 3.5f, 1e-5f);
 
     // Mean along dim 0
     auto mean_0 = a->mean(0);
     TEST_ASSERT_SHAPE(mean_0, std::vector<size_t>({3}));
-    TEST_ASSERT_NEAR(mean_0->data[0], 2.5f, 1e-5f);  // (1+4)/2
-    TEST_ASSERT_NEAR(mean_0->data[1], 3.5f, 1e-5f);  // (2+5)/2
-    TEST_ASSERT_NEAR(mean_0->data[2], 4.5f, 1e-5f);  // (3+6)/2
+    TEST_ASSERT_NEAR(mean_0->data()[0], 2.5f, 1e-5f);  // (1+4)/2
+    TEST_ASSERT_NEAR(mean_0->data()[1], 3.5f, 1e-5f);  // (2+5)/2
+    TEST_ASSERT_NEAR(mean_0->data()[2], 4.5f, 1e-5f);  // (3+6)/2
 }
 
 void test_tensor_max() {
@@ -353,8 +353,8 @@ void test_tensor_max() {
     // Max along dim 1
     auto max_1 = a->max(1);
     TEST_ASSERT_SHAPE(max_1, std::vector<size_t>({2}));
-    TEST_ASSERT_NEAR(max_1->data[0], 5.0f, 1e-5f);  // max(1,5,3)
-    TEST_ASSERT_NEAR(max_1->data[1], 6.0f, 1e-5f);  // max(4,2,6)
+    TEST_ASSERT_NEAR(max_1->data()[0], 5.0f, 1e-5f);  // max(1,5,3)
+    TEST_ASSERT_NEAR(max_1->data()[1], 6.0f, 1e-5f);  // max(4,2,6)
 }
 
 void test_tensor_min() {
@@ -363,8 +363,8 @@ void test_tensor_min() {
     // Min along dim 1
     auto min_1 = a->min(1);
     TEST_ASSERT_SHAPE(min_1, std::vector<size_t>({2}));
-    TEST_ASSERT_NEAR(min_1->data[0], 1.0f, 1e-5f);  // min(1,5,3)
-    TEST_ASSERT_NEAR(min_1->data[1], 2.0f, 1e-5f);  // min(4,2,6)
+    TEST_ASSERT_NEAR(min_1->data()[0], 1.0f, 1e-5f);  // min(1,5,3)
+    TEST_ASSERT_NEAR(min_1->data()[1], 2.0f, 1e-5f);  // min(4,2,6)
 }
 
 void test_tensor_argmax() {
@@ -372,8 +372,8 @@ void test_tensor_argmax() {
 
     auto argmax_1 = a->argmax(1);
     TEST_ASSERT_SHAPE(argmax_1, std::vector<size_t>({2}));
-    TEST_ASSERT_NEAR(argmax_1->data[0], 1.0f, 1e-5f);  // index of 5
-    TEST_ASSERT_NEAR(argmax_1->data[1], 2.0f, 1e-5f);  // index of 6
+    TEST_ASSERT_NEAR(argmax_1->data()[0], 1.0f, 1e-5f);  // index of 5
+    TEST_ASSERT_NEAR(argmax_1->data()[1], 2.0f, 1e-5f);  // index of 6
 }
 
 // =============================================================================
@@ -388,7 +388,7 @@ void test_tensor_reshape() {
     TEST_ASSERT_EQ(b->size(), 6u);
     // Data should be preserved
     for (size_t i = 0; i < 6; i++) {
-        TEST_ASSERT_NEAR(b->data[i], a->data[i], 1e-6f);
+        TEST_ASSERT_NEAR(b->data()[i], a->data()[i], 1e-6f);
     }
 }
 
@@ -398,9 +398,9 @@ void test_tensor_slice() {
     // Slice first row
     auto row0 = a->slice(0, 1, 0);
     TEST_ASSERT_SHAPE(row0, std::vector<size_t>({1, 3}));
-    TEST_ASSERT_NEAR(row0->data[0], 1.0f, 1e-6f);
-    TEST_ASSERT_NEAR(row0->data[1], 2.0f, 1e-6f);
-    TEST_ASSERT_NEAR(row0->data[2], 3.0f, 1e-6f);
+    TEST_ASSERT_NEAR(row0->data()[0], 1.0f, 1e-6f);
+    TEST_ASSERT_NEAR(row0->data()[1], 2.0f, 1e-6f);
+    TEST_ASSERT_NEAR(row0->data()[2], 3.0f, 1e-6f);
 }
 
 void test_tensor_flatten() {
@@ -441,8 +441,8 @@ void test_tensor_concat() {
     auto c = Tensor::concat({a, b}, 0);
 
     TEST_ASSERT_SHAPE(c, std::vector<size_t>({2, 3}));
-    TEST_ASSERT_NEAR(c->data[0], 1.0f, 1e-6f);
-    TEST_ASSERT_NEAR(c->data[3], 4.0f, 1e-6f);
+    TEST_ASSERT_NEAR(c->data()[0], 1.0f, 1e-6f);
+    TEST_ASSERT_NEAR(c->data()[3], 4.0f, 1e-6f);
 }
 
 void test_tensor_stack() {
@@ -463,22 +463,22 @@ void test_tensor_operators() {
 
     // Operators are member functions on Tensor, so dereference TensorPtr
     auto c = (*a) + b;
-    TEST_ASSERT_NEAR(c->data[0], 5.0f, 1e-6f);
+    TEST_ASSERT_NEAR(c->data()[0], 5.0f, 1e-6f);
 
     auto d = (*a) - b;
-    TEST_ASSERT_NEAR(d->data[0], -3.0f, 1e-6f);
+    TEST_ASSERT_NEAR(d->data()[0], -3.0f, 1e-6f);
 
     auto e = (*a) * b;
-    TEST_ASSERT_NEAR(e->data[0], 4.0f, 1e-6f);
+    TEST_ASSERT_NEAR(e->data()[0], 4.0f, 1e-6f);
 
     auto f = (*a) / b;
-    TEST_ASSERT_NEAR(f->data[0], 0.25f, 1e-6f);
+    TEST_ASSERT_NEAR(f->data()[0], 0.25f, 1e-6f);
 
     auto g = -(*a);
-    TEST_ASSERT_NEAR(g->data[0], -1.0f, 1e-6f);
+    TEST_ASSERT_NEAR(g->data()[0], -1.0f, 1e-6f);
 
     auto h = (*a) * 2.0f;
-    TEST_ASSERT_NEAR(h->data[0], 2.0f, 1e-6f);
+    TEST_ASSERT_NEAR(h->data()[0], 2.0f, 1e-6f);
 }
 
 // =============================================================================

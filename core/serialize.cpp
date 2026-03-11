@@ -1,5 +1,6 @@
 #include "serialize.h"
 #include <cstdio>
+#include <cstring>
 
 // Helper functions for binary I/O
 static bool write_uint32(std::ofstream& out, uint32_t val) {
@@ -47,7 +48,7 @@ bool save_tensor(const TensorPtr& tensor, std::ofstream& out) {
 
     // Write data
     size_t size = tensor->size();
-    out.write(reinterpret_cast<const char*>(tensor->data.data()), size * sizeof(float));
+    out.write(reinterpret_cast<const char*>(tensor->data()), size * sizeof(float));
 
     return out.good();
 }
@@ -175,7 +176,7 @@ bool load_model(Module* module, const std::string& path) {
         }
 
         // Copy data into existing parameter
-        params[i]->data = std::move(loaded->data);
+        std::memcpy(params[i]->data(), loaded->data(), loaded->size() * sizeof(float));
     }
 
     printf("Model loaded: %u parameters from %s\n", num_params, path.c_str());
@@ -444,7 +445,7 @@ bool load_checkpoint(const std::string& path, Module* model, Optimizer* optimize
             return false;
         }
 
-        params[i]->data = std::move(loaded->data);
+        std::memcpy(params[i]->data(), loaded->data(), loaded->size() * sizeof(float));
     }
 
     // Read optimizer state if present
