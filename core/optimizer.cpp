@@ -14,7 +14,7 @@ SGD::SGD(const std::vector<TensorPtr>& params, float lr, float momentum)
     : Optimizer(params, lr), momentum(momentum) {
     if (momentum > 0.0f) {
         for (const auto& p : params) {
-            velocity.push_back(std::vector<float>(p->data.size(), 0.0f));
+            velocity.push_back(std::vector<float>(p->size(), 0.0f));
         }
     }
 }
@@ -23,13 +23,13 @@ void SGD::step() {
     for (size_t i = 0; i < params.size(); i++) {
         auto& p = params[i];
         if (momentum > 0.0f) {
-            for (size_t j = 0; j < p->data.size(); j++) {
-                velocity[i][j] = momentum * velocity[i][j] + p->grad[j];
-                p->data[j] -= lr * velocity[i][j];
+            for (size_t j = 0; j < p->size(); j++) {
+                velocity[i][j] = momentum * velocity[i][j] + p->grad()[j];
+                p->data()[j] -= lr * velocity[i][j];
             }
         } else {
-            for (size_t j = 0; j < p->data.size(); j++) {
-                p->data[j] -= lr * p->grad[j];
+            for (size_t j = 0; j < p->size(); j++) {
+                p->data()[j] -= lr * p->grad()[j];
             }
         }
     }
@@ -38,8 +38,8 @@ void SGD::step() {
 Adam::Adam(const std::vector<TensorPtr>& params, float lr, float beta1, float beta2, float eps)
     : Optimizer(params, lr), beta1(beta1), beta2(beta2), eps(eps), t(0) {
     for (const auto& p : params) {
-        m.push_back(std::vector<float>(p->data.size(), 0.0f));
-        v.push_back(std::vector<float>(p->data.size(), 0.0f));
+        m.push_back(std::vector<float>(p->size(), 0.0f));
+        v.push_back(std::vector<float>(p->size(), 0.0f));
     }
 }
 
@@ -50,8 +50,8 @@ void Adam::step() {
 
     for (size_t i = 0; i < params.size(); i++) {
         auto& p = params[i];
-        for (size_t j = 0; j < p->data.size(); j++) {
-            float g = p->grad[j];
+        for (size_t j = 0; j < p->size(); j++) {
+            float g = p->grad()[j];
 
             m[i][j] = beta1 * m[i][j] + (1.0f - beta1) * g;
             v[i][j] = beta2 * v[i][j] + (1.0f - beta2) * g * g;
@@ -59,7 +59,7 @@ void Adam::step() {
             float m_hat = m[i][j] / bias_correction1;
             float v_hat = v[i][j] / bias_correction2;
 
-            p->data[j] -= lr * m_hat / (std::sqrt(v_hat) + eps);
+            p->data()[j] -= lr * m_hat / (std::sqrt(v_hat) + eps);
         }
     }
 }
@@ -67,8 +67,8 @@ void Adam::step() {
 AdamW::AdamW(const std::vector<TensorPtr>& params, float lr, float beta1, float beta2, float eps, float weight_decay)
     : Optimizer(params, lr), beta1(beta1), beta2(beta2), eps(eps), weight_decay(weight_decay), t(0) {
     for (const auto& p : params) {
-        m.push_back(std::vector<float>(p->data.size(), 0.0f));
-        v.push_back(std::vector<float>(p->data.size(), 0.0f));
+        m.push_back(std::vector<float>(p->size(), 0.0f));
+        v.push_back(std::vector<float>(p->size(), 0.0f));
     }
 }
 
@@ -79,8 +79,8 @@ void AdamW::step() {
 
     for (size_t i = 0; i < params.size(); i++) {
         auto& p = params[i];
-        for (size_t j = 0; j < p->data.size(); j++) {
-            float g = p->grad[j];
+        for (size_t j = 0; j < p->size(); j++) {
+            float g = p->grad()[j];
 
             // Update biased first and second moment estimates
             m[i][j] = beta1 * m[i][j] + (1.0f - beta1) * g;
@@ -91,7 +91,7 @@ void AdamW::step() {
             float v_hat = v[i][j] / bias_correction2;
 
             // AdamW: decoupled weight decay (applied directly to params, not to gradients)
-            p->data[j] -= lr * (m_hat / (std::sqrt(v_hat) + eps) + weight_decay * p->data[j]);
+            p->data()[j] -= lr * (m_hat / (std::sqrt(v_hat) + eps) + weight_decay * p->data()[j]);
         }
     }
 }
@@ -99,9 +99,9 @@ void AdamW::step() {
 RMSprop::RMSprop(const std::vector<TensorPtr>& params, float lr, float alpha, float eps, float momentum, float weight_decay)
     : Optimizer(params, lr), alpha(alpha), eps(eps), momentum(momentum), weight_decay(weight_decay) {
     for (const auto& p : params) {
-        v.push_back(std::vector<float>(p->data.size(), 0.0f));
+        v.push_back(std::vector<float>(p->size(), 0.0f));
         if (momentum > 0.0f) {
-            buffer.push_back(std::vector<float>(p->data.size(), 0.0f));
+            buffer.push_back(std::vector<float>(p->size(), 0.0f));
         }
     }
 }
@@ -109,12 +109,12 @@ RMSprop::RMSprop(const std::vector<TensorPtr>& params, float lr, float alpha, fl
 void RMSprop::step() {
     for (size_t i = 0; i < params.size(); i++) {
         auto& p = params[i];
-        for (size_t j = 0; j < p->data.size(); j++) {
-            float g = p->grad[j];
+        for (size_t j = 0; j < p->size(); j++) {
+            float g = p->grad()[j];
 
             // Apply weight decay
             if (weight_decay != 0.0f) {
-                g += weight_decay * p->data[j];
+                g += weight_decay * p->data()[j];
             }
 
             // Update running average of squared gradients
@@ -125,10 +125,10 @@ void RMSprop::step() {
             if (momentum > 0.0f) {
                 // With momentum
                 buffer[i][j] = momentum * buffer[i][j] + g / avg;
-                p->data[j] -= lr * buffer[i][j];
+                p->data()[j] -= lr * buffer[i][j];
             } else {
                 // Without momentum
-                p->data[j] -= lr * g / avg;
+                p->data()[j] -= lr * g / avg;
             }
         }
     }
@@ -141,8 +141,8 @@ void RMSprop::step() {
 float get_grad_norm(const std::vector<TensorPtr>& params) {
     float total_norm = 0.0f;
     for (const auto& p : params) {
-        for (size_t i = 0; i < p->grad.size(); i++) {
-            total_norm += p->grad[i] * p->grad[i];
+        for (size_t i = 0; i < p->grad_size(); i++) {
+            total_norm += p->grad()[i] * p->grad()[i];
         }
     }
     return std::sqrt(total_norm);
@@ -153,8 +153,8 @@ void clip_grad_norm_(std::vector<TensorPtr>& params, float max_norm) {
     float clip_coef = max_norm / (total_norm + 1e-6f);
     if (clip_coef < 1.0f) {
         for (auto& p : params) {
-            for (size_t i = 0; i < p->grad.size(); i++) {
-                p->grad[i] *= clip_coef;
+            for (size_t i = 0; i < p->grad_size(); i++) {
+                p->grad()[i] *= clip_coef;
             }
         }
     }
@@ -162,11 +162,11 @@ void clip_grad_norm_(std::vector<TensorPtr>& params, float max_norm) {
 
 void clip_grad_value_(std::vector<TensorPtr>& params, float clip_value) {
     for (auto& p : params) {
-        for (size_t i = 0; i < p->grad.size(); i++) {
-            if (p->grad[i] > clip_value) {
-                p->grad[i] = clip_value;
-            } else if (p->grad[i] < -clip_value) {
-                p->grad[i] = -clip_value;
+        for (size_t i = 0; i < p->grad_size(); i++) {
+            if (p->grad()[i] > clip_value) {
+                p->grad()[i] = clip_value;
+            } else if (p->grad()[i] < -clip_value) {
+                p->grad()[i] = -clip_value;
             }
         }
     }

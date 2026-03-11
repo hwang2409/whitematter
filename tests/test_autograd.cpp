@@ -15,10 +15,10 @@ void test_autograd_add() {
     loss->backward();
 
     // d(loss)/d(a) = 1, d(loss)/d(b) = 1
-    TEST_ASSERT_NEAR(a->grad[0], 1.0f, 1e-5f);
-    TEST_ASSERT_NEAR(a->grad[1], 1.0f, 1e-5f);
-    TEST_ASSERT_NEAR(b->grad[0], 1.0f, 1e-5f);
-    TEST_ASSERT_NEAR(b->grad[1], 1.0f, 1e-5f);
+    TEST_ASSERT_NEAR(a->grad()[0], 1.0f, 1e-5f);
+    TEST_ASSERT_NEAR(a->grad()[1], 1.0f, 1e-5f);
+    TEST_ASSERT_NEAR(b->grad()[0], 1.0f, 1e-5f);
+    TEST_ASSERT_NEAR(b->grad()[1], 1.0f, 1e-5f);
 }
 
 void test_autograd_sub() {
@@ -30,8 +30,8 @@ void test_autograd_sub() {
     loss->backward();
 
     // d(loss)/d(a) = 1, d(loss)/d(b) = -1
-    TEST_ASSERT_NEAR(a->grad[0], 1.0f, 1e-5f);
-    TEST_ASSERT_NEAR(b->grad[0], -1.0f, 1e-5f);
+    TEST_ASSERT_NEAR(a->grad()[0], 1.0f, 1e-5f);
+    TEST_ASSERT_NEAR(b->grad()[0], -1.0f, 1e-5f);
 }
 
 void test_autograd_mul() {
@@ -43,10 +43,10 @@ void test_autograd_mul() {
     loss->backward();
 
     // d(loss)/d(a) = b, d(loss)/d(b) = a
-    TEST_ASSERT_NEAR(a->grad[0], 4.0f, 1e-5f);
-    TEST_ASSERT_NEAR(a->grad[1], 5.0f, 1e-5f);
-    TEST_ASSERT_NEAR(b->grad[0], 2.0f, 1e-5f);
-    TEST_ASSERT_NEAR(b->grad[1], 3.0f, 1e-5f);
+    TEST_ASSERT_NEAR(a->grad()[0], 4.0f, 1e-5f);
+    TEST_ASSERT_NEAR(a->grad()[1], 5.0f, 1e-5f);
+    TEST_ASSERT_NEAR(b->grad()[0], 2.0f, 1e-5f);
+    TEST_ASSERT_NEAR(b->grad()[1], 3.0f, 1e-5f);
 }
 
 void test_autograd_div() {
@@ -58,12 +58,12 @@ void test_autograd_div() {
     loss->backward();
 
     // d(a/b)/d(a) = 1/b
-    TEST_ASSERT_NEAR(a->grad[0], 0.5f, 1e-5f);   // 1/2
-    TEST_ASSERT_NEAR(a->grad[1], 1.0f/3.0f, 1e-5f);
+    TEST_ASSERT_NEAR(a->grad()[0], 0.5f, 1e-5f);   // 1/2
+    TEST_ASSERT_NEAR(a->grad()[1], 1.0f/3.0f, 1e-5f);
 
     // d(a/b)/d(b) = -a/b^2
-    TEST_ASSERT_NEAR(b->grad[0], -8.0f/4.0f, 1e-5f);   // -8/4 = -2
-    TEST_ASSERT_NEAR(b->grad[1], -9.0f/9.0f, 1e-5f);   // -9/9 = -1
+    TEST_ASSERT_NEAR(b->grad()[0], -8.0f/4.0f, 1e-5f);   // -8/4 = -2
+    TEST_ASSERT_NEAR(b->grad()[1], -9.0f/9.0f, 1e-5f);   // -9/9 = -1
 }
 
 void test_autograd_scalar_mul() {
@@ -74,8 +74,8 @@ void test_autograd_scalar_mul() {
     loss->backward();
 
     // d(3a)/d(a) = 3
-    TEST_ASSERT_NEAR(a->grad[0], 3.0f, 1e-5f);
-    TEST_ASSERT_NEAR(a->grad[1], 3.0f, 1e-5f);
+    TEST_ASSERT_NEAR(a->grad()[0], 3.0f, 1e-5f);
+    TEST_ASSERT_NEAR(a->grad()[1], 3.0f, 1e-5f);
 }
 
 void test_autograd_neg() {
@@ -86,8 +86,8 @@ void test_autograd_neg() {
     loss->backward();
 
     // d(-a)/d(a) = -1
-    TEST_ASSERT_NEAR(a->grad[0], -1.0f, 1e-5f);
-    TEST_ASSERT_NEAR(a->grad[1], -1.0f, 1e-5f);
+    TEST_ASSERT_NEAR(a->grad()[0], -1.0f, 1e-5f);
+    TEST_ASSERT_NEAR(a->grad()[1], -1.0f, 1e-5f);
 }
 
 // =============================================================================
@@ -102,9 +102,9 @@ void test_autograd_relu() {
     loss->backward();
 
     // ReLU gradient: 0 for x <= 0, 1 for x > 0
-    TEST_ASSERT_NEAR(a->grad[0], 0.0f, 1e-5f);  // -2 -> 0
-    TEST_ASSERT_NEAR(a->grad[1], 0.0f, 1e-5f);  // 0 -> 0
-    TEST_ASSERT_NEAR(a->grad[2], 1.0f, 1e-5f);  // 2 -> 1
+    TEST_ASSERT_NEAR(a->grad()[0], 0.0f, 1e-5f);  // -2 -> 0
+    TEST_ASSERT_NEAR(a->grad()[1], 0.0f, 1e-5f);  // 0 -> 0
+    TEST_ASSERT_NEAR(a->grad()[2], 1.0f, 1e-5f);  // 2 -> 1
 }
 
 void test_autograd_sigmoid() {
@@ -115,7 +115,7 @@ void test_autograd_sigmoid() {
     loss->backward();
 
     // sigmoid'(0) = sigmoid(0) * (1 - sigmoid(0)) = 0.5 * 0.5 = 0.25
-    TEST_ASSERT_NEAR(a->grad[0], 0.25f, 1e-5f);
+    TEST_ASSERT_NEAR(a->grad()[0], 0.25f, 1e-5f);
 }
 
 void test_autograd_tanh() {
@@ -126,7 +126,7 @@ void test_autograd_tanh() {
     loss->backward();
 
     // tanh'(0) = 1 - tanh^2(0) = 1 - 0 = 1
-    TEST_ASSERT_NEAR(a->grad[0], 1.0f, 1e-5f);
+    TEST_ASSERT_NEAR(a->grad()[0], 1.0f, 1e-5f);
 }
 
 // =============================================================================
@@ -141,7 +141,7 @@ void test_autograd_exp() {
     loss->backward();
 
     // exp'(x) = exp(x)
-    TEST_ASSERT_NEAR(a->grad[0], std::exp(1.0f), 1e-5f);
+    TEST_ASSERT_NEAR(a->grad()[0], std::exp(1.0f), 1e-5f);
 }
 
 void test_autograd_log() {
@@ -152,7 +152,7 @@ void test_autograd_log() {
     loss->backward();
 
     // log'(x) = 1/x
-    TEST_ASSERT_NEAR(a->grad[0], 0.5f, 1e-5f);
+    TEST_ASSERT_NEAR(a->grad()[0], 0.5f, 1e-5f);
 }
 
 void test_autograd_pow() {
@@ -163,7 +163,7 @@ void test_autograd_pow() {
     loss->backward();
 
     // d(x^2)/dx = 2x
-    TEST_ASSERT_NEAR(a->grad[0], 6.0f, 1e-5f);
+    TEST_ASSERT_NEAR(a->grad()[0], 6.0f, 1e-5f);
 }
 
 void test_autograd_sqrt() {
@@ -174,7 +174,7 @@ void test_autograd_sqrt() {
     loss->backward();
 
     // sqrt'(x) = 0.5 / sqrt(x) = 0.5 / 2 = 0.25
-    TEST_ASSERT_NEAR(a->grad[0], 0.25f, 1e-5f);
+    TEST_ASSERT_NEAR(a->grad()[0], 0.25f, 1e-5f);
 }
 
 // =============================================================================
@@ -191,14 +191,14 @@ void test_autograd_matmul() {
     loss->backward();
 
     // Gradients should be computed
-    TEST_ASSERT_EQ(a->grad.size(), 4u);
-    TEST_ASSERT_EQ(b->grad.size(), 4u);
+    TEST_ASSERT_EQ(a->grad_size(), 4u);
+    TEST_ASSERT_EQ(b->grad_size(), 4u);
 
     // d(sum(AB))/dA = B^T summed appropriately
     // d(sum(AB))/dB = A^T summed appropriately
     // Just verify gradients are non-zero
-    TEST_ASSERT(std::abs(a->grad[0]) > 1e-6f);
-    TEST_ASSERT(std::abs(b->grad[0]) > 1e-6f);
+    TEST_ASSERT(std::abs(a->grad()[0]) > 1e-6f);
+    TEST_ASSERT(std::abs(b->grad()[0]) > 1e-6f);
 }
 
 void test_autograd_transpose() {
@@ -209,8 +209,8 @@ void test_autograd_transpose() {
     loss->backward();
 
     // All gradients should be 1
-    for (size_t i = 0; i < a->grad.size(); i++) {
-        TEST_ASSERT_NEAR(a->grad[i], 1.0f, 1e-5f);
+    for (size_t i = 0; i < a->grad_size(); i++) {
+        TEST_ASSERT_NEAR(a->grad()[i], 1.0f, 1e-5f);
     }
 }
 
@@ -225,8 +225,8 @@ void test_autograd_sum() {
     loss->backward();
 
     // d(sum)/d(x_i) = 1 for all i
-    for (size_t i = 0; i < a->grad.size(); i++) {
-        TEST_ASSERT_NEAR(a->grad[i], 1.0f, 1e-5f);
+    for (size_t i = 0; i < a->grad_size(); i++) {
+        TEST_ASSERT_NEAR(a->grad()[i], 1.0f, 1e-5f);
     }
 }
 
@@ -237,13 +237,13 @@ void test_autograd_mean() {
     loss->backward();
 
     // Just verify gradients exist and are consistent
-    TEST_ASSERT_EQ(a->grad.size(), 4u);
+    TEST_ASSERT_EQ(a->grad_size(), 4u);
     // The gradient value depends on implementation details
     // Just verify they're all equal and non-zero
-    float g0 = a->grad[0];
+    float g0 = a->grad()[0];
     TEST_ASSERT(std::abs(g0) > 1e-6f);
-    for (size_t i = 1; i < a->grad.size(); i++) {
-        TEST_ASSERT_NEAR(a->grad[i], g0, 1e-5f);
+    for (size_t i = 1; i < a->grad_size(); i++) {
+        TEST_ASSERT_NEAR(a->grad()[i], g0, 1e-5f);
     }
 }
 
@@ -265,13 +265,13 @@ void test_autograd_chain() {
     loss->backward();
 
     // d(result)/d(a) = 2*(ab+c) * b = 2*7*3 = 42
-    TEST_ASSERT_NEAR(a->grad[0], 42.0f, 1e-4f);
+    TEST_ASSERT_NEAR(a->grad()[0], 42.0f, 1e-4f);
 
     // d(result)/d(b) = 2*(ab+c) * a = 2*7*2 = 28
-    TEST_ASSERT_NEAR(b->grad[0], 28.0f, 1e-4f);
+    TEST_ASSERT_NEAR(b->grad()[0], 28.0f, 1e-4f);
 
     // d(result)/d(c) = 2*(ab+c) = 14
-    TEST_ASSERT_NEAR(c->grad[0], 14.0f, 1e-4f);
+    TEST_ASSERT_NEAR(c->grad()[0], 14.0f, 1e-4f);
 }
 
 void test_autograd_shared_variable() {
@@ -283,7 +283,7 @@ void test_autograd_shared_variable() {
     loss->backward();
 
     // d(2a)/d(a) = 2
-    TEST_ASSERT_NEAR(a->grad[0], 2.0f, 1e-5f);
+    TEST_ASSERT_NEAR(a->grad()[0], 2.0f, 1e-5f);
 }
 
 // =============================================================================
@@ -325,10 +325,10 @@ void test_autograd_zero_grad() {
     auto loss = b->sum();
     loss->backward();
 
-    TEST_ASSERT_NEAR(a->grad[0], 3.0f, 1e-5f);
+    TEST_ASSERT_NEAR(a->grad()[0], 3.0f, 1e-5f);
 
     a->zero_grad();
-    TEST_ASSERT_NEAR(a->grad[0], 0.0f, 1e-5f);
+    TEST_ASSERT_NEAR(a->grad()[0], 0.0f, 1e-5f);
 }
 
 // =============================================================================
@@ -342,13 +342,13 @@ void test_autograd_accumulation() {
     auto b1 = a->mul(2.0f);
     auto loss1 = b1->sum();
     loss1->backward();
-    TEST_ASSERT_NEAR(a->grad[0], 2.0f, 1e-5f);
+    TEST_ASSERT_NEAR(a->grad()[0], 2.0f, 1e-5f);
 
     // Second backward (gradients should accumulate)
     auto b2 = a->mul(3.0f);
     auto loss2 = b2->sum();
     loss2->backward();
-    TEST_ASSERT_NEAR(a->grad[0], 5.0f, 1e-5f);  // 2 + 3 = 5
+    TEST_ASSERT_NEAR(a->grad()[0], 5.0f, 1e-5f);  // 2 + 3 = 5
 }
 
 // =============================================================================

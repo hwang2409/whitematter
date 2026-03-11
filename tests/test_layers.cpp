@@ -39,8 +39,8 @@ void test_linear_gradient() {
     loss->backward();
 
     // Weight and bias should have gradients
-    TEST_ASSERT_EQ(layer.weight->grad.size(), 6u);
-    TEST_ASSERT_EQ(layer.bias->grad.size(), 2u);
+    TEST_ASSERT_EQ(layer.weight->grad_size(), 6u);
+    TEST_ASSERT_EQ(layer.bias->grad_size(), 2u);
 }
 
 // =============================================================================
@@ -52,11 +52,11 @@ void test_relu_forward() {
     auto input = Tensor::create({-2.0f, -1.0f, 0.0f, 1.0f, 2.0f}, std::vector<size_t>{5});
     auto output = relu.forward(input);
 
-    TEST_ASSERT_NEAR(output->data[0], 0.0f, 1e-5f);
-    TEST_ASSERT_NEAR(output->data[1], 0.0f, 1e-5f);
-    TEST_ASSERT_NEAR(output->data[2], 0.0f, 1e-5f);
-    TEST_ASSERT_NEAR(output->data[3], 1.0f, 1e-5f);
-    TEST_ASSERT_NEAR(output->data[4], 2.0f, 1e-5f);
+    TEST_ASSERT_NEAR(output->data()[0], 0.0f, 1e-5f);
+    TEST_ASSERT_NEAR(output->data()[1], 0.0f, 1e-5f);
+    TEST_ASSERT_NEAR(output->data()[2], 0.0f, 1e-5f);
+    TEST_ASSERT_NEAR(output->data()[3], 1.0f, 1e-5f);
+    TEST_ASSERT_NEAR(output->data()[4], 2.0f, 1e-5f);
 }
 
 void test_sigmoid_forward() {
@@ -64,7 +64,7 @@ void test_sigmoid_forward() {
     auto input = Tensor::create({0.0f}, std::vector<size_t>{1});
     auto output = sigmoid.forward(input);
 
-    TEST_ASSERT_NEAR(output->data[0], 0.5f, 1e-5f);
+    TEST_ASSERT_NEAR(output->data()[0], 0.5f, 1e-5f);
 }
 
 void test_tanh_forward() {
@@ -72,7 +72,7 @@ void test_tanh_forward() {
     auto input = Tensor::create({0.0f}, std::vector<size_t>{1});
     auto output = tanh_layer.forward(input);
 
-    TEST_ASSERT_NEAR(output->data[0], 0.0f, 1e-5f);
+    TEST_ASSERT_NEAR(output->data()[0], 0.0f, 1e-5f);
 }
 
 void test_softmax_forward() {
@@ -81,12 +81,12 @@ void test_softmax_forward() {
     auto output = softmax.forward(input);
 
     // Softmax should sum to 1
-    float sum = output->data[0] + output->data[1] + output->data[2];
+    float sum = output->data()[0] + output->data()[1] + output->data()[2];
     TEST_ASSERT_NEAR(sum, 1.0f, 1e-5f);
 
     // Values should be in increasing order
-    TEST_ASSERT(output->data[0] < output->data[1]);
-    TEST_ASSERT(output->data[1] < output->data[2]);
+    TEST_ASSERT(output->data()[0] < output->data()[1]);
+    TEST_ASSERT(output->data()[1] < output->data()[2]);
 }
 
 void test_logsoftmax_forward() {
@@ -95,7 +95,7 @@ void test_logsoftmax_forward() {
     auto output = logsoftmax.forward(input);
 
     // exp(log_softmax) should sum to 1
-    float sum = std::exp(output->data[0]) + std::exp(output->data[1]) + std::exp(output->data[2]);
+    float sum = std::exp(output->data()[0]) + std::exp(output->data()[1]) + std::exp(output->data()[2]);
     TEST_ASSERT_NEAR(sum, 1.0f, 1e-5f);
 }
 
@@ -113,7 +113,7 @@ void test_dropout_training() {
     // Some values should be zeroed out
     int zeros = 0;
     for (size_t i = 0; i < output->size(); i++) {
-        if (output->data[i] == 0.0f) zeros++;
+        if (output->data()[i] == 0.0f) zeros++;
     }
 
     // Approximately half should be zeros (with some tolerance)
@@ -130,7 +130,7 @@ void test_dropout_eval() {
 
     // In eval mode, all values should pass through unchanged
     for (size_t i = 0; i < output->size(); i++) {
-        TEST_ASSERT_NEAR(output->data[i], 1.0f, 1e-5f);
+        TEST_ASSERT_NEAR(output->data()[i], 1.0f, 1e-5f);
     }
 }
 
@@ -216,9 +216,9 @@ void test_conv_transpose2d_gradient() {
     loss->backward();
 
     // Input, weight and bias should have gradients
-    TEST_ASSERT(input->grad.size() > 0);
-    TEST_ASSERT(conv.weight->grad.size() > 0);
-    TEST_ASSERT(conv.bias->grad.size() > 0);
+    TEST_ASSERT(input->grad_size() > 0);
+    TEST_ASSERT(conv.weight->grad_size() > 0);
+    TEST_ASSERT(conv.bias->grad_size() > 0);
 }
 
 void test_conv_transpose2d_output_padding() {
@@ -281,10 +281,10 @@ void test_maxpool2d_values() {
 
     TEST_ASSERT_SHAPE(output, std::vector<size_t>({1, 1, 2, 2}));
     // Max of each 2x2 region
-    TEST_ASSERT_NEAR(output->data[0], 6.0f, 1e-5f);   // max(1,2,5,6)
-    TEST_ASSERT_NEAR(output->data[1], 8.0f, 1e-5f);   // max(3,4,7,8)
-    TEST_ASSERT_NEAR(output->data[2], 14.0f, 1e-5f);  // max(9,10,13,14)
-    TEST_ASSERT_NEAR(output->data[3], 16.0f, 1e-5f);  // max(11,12,15,16)
+    TEST_ASSERT_NEAR(output->data()[0], 6.0f, 1e-5f);   // max(1,2,5,6)
+    TEST_ASSERT_NEAR(output->data()[1], 8.0f, 1e-5f);   // max(3,4,7,8)
+    TEST_ASSERT_NEAR(output->data()[2], 14.0f, 1e-5f);  // max(9,10,13,14)
+    TEST_ASSERT_NEAR(output->data()[3], 16.0f, 1e-5f);  // max(11,12,15,16)
 }
 
 // =============================================================================
@@ -444,7 +444,7 @@ void test_lstm_initial_hidden_state() {
     // Output should be different from default zero initialization
     // (since we passed ones for h0)
     // This is a smoke test - the values should be computed correctly
-    TEST_ASSERT(output->data.size() > 0);
+    TEST_ASSERT(output->size() > 0);
 }
 
 void test_lstm_gradient_flow() {
@@ -456,10 +456,10 @@ void test_lstm_gradient_flow() {
     loss->backward();
 
     // Input should have gradients
-    TEST_ASSERT(input->grad.size() > 0);
+    TEST_ASSERT(input->grad_size() > 0);
     bool has_nonzero_input_grad = false;
-    for (size_t i = 0; i < input->grad.size(); i++) {
-        if (std::abs(input->grad[i]) > 1e-7f) {
+    for (size_t i = 0; i < input->grad_size(); i++) {
+        if (std::abs(input->grad()[i]) > 1e-7f) {
             has_nonzero_input_grad = true;
             break;
         }
@@ -467,15 +467,15 @@ void test_lstm_gradient_flow() {
     TEST_ASSERT(has_nonzero_input_grad);
 
     // Weight matrices should have gradients
-    TEST_ASSERT(lstm.weight_ih->grad.size() > 0);
-    TEST_ASSERT(lstm.weight_hh->grad.size() > 0);
-    TEST_ASSERT(lstm.bias_ih->grad.size() > 0);
-    TEST_ASSERT(lstm.bias_hh->grad.size() > 0);
+    TEST_ASSERT(lstm.weight_ih->grad_size() > 0);
+    TEST_ASSERT(lstm.weight_hh->grad_size() > 0);
+    TEST_ASSERT(lstm.bias_ih->grad_size() > 0);
+    TEST_ASSERT(lstm.bias_hh->grad_size() > 0);
 
     // Check weight_ih gradient is non-zero
     bool has_nonzero_weight_grad = false;
-    for (size_t i = 0; i < lstm.weight_ih->grad.size(); i++) {
-        if (std::abs(lstm.weight_ih->grad[i]) > 1e-7f) {
+    for (size_t i = 0; i < lstm.weight_ih->grad_size(); i++) {
+        if (std::abs(lstm.weight_ih->grad()[i]) > 1e-7f) {
             has_nonzero_weight_grad = true;
             break;
         }
@@ -506,8 +506,8 @@ void test_lstm_output_values_bounded() {
     auto input = Tensor::randn({4, 10, 8});
     auto output = lstm.forward(input);
 
-    for (size_t i = 0; i < output->data.size(); i++) {
-        TEST_ASSERT(output->data[i] >= -1.0f && output->data[i] <= 1.0f);
+    for (size_t i = 0; i < output->size(); i++) {
+        TEST_ASSERT(output->data()[i] >= -1.0f && output->data()[i] <= 1.0f);
     }
 }
 
@@ -517,7 +517,7 @@ void test_lstm_forget_gate_bias() {
 
     // Forget gate bias is in bias_ih[hidden_size:2*hidden_size]
     for (size_t i = 16; i < 32; i++) {
-        TEST_ASSERT_NEAR(lstm.bias_ih->data[i], 1.0f, 1e-5f);
+        TEST_ASSERT_NEAR(lstm.bias_ih->data()[i], 1.0f, 1e-5f);
     }
 }
 
@@ -588,7 +588,7 @@ void test_gru_initial_hidden_state() {
     auto output = gru.forward(input, h0);
 
     TEST_ASSERT_SHAPE(output, std::vector<size_t>({2, 5, 32}));
-    TEST_ASSERT(output->data.size() > 0);
+    TEST_ASSERT(output->size() > 0);
 }
 
 void test_gru_gradient_flow() {
@@ -600,10 +600,10 @@ void test_gru_gradient_flow() {
     loss->backward();
 
     // Input should have gradients
-    TEST_ASSERT(input->grad.size() > 0);
+    TEST_ASSERT(input->grad_size() > 0);
     bool has_nonzero_input_grad = false;
-    for (size_t i = 0; i < input->grad.size(); i++) {
-        if (std::abs(input->grad[i]) > 1e-7f) {
+    for (size_t i = 0; i < input->grad_size(); i++) {
+        if (std::abs(input->grad()[i]) > 1e-7f) {
             has_nonzero_input_grad = true;
             break;
         }
@@ -611,15 +611,15 @@ void test_gru_gradient_flow() {
     TEST_ASSERT(has_nonzero_input_grad);
 
     // Weight matrices should have gradients
-    TEST_ASSERT(gru.weight_ih->grad.size() > 0);
-    TEST_ASSERT(gru.weight_hh->grad.size() > 0);
-    TEST_ASSERT(gru.bias_ih->grad.size() > 0);
-    TEST_ASSERT(gru.bias_hh->grad.size() > 0);
+    TEST_ASSERT(gru.weight_ih->grad_size() > 0);
+    TEST_ASSERT(gru.weight_hh->grad_size() > 0);
+    TEST_ASSERT(gru.bias_ih->grad_size() > 0);
+    TEST_ASSERT(gru.bias_hh->grad_size() > 0);
 
     // Check weight_ih gradient is non-zero
     bool has_nonzero_weight_grad = false;
-    for (size_t i = 0; i < gru.weight_ih->grad.size(); i++) {
-        if (std::abs(gru.weight_ih->grad[i]) > 1e-7f) {
+    for (size_t i = 0; i < gru.weight_ih->grad_size(); i++) {
+        if (std::abs(gru.weight_ih->grad()[i]) > 1e-7f) {
             has_nonzero_weight_grad = true;
             break;
         }
@@ -655,7 +655,7 @@ void test_gru_output_continuity() {
         for (size_t h = 0; h < 16; h++) {
             size_t output_idx = b * 5 * 16 + 4 * 16 + h;  // last timestep
             size_t h_n_idx = b * 16 + h;
-            TEST_ASSERT_NEAR(gru.h_n->data[h_n_idx], output->data[output_idx], 1e-5f);
+            TEST_ASSERT_NEAR(gru.h_n->data()[h_n_idx], output->data()[output_idx], 1e-5f);
         }
     }
 }
@@ -666,25 +666,25 @@ void test_gru_deterministic() {
     GRU gru2(8, 16, true);
 
     // Copy weights from gru1 to gru2
-    for (size_t i = 0; i < gru1.weight_ih->data.size(); i++) {
-        gru2.weight_ih->data[i] = gru1.weight_ih->data[i];
+    for (size_t i = 0; i < gru1.weight_ih->size(); i++) {
+        gru2.weight_ih->data()[i] = gru1.weight_ih->data()[i];
     }
-    for (size_t i = 0; i < gru1.weight_hh->data.size(); i++) {
-        gru2.weight_hh->data[i] = gru1.weight_hh->data[i];
+    for (size_t i = 0; i < gru1.weight_hh->size(); i++) {
+        gru2.weight_hh->data()[i] = gru1.weight_hh->data()[i];
     }
-    for (size_t i = 0; i < gru1.bias_ih->data.size(); i++) {
-        gru2.bias_ih->data[i] = gru1.bias_ih->data[i];
+    for (size_t i = 0; i < gru1.bias_ih->size(); i++) {
+        gru2.bias_ih->data()[i] = gru1.bias_ih->data()[i];
     }
-    for (size_t i = 0; i < gru1.bias_hh->data.size(); i++) {
-        gru2.bias_hh->data[i] = gru1.bias_hh->data[i];
+    for (size_t i = 0; i < gru1.bias_hh->size(); i++) {
+        gru2.bias_hh->data()[i] = gru1.bias_hh->data()[i];
     }
 
     auto input = Tensor::randn({2, 5, 8});
     auto output1 = gru1.forward(input);
     auto output2 = gru2.forward(input);
 
-    for (size_t i = 0; i < output1->data.size(); i++) {
-        TEST_ASSERT_NEAR(output1->data[i], output2->data[i], 1e-5f);
+    for (size_t i = 0; i < output1->size(); i++) {
+        TEST_ASSERT_NEAR(output1->data()[i], output2->data()[i], 1e-5f);
     }
 }
 
@@ -722,7 +722,7 @@ void test_multihead_attention_causal_mask() {
     // - Lower triangular (including diagonal) should be 0 (attend)
     // - Upper triangular should be large negative (don't attend)
     // Position (0, 0) should be 0 (can attend to self)
-    TEST_ASSERT_NEAR(mask->data[0], 0.0f, 1e-5f);
+    TEST_ASSERT_NEAR(mask->data()[0], 0.0f, 1e-5f);
 }
 
 void test_multihead_attention_parameters() {
@@ -757,9 +757,9 @@ void test_multihead_attention_with_mask() {
     TEST_ASSERT_SHAPE(output, std::vector<size_t>({2, 6, 32}));
 
     // Output should still be valid
-    for (size_t i = 0; i < output->data.size(); i++) {
-        TEST_ASSERT(!std::isnan(output->data[i]));
-        TEST_ASSERT(!std::isinf(output->data[i]));
+    for (size_t i = 0; i < output->size(); i++) {
+        TEST_ASSERT(!std::isnan(output->data()[i]));
+        TEST_ASSERT(!std::isinf(output->data()[i]));
     }
 }
 
@@ -777,7 +777,7 @@ void test_multihead_attention_causal_mask_structure() {
     // Position (i, j) should be 0 if j <= i (can attend), -inf if j > i (can't attend)
     for (size_t i = 0; i < 4; i++) {
         for (size_t j = 0; j < 4; j++) {
-            float val = mask->data[i * 4 + j];
+            float val = mask->data()[i * 4 + j];
             if (j <= i) {
                 TEST_ASSERT_NEAR(val, 0.0f, 1e-5f);
             } else {
@@ -819,7 +819,7 @@ void test_multihead_attention_attention_weights_sum() {
                 float sum = 0.0f;
                 for (size_t j = 0; j < seq_k; j++) {
                     size_t idx = b * heads * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j;
-                    sum += attn->data[idx];
+                    sum += attn->data()[idx];
                 }
                 TEST_ASSERT_NEAR(sum, 1.0f, 1e-4f);
             }
@@ -836,10 +836,10 @@ void test_multihead_attention_gradient_flow() {
     loss->backward();
 
     // Input should have gradients
-    TEST_ASSERT(input->grad.size() > 0);
+    TEST_ASSERT(input->grad_size() > 0);
     bool has_nonzero_input_grad = false;
-    for (size_t i = 0; i < input->grad.size(); i++) {
-        if (std::abs(input->grad[i]) > 1e-7f) {
+    for (size_t i = 0; i < input->grad_size(); i++) {
+        if (std::abs(input->grad()[i]) > 1e-7f) {
             has_nonzero_input_grad = true;
             break;
         }
@@ -847,15 +847,15 @@ void test_multihead_attention_gradient_flow() {
     TEST_ASSERT(has_nonzero_input_grad);
 
     // Weight matrices should have gradients
-    TEST_ASSERT(mha.W_q->grad.size() > 0);
-    TEST_ASSERT(mha.W_k->grad.size() > 0);
-    TEST_ASSERT(mha.W_v->grad.size() > 0);
-    TEST_ASSERT(mha.W_o->grad.size() > 0);
+    TEST_ASSERT(mha.W_q->grad_size() > 0);
+    TEST_ASSERT(mha.W_k->grad_size() > 0);
+    TEST_ASSERT(mha.W_v->grad_size() > 0);
+    TEST_ASSERT(mha.W_o->grad_size() > 0);
 
     // Check W_q gradient is non-zero
     bool has_nonzero_weight_grad = false;
-    for (size_t i = 0; i < mha.W_q->grad.size(); i++) {
-        if (std::abs(mha.W_q->grad[i]) > 1e-7f) {
+    for (size_t i = 0; i < mha.W_q->grad_size(); i++) {
+        if (std::abs(mha.W_q->grad()[i]) > 1e-7f) {
             has_nonzero_weight_grad = true;
             break;
         }
@@ -863,8 +863,8 @@ void test_multihead_attention_gradient_flow() {
     TEST_ASSERT(has_nonzero_weight_grad);
 
     // Biases should have gradients
-    TEST_ASSERT(mha.b_q->grad.size() > 0);
-    TEST_ASSERT(mha.b_o->grad.size() > 0);
+    TEST_ASSERT(mha.b_q->grad_size() > 0);
+    TEST_ASSERT(mha.b_o->grad_size() > 0);
 }
 
 void test_multihead_attention_cross_gradient() {
@@ -880,14 +880,14 @@ void test_multihead_attention_cross_gradient() {
     loss->backward();
 
     // All inputs should have gradients
-    TEST_ASSERT(query->grad.size() > 0);
-    TEST_ASSERT(key->grad.size() > 0);
-    TEST_ASSERT(value->grad.size() > 0);
+    TEST_ASSERT(query->grad_size() > 0);
+    TEST_ASSERT(key->grad_size() > 0);
+    TEST_ASSERT(value->grad_size() > 0);
 
     // Check that gradients are non-zero
     bool query_has_grad = false;
-    for (size_t i = 0; i < query->grad.size(); i++) {
-        if (std::abs(query->grad[i]) > 1e-7f) {
+    for (size_t i = 0; i < query->grad_size(); i++) {
+        if (std::abs(query->grad()[i]) > 1e-7f) {
             query_has_grad = true;
             break;
         }
@@ -895,8 +895,8 @@ void test_multihead_attention_cross_gradient() {
     TEST_ASSERT(query_has_grad);
 
     bool key_has_grad = false;
-    for (size_t i = 0; i < key->grad.size(); i++) {
-        if (std::abs(key->grad[i]) > 1e-7f) {
+    for (size_t i = 0; i < key->grad_size(); i++) {
+        if (std::abs(key->grad()[i]) > 1e-7f) {
             key_has_grad = true;
             break;
         }
@@ -904,8 +904,8 @@ void test_multihead_attention_cross_gradient() {
     TEST_ASSERT(key_has_grad);
 
     bool value_has_grad = false;
-    for (size_t i = 0; i < value->grad.size(); i++) {
-        if (std::abs(value->grad[i]) > 1e-7f) {
+    for (size_t i = 0; i < value->grad_size(); i++) {
+        if (std::abs(value->grad()[i]) > 1e-7f) {
             value_has_grad = true;
             break;
         }
@@ -959,16 +959,16 @@ void test_multihead_attention_numerical_stability() {
     auto input = Tensor::randn({1, 5, 32});
 
     // Scale input to test numerical stability
-    for (size_t i = 0; i < input->data.size(); i++) {
-        input->data[i] *= 10.0f;  // Larger values
+    for (size_t i = 0; i < input->size(); i++) {
+        input->data()[i] *= 10.0f;  // Larger values
     }
 
     auto output = mha.forward(input);
 
     // Output should not have NaN or Inf
-    for (size_t i = 0; i < output->data.size(); i++) {
-        TEST_ASSERT(!std::isnan(output->data[i]));
-        TEST_ASSERT(!std::isinf(output->data[i]));
+    for (size_t i = 0; i < output->size(); i++) {
+        TEST_ASSERT(!std::isnan(output->data()[i]));
+        TEST_ASSERT(!std::isinf(output->data()[i]));
     }
 }
 
