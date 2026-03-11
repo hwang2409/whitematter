@@ -2,8 +2,14 @@
 .git
 .gitignore
 
+# Local env (secrets; use build args or runtime env in container)
+.env
+.env.*
+!.env.example
+
 # Build artifacts
 build/
+build_cmake/
 *.o
 *.so
 *.pyc
@@ -26,8 +32,9 @@ uploads/
 generated/
 pretrained/
 
-# Node modules (will be installed in container)
+# Node (reinstalled in container)
 frontend/node_modules/
+frontend/.next/
 
 # Python virtual environments
 venv/

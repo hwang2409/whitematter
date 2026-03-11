@@ -1,8 +1,21 @@
 "use client";
-import { useState, useEffect } from 'react';
-import * as api from '@/api';
-import TrainingChart from './TrainingChart';
-import ArchitectureGraph from './ArchitectureGraph';
+import { useState, useEffect } from "react";
+import * as api from "@/api";
+import TrainingChart from "./TrainingChart";
+import ArchitectureGraph from "./ArchitectureGraph";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import Button from "@mui/material/Button";
+import TextField from "@mui/material/TextField";
+import FormControl from "@mui/material/FormControl";
+import InputLabel from "@mui/material/InputLabel";
+import Select from "@mui/material/Select";
+import MenuItem from "@mui/material/MenuItem";
+import FormHelperText from "@mui/material/FormHelperText";
+import Paper from "@mui/material/Paper";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import Checkbox from "@mui/material/Checkbox";
+import LinearProgress from "@mui/material/LinearProgress";
 
 type TrainMode = 'quick' | 'custom';
 
@@ -432,539 +445,740 @@ export default function TrainTab({
     : 0;
 
   return (
-    <div className="train-tab">
-      <div className="train-header">
-        <div>
-          <h2>Train a Model</h2>
-          <p className="subtitle">Use presets for quick training or design a custom architecture with AI.</p>
-        </div>
-        {mode === 'custom' && (
-          <button
-            className={`btn helper-toggle ${helperOpen ? 'active' : ''}`}
+    <Box>
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 1, mb: 1.5 }}>
+        <Box sx={{ flex: 1 }}>
+          <Typography variant="h2" sx={{ mb: 0.5 }}>
+            Train a Model
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            Use presets for quick training or design a custom architecture with AI.
+          </Typography>
+        </Box>
+        {mode === "custom" && (
+          <Button
+            variant="outlined"
+            size="small"
             onClick={() => onHelperToggle?.(!helperOpen)}
+            sx={{
+              ...(helperOpen && {
+                bgcolor: "action.selected",
+                borderColor: "primary.main",
+                color: "primary.main",
+              }),
+            }}
           >
-            {helperOpen ? 'Close Helper' : 'AI Helper'}
-          </button>
+            {helperOpen ? "Close Helper" : "AI Helper"}
+          </Button>
         )}
-      </div>
+      </Box>
 
-      {/* Mode Toggle */}
-      <div className="mode-toggle">
-        <button
-          className={`mode-btn ${mode === 'quick' ? 'active' : ''}`}
-          onClick={() => setMode('quick')}
+      <Box
+        sx={{
+          display: "flex",
+          bgcolor: "action.hover",
+          border: "1px solid",
+          borderColor: "divider",
+          borderRadius: 1,
+          p: 0.25,
+          width: "fit-content",
+          mb: 1.5,
+        }}
+      >
+        <Button
+          size="small"
+          onClick={() => setMode("quick")}
           disabled={training}
+          sx={{
+            ...(mode === "quick" && { bgcolor: "action.selected", color: "text.primary" }),
+            color: mode === "quick" ? "text.primary" : "text.secondary",
+          }}
         >
           Quick Start
-        </button>
-        <button
-          className={`mode-btn ${mode === 'custom' ? 'active' : ''}`}
-          onClick={() => setMode('custom')}
+        </Button>
+        <Button
+          size="small"
+          onClick={() => setMode("custom")}
           disabled={training}
+          sx={{
+            ...(mode === "custom" && { bgcolor: "action.selected", color: "text.primary" }),
+            color: mode === "custom" ? "text.primary" : "text.secondary",
+          }}
         >
           Custom Design
-        </button>
-      </div>
+        </Button>
+      </Box>
 
-      {error && <div className="error">{error}</div>}
+      {error && (
+        <Box
+          sx={{
+            border: "1px solid",
+            borderColor: "error.main",
+            color: "error.main",
+            p: 1.25,
+            borderRadius: 1,
+            mb: 1.5,
+            fontSize: "0.875rem",
+          }}
+        >
+          {error}
+        </Box>
+      )}
 
-      {/* Quick Start Mode */}
-      {mode === 'quick' && (
-        <div className="quick-start-mode">
-          <div className="form-group">
-            <label>Dataset</label>
-            <select
+      {mode === "quick" && (
+        <Box sx={{ mb: 2 }}>
+          <FormControl fullWidth sx={{ mb: 1.5 }}>
+            <InputLabel id="train-dataset-label">Dataset</InputLabel>
+            <Select
+              labelId="train-dataset-label"
               value={selectedBuiltInDataset}
+              label="Dataset"
               onChange={(e) => setSelectedBuiltInDataset(e.target.value)}
               disabled={training}
             >
               {builtInDatasets.map((d) => (
-                <option key={d.id} value={d.id} disabled={!d.available}>
-                  {d.name} {!d.available && '(not available)'}
-                </option>
+                <MenuItem key={d.id} value={d.id} disabled={!d.available}>
+                  {d.name} {!d.available && "(not available)"}
+                </MenuItem>
               ))}
-            </select>
+            </Select>
             {selectedBuiltInDatasetInfo && (
-              <p className="help-text">{selectedBuiltInDatasetInfo.description}</p>
+              <FormHelperText>{selectedBuiltInDatasetInfo.description}</FormHelperText>
             )}
-          </div>
+          </FormControl>
 
-          <div className="form-group">
-            <label>Architecture</label>
-            <select
+          <FormControl fullWidth sx={{ mb: 1.5 }}>
+            <InputLabel id="train-preset-label">Architecture</InputLabel>
+            <Select
+              labelId="train-preset-label"
               value={selectedPreset}
+              label="Architecture"
               onChange={(e) => setSelectedPreset(e.target.value)}
               disabled={training}
             >
               {filteredPresets.map((p) => (
-                <option key={p.id} value={p.id}>
+                <MenuItem key={p.id} value={p.id}>
                   {p.name}
-                </option>
+                </MenuItem>
               ))}
-            </select>
-            {selectedPresetInfo && <p className="help-text">{selectedPresetInfo.num_layers} layers</p>}
-          </div>
+            </Select>
+            {selectedPresetInfo && <FormHelperText>{selectedPresetInfo.num_layers} layers</FormHelperText>}
+          </FormControl>
 
-          <div className="form-row">
-            <div className="form-group half">
-              <label>Epochs</label>
-              <input
-                type="number"
-                value={epochs}
-                onChange={(e) => setEpochs(parseInt(e.target.value) || 10)}
-                min={1}
-                max={100}
-                disabled={training}
-              />
-            </div>
-            <div className="form-group half">
-              <label>Batch Size</label>
-              <select value={batchSize} onChange={(e) => setBatchSize(parseInt(e.target.value))} disabled={training}>
-                <option value={32}>32</option>
-                <option value={64}>64</option>
-                <option value={128}>128</option>
-                <option value={256}>256</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="form-group">
-            <label>Model Name (optional)</label>
-            <input
-              type="text"
-              value={modelName}
-              onChange={(e) => setModelName(e.target.value)}
-              placeholder="my_model"
+          <Box sx={{ display: "flex", gap: 2, mb: 1.5 }}>
+            <TextField
+              type="number"
+              label="Epochs"
+              value={epochs}
+              onChange={(e) => setEpochs(parseInt(e.target.value) || 10)}
+              inputProps={{ min: 1, max: 100 }}
               disabled={training}
+              sx={{ flex: 1 }}
             />
-          </div>
+            <FormControl sx={{ flex: 1 }}>
+              <InputLabel id="train-batch-label">Batch Size</InputLabel>
+              <Select
+                labelId="train-batch-label"
+                value={batchSize}
+                label="Batch Size"
+                onChange={(e) => setBatchSize(Number(e.target.value))}
+                disabled={training}
+              >
+                <MenuItem value={32}>32</MenuItem>
+                <MenuItem value={64}>64</MenuItem>
+                <MenuItem value={128}>128</MenuItem>
+                <MenuItem value={256}>256</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
 
-          {/* Advanced Settings Toggle */}
-          <button className="btn-link" onClick={() => setShowAdvanced(!showAdvanced)} disabled={training}>
-            {showAdvanced ? 'Hide' : 'Show'} Advanced Settings
-          </button>
+          <TextField
+            fullWidth
+            label="Model Name (optional)"
+            value={modelName}
+            onChange={(e) => setModelName(e.target.value)}
+            placeholder="my_model"
+            disabled={training}
+            sx={{ mb: 1.5 }}
+          />
+
+          <Button
+            size="small"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            disabled={training}
+            sx={{ color: "text.secondary", textTransform: "none", mb: 1 }}
+          >
+            {showAdvanced ? "Hide" : "Show"} Advanced Settings
+          </Button>
 
           {showAdvanced && (
-            <div className="advanced-settings">
-              {/* Optimizer */}
-              <div className="settings-section">
-                <h4>Optimizer</h4>
-                <div className="form-row">
-                  <div className="form-group half">
-                    <label>Type</label>
-                    <select
-                      value={selectedOptimizer}
-                      onChange={(e) => setSelectedOptimizer(e.target.value)}
-                      disabled={training}
-                    >
-                      {optimizers.map((o) => (
-                        <option key={o.id} value={o.id}>
-                          {o.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="form-group half">
-                    <label>Learning Rate</label>
-                    <input
-                      type="number"
-                      value={learningRate}
-                      onChange={(e) => setLearningRate(parseFloat(e.target.value) || 0.01)}
-                      step={0.001}
-                      min={0.0001}
-                      max={1}
-                      disabled={training}
-                    />
-                  </div>
-                </div>
-                {selectedOptimizer === 'sgd' && (
-                  <div className="form-row">
-                    <div className="form-group half">
-                      <label>Momentum</label>
-                      <input
-                        type="number"
-                        value={momentum}
-                        onChange={(e) => setMomentum(parseFloat(e.target.value) || 0.9)}
-                        step={0.1}
-                        min={0}
-                        max={1}
-                        disabled={training}
-                      />
-                    </div>
-                    <div className="form-group half">
-                      <label>Weight Decay</label>
-                      <input
-                        type="number"
-                        value={weightDecay}
-                        onChange={(e) => setWeightDecay(parseFloat(e.target.value) || 0)}
-                        step={0.0001}
-                        min={0}
-                        max={0.1}
-                        disabled={training}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Scheduler */}
-              <div className="settings-section">
-                <h4>Learning Rate Scheduler</h4>
-                <div className="form-group">
-                  <label>Type</label>
-                  <select
-                    value={selectedScheduler}
-                    onChange={(e) => setSelectedScheduler(e.target.value)}
+            <Paper variant="outlined" sx={{ p: 2, mb: 1.5, borderColor: "divider" }}>
+              <Typography variant="overline" sx={{ color: "text.secondary", display: "block", mb: 1 }}>
+                Optimizer
+              </Typography>
+              <Box sx={{ display: "flex", gap: 2, mb: 1.5 }}>
+                <FormControl size="small" sx={{ flex: 1 }}>
+                  <InputLabel>Type</InputLabel>
+                  <Select
+                    value={selectedOptimizer}
+                    label="Type"
+                    onChange={(e) => setSelectedOptimizer(e.target.value)}
                     disabled={training}
                   >
-                    {schedulers.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
+                    {optimizers.map((o) => (
+                      <MenuItem key={o.id} value={o.id}>
+                        {o.name}
+                      </MenuItem>
                     ))}
-                  </select>
-                </div>
-                {selectedScheduler === 'step' && (
-                  <div className="form-row">
-                    <div className="form-group half">
-                      <label>Step Size</label>
-                      <input
-                        type="number"
-                        value={schedulerStepSize}
-                        onChange={(e) => setSchedulerStepSize(parseInt(e.target.value) || 10)}
-                        min={1}
-                        max={50}
-                        disabled={training}
-                      />
-                    </div>
-                    <div className="form-group half">
-                      <label>Gamma</label>
-                      <input
-                        type="number"
-                        value={schedulerGamma}
-                        onChange={(e) => setSchedulerGamma(parseFloat(e.target.value) || 0.1)}
-                        step={0.1}
-                        min={0.01}
-                        max={1}
-                        disabled={training}
-                      />
-                    </div>
-                  </div>
-                )}
-                {selectedScheduler === 'exponential' && (
-                  <div className="form-group">
-                    <label>Gamma (decay per epoch)</label>
-                    <input
-                      type="number"
-                      value={schedulerGamma}
-                      onChange={(e) => setSchedulerGamma(parseFloat(e.target.value) || 0.95)}
-                      step={0.01}
-                      min={0.5}
-                      max={0.99}
-                      disabled={training}
-                    />
-                  </div>
-                )}
-              </div>
+                  </Select>
+                </FormControl>
+                <TextField
+                  type="number"
+                  size="small"
+                  label="Learning Rate"
+                  value={learningRate}
+                  onChange={(e) => setLearningRate(parseFloat(e.target.value) || 0.01)}
+                  inputProps={{ step: 0.001, min: 0.0001, max: 1 }}
+                  disabled={training}
+                  sx={{ flex: 1 }}
+                />
+              </Box>
+              {selectedOptimizer === "sgd" && (
+                <Box sx={{ display: "flex", gap: 2, mb: 1.5 }}>
+                  <TextField
+                    type="number"
+                    size="small"
+                    label="Momentum"
+                    value={momentum}
+                    onChange={(e) => setMomentum(parseFloat(e.target.value) || 0.9)}
+                    inputProps={{ step: 0.1, min: 0, max: 1 }}
+                    disabled={training}
+                    sx={{ flex: 1 }}
+                  />
+                  <TextField
+                    type="number"
+                    size="small"
+                    label="Weight Decay"
+                    value={weightDecay}
+                    onChange={(e) => setWeightDecay(parseFloat(e.target.value) || 0)}
+                    inputProps={{ step: 0.0001, min: 0, max: 0.1 }}
+                    disabled={training}
+                    sx={{ flex: 1 }}
+                  />
+                </Box>
+              )}
 
-              {/* Data Augmentation */}
-              <div className="settings-section">
-                <h4>Data Augmentation</h4>
-                <div className="aug-grid">
-                  {augmentations.map((a) => (
-                    <label key={a.id} className="aug-item">
-                      <input
-                        type="checkbox"
+              <Typography variant="overline" sx={{ color: "text.secondary", display: "block", mb: 1 }}>
+                Learning Rate Scheduler
+              </Typography>
+              <FormControl size="small" fullWidth sx={{ mb: 1.5 }}>
+                <InputLabel>Type</InputLabel>
+                <Select
+                  value={selectedScheduler}
+                  label="Type"
+                  onChange={(e) => setSelectedScheduler(e.target.value)}
+                  disabled={training}
+                >
+                  {schedulers.map((s) => (
+                    <MenuItem key={s.id} value={s.id}>
+                      {s.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              {selectedScheduler === "step" && (
+                <Box sx={{ display: "flex", gap: 2, mb: 1.5 }}>
+                  <TextField
+                    type="number"
+                    size="small"
+                    label="Step Size"
+                    value={schedulerStepSize}
+                    onChange={(e) => setSchedulerStepSize(parseInt(e.target.value) || 10)}
+                    inputProps={{ min: 1, max: 50 }}
+                    disabled={training}
+                    sx={{ flex: 1 }}
+                  />
+                  <TextField
+                    type="number"
+                    size="small"
+                    label="Gamma"
+                    value={schedulerGamma}
+                    onChange={(e) => setSchedulerGamma(parseFloat(e.target.value) || 0.1)}
+                    inputProps={{ step: 0.1, min: 0.01, max: 1 }}
+                    disabled={training}
+                    sx={{ flex: 1 }}
+                  />
+                </Box>
+              )}
+              {selectedScheduler === "exponential" && (
+                <TextField
+                  type="number"
+                  size="small"
+                  fullWidth
+                  label="Gamma (decay per epoch)"
+                  value={schedulerGamma}
+                  onChange={(e) => setSchedulerGamma(parseFloat(e.target.value) || 0.95)}
+                  inputProps={{ step: 0.01, min: 0.5, max: 0.99 }}
+                  disabled={training}
+                  sx={{ mb: 1.5 }}
+                />
+              )}
+
+              <Typography variant="overline" sx={{ color: "text.secondary", display: "block", mb: 1 }}>
+                Data Augmentation
+              </Typography>
+              <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 0.5 }}>
+                {augmentations.map((a) => (
+                  <FormControlLabel
+                    key={a.id}
+                    control={
+                      <Checkbox
                         checked={enabledAugs.has(a.id)}
                         onChange={() => toggleAugmentation(a.id)}
                         disabled={training}
+                        size="small"
                       />
-                      <span>{a.name}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            </div>
+                    }
+                    label={a.name}
+                    sx={{ "& .MuiFormControlLabel-label": { fontSize: "0.875rem" } }}
+                  />
+                ))}
+              </Box>
+            </Paper>
           )}
 
-          {/* Train Button */}
           {!training ? (
-            <button className="btn primary large" onClick={handleTrainQuickStart}>
+            <Button variant="contained" fullWidth onClick={handleTrainQuickStart} sx={{ py: 1.25 }}>
               Start Training
-            </button>
+            </Button>
           ) : (
-            <button className="btn danger large" onClick={handleCancelTraining}>
+            <Button variant="outlined" color="error" fullWidth onClick={handleCancelTraining} sx={{ py: 1.25 }}>
               Cancel Training
-            </button>
+            </Button>
           )}
-        </div>
+        </Box>
       )}
 
-      {/* Custom Design Mode */}
-      {mode === 'custom' && (
-        <div className="custom-design-mode">
-          <div className="form-group">
-            <label>Dataset</label>
-            <select
+      {mode === "custom" && (
+        <Box
+          sx={{
+            mb: 2,
+            display: training ? "block" : "grid",
+            gridTemplateColumns: "60% 1fr",
+            gap: 3,
+            alignItems: "start",
+          }}
+        >
+          <Box sx={{ minWidth: 0 }}>
+          <FormControl fullWidth sx={{ mb: 1.5 }}>
+            <InputLabel id="custom-dataset-label">Dataset</InputLabel>
+            <Select
+              labelId="custom-dataset-label"
               value={selectedDatasetId}
+              label="Dataset"
               onChange={(e) => handleDatasetChange(e.target.value)}
               disabled={generating || training}
             >
               {datasets.length === 0 ? (
-                <option value="">No datasets available - upload one first</option>
+                <MenuItem value="">No datasets available - upload one first</MenuItem>
               ) : (
                 datasets.map((d) => (
-                  <option key={d.id} value={d.id}>
+                  <MenuItem key={d.id} value={d.id}>
                     {d.name} ({d.data_type}, {d.num_classes} classes)
-                  </option>
+                  </MenuItem>
                 ))
               )}
-            </select>
+            </Select>
             {currentDataset && (
-              <p className="help-text">
-                Input: [{currentDataset.input_shape.join('x')}], {currentDataset.total_samples} samples
-              </p>
+              <FormHelperText>
+                Input: [{currentDataset.input_shape.join("x")}], {currentDataset.total_samples} samples
+              </FormHelperText>
             )}
-          </div>
+          </FormControl>
 
-          <div className="form-group">
-            <label>Describe Your Model</label>
-            <textarea
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder="e.g., I want a CNN with good accuracy for image classification. Use batch normalization and dropout for regularization."
-              rows={4}
-              disabled={generating || training}
-            />
-          </div>
+          <TextField
+            fullWidth
+            multiline
+            rows={3}
+            placeholder="Describe the model you want to build..."
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            disabled={generating || training}
+            sx={{
+              mb: 1.5,
+              "& .MuiOutlinedInput-root": {
+                fontSize: "1rem",
+                fontFamily: '"JetBrains Mono", monospace',
+                bgcolor: "background.default",
+                "&.Mui-focused": {
+                  borderColor: "primary.main",
+                  "& .MuiOutlinedInput-notchedOutline": { borderColor: "primary.main", borderWidth: 2 },
+                },
+              },
+            }}
+          />
 
-          <button
-            className="btn primary"
+          <Button
+            variant="contained"
             onClick={handleGenerate}
             disabled={!selectedDatasetId || !prompt.trim() || generating}
+            sx={{ mb: 2 }}
           >
-            {generating ? 'Generating...' : 'Generate Architecture'}
-          </button>
+            {generating ? "Generating..." : "Generate Architecture"}
+          </Button>
 
-          {/* Architecture Display */}
           {architecture && (
-            <div className="architecture-section">
-              <h3>Suggested Architecture: {architecture.name}</h3>
+            <Paper variant="outlined" sx={{ p: 2, mb: 1.5, borderColor: "divider" }}>
+              <Typography variant="h3" sx={{ mb: 1 }}>
+                Suggested Architecture: {architecture.name}
+              </Typography>
 
               {explanation && (
-                <div className="explanation">
-                  <p>{explanation}</p>
-                </div>
+                <Box
+                  sx={{
+                    p: 1.25,
+                    mb: 1.5,
+                    bgcolor: "background.default",
+                    borderRadius: 1,
+                    borderLeft: "3px solid",
+                    borderColor: "divider",
+                  }}
+                >
+                  <Typography variant="body2" color="text.secondary">
+                    {explanation}
+                  </Typography>
+                </Box>
               )}
 
-              {/* Validation */}
               {validation && (
-                <div className={`validation ${validation.valid ? 'valid' : 'invalid'}`}>
-                  {validation.valid ? (
-                    <span className="validation-status">Architecture is valid</span>
-                  ) : (
-                    <>
-                      <span className="validation-status">Validation failed</span>
-                      {validation.errors.map((err, i) => (
-                        <p key={i} className="validation-error">
-                          {err}
-                        </p>
-                      ))}
-                    </>
-                  )}
+                <Box
+                  sx={{
+                    p: 1.25,
+                    mb: 1.5,
+                    borderRadius: 1,
+                    border: "1px solid",
+                    borderColor: validation.valid ? "success.main" : "error.main",
+                  }}
+                >
+                  <Typography variant="body2" fontWeight={600} color={validation.valid ? "success.main" : "error.main"}>
+                    {validation.valid ? "Architecture is valid" : "Validation failed"}
+                  </Typography>
+                  {!validation.valid &&
+                    validation.errors.map((err, i) => (
+                      <Typography key={i} variant="body2" color="error.main" sx={{ mt: 0.25 }}>
+                        {err}
+                      </Typography>
+                    ))}
                   {validation.warnings.map((warn, i) => (
-                    <p key={i} className="validation-warning">
+                    <Typography key={i} variant="body2" color="warning.main" sx={{ mt: 0.25 }}>
                       {warn}
-                    </p>
+                    </Typography>
                   ))}
-                </div>
+                </Box>
               )}
 
-              {/* Architecture graph */}
-              <div className="architecture-graph-section">
-                <h4>Architecture</h4>
-                <ArchitectureGraph architecture={architecture} />
-              </div>
+              <Typography variant="overline" sx={{ color: "text.secondary", display: "block", mb: 0.5 }}>
+                Layers ({architecture.layers.length})
+              </Typography>
+              <FormHelperText sx={{ mb: 1 }}>
+                Edits here are included when you Refine, Preview code, or Train.
+              </FormHelperText>
+              <Box sx={{ border: "1px solid", borderColor: "divider", borderRadius: 1, overflow: "hidden", mb: 1.5 }}>
+                {architecture.layers.map((layer, i) => (
+                  <Box
+                    key={i}
+                    sx={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 0.5,
+                      p: 1,
+                      borderBottom: i < architecture.layers.length - 1 ? "1px solid" : "none",
+                      borderColor: "divider",
+                    }}
+                  >
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                      <Typography variant="caption" sx={{ color: "text.secondary", fontFamily: '"JetBrains Mono", monospace', minWidth: 24, textAlign: "center" }}>
+                        {i + 1}
+                      </Typography>
+                      <Typography variant="body2" fontWeight={500}>
+                        {layer.type}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, pl: 2 }}>
+                      {Object.entries(layer.params).map(([k, v]) => (
+                        <Box key={k} sx={{ display: "inline-flex", alignItems: "center", gap: 0.35 }}>
+                          <Typography variant="caption" color="text.secondary" sx={{ minWidth: 60 }}>
+                            {k}
+                          </Typography>
+                          <TextField
+                            size="small"
+                            type={typeof v === "number" ? "number" : "text"}
+                            value={v}
+                            onChange={(e) =>
+                              handleLayerParamChange(
+                                i,
+                                k,
+                                typeof v === "number" ? (e.target.value === "" ? 0 : parseFloat(e.target.value)) : e.target.value
+                              )
+                            }
+                            disabled={training}
+                            inputProps={{
+                              step: typeof v === "number" && !Number.isInteger(v) ? "any" : 1,
+                              style: { width: typeof v === "number" ? 72 : 100 },
+                            }}
+                            sx={{ "& .MuiInputBase-root": { minHeight: 28 } }}
+                          />
+                        </Box>
+                      ))}
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
 
-              {/* Layer Summary (editable); edits are used by Refine, Preview code, and Train */}
-              <div className="layers-section">
-                <h4>Layers ({architecture.layers.length})</h4>
-                <p className="help-text layers-edit-hint">Edits here are included when you Refine, Preview code, or Train.</p>
-                <div className="layers-list layers-list-editable">
-                  {architecture.layers.map((layer, i) => (
-                    <div key={i} className="layer-item layer-item-editable">
-                      <div className="layer-item-header">
-                        <span className="layer-index">{i + 1}</span>
-                        <span className="layer-type">{layer.type}</span>
-                      </div>
-                      <div className="layer-params-editable">
-                        {Object.entries(layer.params).map(([k, v]) => (
-                          <label key={k} className="layer-param-field">
-                            <span className="layer-param-label">{k}</span>
-                            <input
-                              type={typeof v === 'number' ? 'number' : 'text'}
-                              value={v}
-                              onChange={(e) =>
-                                handleLayerParamChange(
-                                  i,
-                                  k,
-                                  typeof v === 'number' ? e.target.value : e.target.value
-                                )
-                              }
-                              disabled={training}
-                              step={typeof v === 'number' && !Number.isInteger(v) ? 'any' : 1}
-                            />
-                          </label>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <Typography variant="overline" sx={{ color: "text.secondary", display: "block", mb: 0.5 }}>
+                Training Configuration
+              </Typography>
+              <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 1, mb: 1.5 }}>
+                <Box sx={{ p: 1, bgcolor: "background.default", borderRadius: 1 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase" }}>
+                    Optimizer
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontFamily: '"JetBrains Mono", monospace' }}>
+                    {architecture.training.optimizer.type} (lr={architecture.training.optimizer.params.learning_rate})
+                  </Typography>
+                </Box>
+                <Box sx={{ p: 1, bgcolor: "background.default", borderRadius: 1 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase" }}>
+                    Scheduler
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontFamily: '"JetBrains Mono", monospace' }}>
+                    {architecture.training.scheduler.type}
+                  </Typography>
+                </Box>
+                <Box sx={{ p: 1, bgcolor: "background.default", borderRadius: 1 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase" }}>
+                    Epochs
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontFamily: '"JetBrains Mono", monospace' }}>
+                    {architecture.training.epochs}
+                  </Typography>
+                </Box>
+                <Box sx={{ p: 1, bgcolor: "background.default", borderRadius: 1 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase" }}>
+                    Batch Size
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontFamily: '"JetBrains Mono", monospace' }}>
+                    {architecture.training.batch_size}
+                  </Typography>
+                </Box>
+              </Box>
 
-              {/* Training Config */}
-              <div className="training-config">
-                <h4>Training Configuration</h4>
-                <div className="config-grid">
-                  <div className="config-item">
-                    <span className="label">Optimizer</span>
-                    <span className="value">
-                      {architecture.training.optimizer.type} (lr={architecture.training.optimizer.params.learning_rate})
-                    </span>
-                  </div>
-                  <div className="config-item">
-                    <span className="label">Scheduler</span>
-                    <span className="value">{architecture.training.scheduler.type}</span>
-                  </div>
-                  <div className="config-item">
-                    <span className="label">Epochs</span>
-                    <span className="value">{architecture.training.epochs}</span>
-                  </div>
-                  <div className="config-item">
-                    <span className="label">Batch Size</span>
-                    <span className="value">{architecture.training.batch_size}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* JSON View */}
-              <details className="json-details">
-                <summary>View Full JSON</summary>
-                <pre className="json-view">{JSON.stringify(architecture, null, 2)}</pre>
+              <details style={{ marginBottom: 8 }}>
+                <summary style={{ cursor: "pointer", fontSize: "0.8125rem", color: "rgba(255,255,255,0.5)" }}>
+                  View Full JSON
+                </summary>
+                <Box
+                  component="pre"
+                  sx={{
+                    mt: 0.5,
+                    p: 1,
+                    fontSize: "0.75rem",
+                    fontFamily: '"JetBrains Mono", monospace',
+                    bgcolor: "background.default",
+                    borderRadius: 1,
+                    border: "1px solid",
+                    borderColor: "divider",
+                    overflow: "auto",
+                  }}
+                >
+                  {JSON.stringify(architecture, null, 2)}
+                </Box>
               </details>
 
-              {/* Code preview */}
-              <div className="code-preview-section">
-                <button
-                  type="button"
-                  className="btn"
+              <Box sx={{ mb: 1.5 }}>
+                <Button
+                  size="small"
+                  variant="outlined"
                   onClick={handlePreviewCode}
                   disabled={codePreviewLoading || training || (validation !== null && !validation.valid)}
+                  sx={{ mb: 0.5 }}
                 >
-                  {codePreviewLoading ? 'Generating...' : 'Preview generated code'}
-                </button>
+                  {codePreviewLoading ? "Generating..." : "Preview generated code"}
+                </Button>
                 {codePreview && (
-                  <details className="code-preview-details" open>
-                    <summary>Generated C++ (read-only)</summary>
-                    <div className="code-preview-panels">
-                      <div className="code-preview-panel">
-                        <h5>train.cpp</h5>
-                        <pre className="code-preview-pre">{codePreview.train_cpp}</pre>
-                      </div>
-                      <div className="code-preview-panel">
-                        <h5>infer.cpp</h5>
-                        <pre className="code-preview-pre">{codePreview.infer_cpp}</pre>
-                      </div>
-                    </div>
+                  <details open style={{ marginTop: 8 }}>
+                    <summary style={{ cursor: "pointer", fontWeight: 500, marginBottom: 4 }}>
+                      Generated C++ (read-only)
+                    </summary>
+                    <Box sx={{ display: "flex", flexDirection: "column", gap: 1, pt: 1, borderTop: "1px solid", borderColor: "divider" }}>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">
+                          train.cpp
+                        </Typography>
+                        <Box
+                          component="pre"
+                          sx={{
+                            m: 0,
+                            p: 1,
+                            fontSize: "0.75rem",
+                            fontFamily: '"JetBrains Mono", monospace',
+                            bgcolor: "action.hover",
+                            borderRadius: 0.5,
+                            overflow: "auto",
+                            maxHeight: 320,
+                            whiteSpace: "pre",
+                          }}
+                        >
+                          {codePreview.train_cpp}
+                        </Box>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">
+                          infer.cpp
+                        </Typography>
+                        <Box
+                          component="pre"
+                          sx={{
+                            m: 0,
+                            p: 1,
+                            fontSize: "0.75rem",
+                            fontFamily: '"JetBrains Mono", monospace',
+                            bgcolor: "action.hover",
+                            borderRadius: 0.5,
+                            overflow: "auto",
+                            maxHeight: 320,
+                            whiteSpace: "pre",
+                          }}
+                        >
+                          {codePreview.infer_cpp}
+                        </Box>
+                      </Box>
+                    </Box>
                   </details>
                 )}
-              </div>
+              </Box>
 
-              {/* Refinement */}
-              <div className="refinement-section">
-                <h4>Refine Architecture</h4>
-                <div className="form-group">
-                  <textarea
-                    value={feedback}
-                    onChange={(e) => setFeedback(e.target.value)}
-                    placeholder="e.g., Add more dropout layers, use a smaller learning rate, increase the number of filters..."
-                    rows={2}
-                    disabled={refining || training}
-                  />
-                </div>
-                <button className="btn" onClick={handleRefine} disabled={!feedback.trim() || refining}>
-                  {refining ? 'Refining...' : 'Refine'}
-                </button>
-              </div>
+              <Box sx={{ pt: 1.5, borderTop: "1px solid", borderColor: "divider", mb: 1.5 }}>
+                <Typography variant="overline" sx={{ color: "text.secondary", display: "block", mb: 0.5 }}>
+                  Refine Architecture
+                </Typography>
+                <TextField
+                  fullWidth
+                  multiline
+                  rows={2}
+                  placeholder="e.g., Add more dropout layers, use a smaller learning rate..."
+                  value={feedback}
+                  onChange={(e) => setFeedback(e.target.value)}
+                  disabled={refining || training}
+                  sx={{ mb: 1 }}
+                />
+                <Button variant="outlined" size="small" onClick={handleRefine} disabled={!feedback.trim() || refining}>
+                  {refining ? "Refining..." : "Refine"}
+                </Button>
+              </Box>
 
-              {/* Train Button */}
-              <div className="train-section">
+              <Box sx={{ pt: 1.5, borderTop: "1px solid", borderColor: "divider" }}>
                 {!training ? (
-                  <button
-                    className="btn primary large"
+                  <Button
+                    variant="contained"
+                    fullWidth
                     onClick={handleTrainCustom}
                     disabled={validation !== null && !validation.valid}
+                    sx={{ py: 1.25 }}
                   >
                     Start Training
-                  </button>
+                  </Button>
                 ) : (
-                  <button className="btn danger large" onClick={handleCancelTraining}>
+                  <Button variant="outlined" color="error" fullWidth onClick={handleCancelTraining} sx={{ py: 1.25 }}>
                     Cancel Training
-                  </button>
+                  </Button>
                 )}
-              </div>
-            </div>
+              </Box>
+            </Paper>
           )}
-        </div>
+          </Box>
+          {architecture && !training && (
+            <Box sx={{ position: "sticky", top: 24, minWidth: 0 }}>
+              <ArchitectureGraph architecture={architecture} />
+            </Box>
+          )}
+        </Box>
       )}
 
-      {/* Training Status (Shared) */}
       {trainingJob && (
-        <div className="training-status">
-          <h3>Training Progress</h3>
-          <div className="status-grid">
-            <div className="status-item">
-              <span className="label">Status</span>
-              <span className={`value status-${trainingJob.status}`}>{trainingJob.status}</span>
-            </div>
-            <div className="status-item">
-              <span className="label">Epoch</span>
-              <span className="value">
+        <Paper variant="outlined" sx={{ mt: 2, p: 2, borderColor: "divider" }}>
+          <Typography variant="h3" sx={{ mb: 1.5 }}>
+            Training Progress
+          </Typography>
+          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 1, mb: 1.25 }}>
+            <Box sx={{ textAlign: "center", p: 1, bgcolor: "background.default", borderRadius: 1 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", display: "block", mb: 0.5 }}>
+                Status
+              </Typography>
+              <Typography variant="body1" fontWeight={600} sx={{ fontFamily: '"JetBrains Mono", monospace' }}>
+                {trainingJob.status}
+              </Typography>
+            </Box>
+            <Box sx={{ textAlign: "center", p: 1, bgcolor: "background.default", borderRadius: 1 }}>
+              <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", display: "block", mb: 0.5 }}>
+                Epoch
+              </Typography>
+              <Typography variant="body1" fontWeight={600} sx={{ fontFamily: '"JetBrains Mono", monospace' }}>
                 {currentEpoch} / {totalEpochs}
-              </span>
-            </div>
-            {'loss' in trainingJob && (
-              <div className="status-item">
-                <span className="label">Loss</span>
-                <span className="value">{(trainingJob.loss || 0).toFixed(4)}</span>
-              </div>
+              </Typography>
+            </Box>
+            {"loss" in trainingJob && (
+              <Box sx={{ textAlign: "center", p: 1, bgcolor: "background.default", borderRadius: 1 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", display: "block", mb: 0.5 }}>
+                  Loss
+                </Typography>
+                <Typography variant="body1" fontWeight={600} sx={{ fontFamily: '"JetBrains Mono", monospace' }}>
+                  {(trainingJob.loss || 0).toFixed(4)}
+                </Typography>
+              </Box>
             )}
-            {'accuracy' in trainingJob && (
-              <div className="status-item">
-                <span className="label">Accuracy</span>
-                <span className="value">{(trainingJob.accuracy || 0).toFixed(2)}%</span>
-              </div>
+            {"accuracy" in trainingJob && (
+              <Box sx={{ textAlign: "center", p: 1, bgcolor: "background.default", borderRadius: 1 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", display: "block", mb: 0.5 }}>
+                  Accuracy
+                </Typography>
+                <Typography variant="body1" fontWeight={600} sx={{ fontFamily: '"JetBrains Mono", monospace' }}>
+                  {(trainingJob.accuracy || 0).toFixed(2)}%
+                </Typography>
+              </Box>
             )}
-          </div>
-          <p className="message">{trainingJob.message}</p>
-          {['training', 'running'].includes(trainingJob.status) && currentEpoch > 0 && (
-            <div className="progress-bar">
-              <div className="progress" style={{ width: `${(currentEpoch / totalEpochs) * 100}%` }} />
-            </div>
+          </Box>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+            {trainingJob.message}
+          </Typography>
+          {["training", "running"].includes(trainingJob.status) && currentEpoch > 0 && (
+            <LinearProgress
+              variant="determinate"
+              value={(currentEpoch / totalEpochs) * 100}
+              sx={{ mt: 1, height: 3, borderRadius: 1, "& .MuiLinearProgress-bar": { borderRadius: 1 } }}
+            />
           )}
           {trainingHistory.length > 0 && <TrainingChart data={trainingHistory} />}
-          {trainingJob.status === 'completed' && (
-            <div className="success-message">
-              <p>
-                Training completed! Model ID: <code>{trainingJob.model_id}</code>
-              </p>
-              <p className="api-hint">
-                API endpoint: <code>POST /api/{trainingJob.model_id}/predict</code>
-              </p>
-            </div>
+          {trainingJob.status === "completed" && (
+            <Box
+              sx={{
+                mt: 1.5,
+                p: 1.25,
+                border: "1px solid",
+                borderColor: "success.main",
+                borderRadius: 1,
+              }}
+            >
+              <Typography variant="body2" sx={{ mb: 0.5 }}>
+                Training completed! Model ID: <Box component="code" sx={{ fontFamily: '"JetBrains Mono", monospace', bgcolor: "action.hover", px: 0.5, borderRadius: 0.5 }}>{trainingJob.model_id}</Box>
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                API endpoint: <Box component="code" sx={{ fontFamily: '"JetBrains Mono", monospace' }}>POST /api/{trainingJob.model_id}/predict</Box>
+              </Typography>
+            </Box>
           )}
-        </div>
+        </Paper>
       )}
-    </div>
+    </Box>
   );
 }

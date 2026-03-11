@@ -74,17 +74,21 @@ TensorPtr Dropout::forward(const TensorPtr& input) {
 
 Sequential::Sequential(std::initializer_list<Module*> modules) {
     for (Module* m : modules) {
-        layers.push_back(std::unique_ptr<Module>(m));
+        layers.push_back(std::shared_ptr<Module>(m));
     }
 }
 
 void Sequential::add(Module* module) {
-    layers.push_back(std::unique_ptr<Module>(module));
+    layers.push_back(std::shared_ptr<Module>(module));
+}
+
+void Sequential::add(std::shared_ptr<Module> module) {
+    layers.push_back(module);
 }
 
 TensorPtr Sequential::forward(const TensorPtr& input) {
     TensorPtr x = input;
-    for (auto& layer : layers) {
+    for (const auto& layer : layers) {
         x = layer->forward(x);
     }
     return x;
@@ -92,7 +96,7 @@ TensorPtr Sequential::forward(const TensorPtr& input) {
 
 std::vector<TensorPtr> Sequential::parameters() {
     std::vector<TensorPtr> params;
-    for (auto& layer : layers) {
+    for (const auto& layer : layers) {
         auto layer_params = layer->parameters();
         params.insert(params.end(), layer_params.begin(), layer_params.end());
     }
@@ -100,7 +104,7 @@ std::vector<TensorPtr> Sequential::parameters() {
 }
 
 void Sequential::train() {
-    for (auto& layer : layers) {
+    for (const auto& layer : layers) {
         Module* m = layer.get();
         if (auto dropout = dynamic_cast<Dropout*>(m)) {
             dropout->train();
@@ -111,7 +115,7 @@ void Sequential::train() {
 }
 
 void Sequential::eval() {
-    for (auto& layer : layers) {
+    for (const auto& layer : layers) {
         Module* m = layer.get();
         if (auto dropout = dynamic_cast<Dropout*>(m)) {
             dropout->eval();

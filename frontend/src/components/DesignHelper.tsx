@@ -1,11 +1,16 @@
 "use client";
-import { useState } from 'react';
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import * as api from '@/api';
+import { useState } from "react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import * as api from "@/api";
+import Box from "@mui/material/Box";
+import TextField from "@mui/material/TextField";
+import Button from "@mui/material/Button";
+import Paper from "@mui/material/Paper";
+import Typography from "@mui/material/Typography";
 
 interface ChatMessage {
-  role: 'user' | 'assistant';
+  role: "user" | "assistant";
   content: string;
 }
 
@@ -16,8 +21,13 @@ interface Props {
   onMessagesChange: (messages: ChatMessage[]) => void;
 }
 
-export default function DesignHelper({ datasetType, currentArchitecture, messages, onMessagesChange }: Props) {
-  const [chatInput, setChatInput] = useState('');
+export default function DesignHelper({
+  datasetType,
+  currentArchitecture,
+  messages,
+  onMessagesChange,
+}: Props) {
+  const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
 
   async function handleChatSubmit(e: React.FormEvent) {
@@ -25,24 +35,31 @@ export default function DesignHelper({ datasetType, currentArchitecture, message
     if (!chatInput.trim() || chatLoading) return;
 
     const userMessage = chatInput.trim();
-    setChatInput('');
-    onMessagesChange([...messages, { role: 'user', content: userMessage }]);
+    setChatInput("");
+    onMessagesChange([...messages, { role: "user", content: userMessage }]);
     setChatLoading(true);
 
     try {
       const result = await api.getDesignHelp({
         message: userMessage,
         context: {
-          dataset_type: datasetType || 'image',
+          dataset_type: datasetType || "image",
           current_architecture: currentArchitecture,
         },
       });
-      onMessagesChange([...messages, { role: 'user', content: userMessage }, { role: 'assistant', content: result.response }]);
-    } catch (e: any) {
       onMessagesChange([
         ...messages,
-        { role: 'user', content: userMessage },
-        { role: 'assistant', content: 'Sorry, I encountered an error. Please try again.' },
+        { role: "user", content: userMessage },
+        { role: "assistant", content: result.response },
+      ]);
+    } catch {
+      onMessagesChange([
+        ...messages,
+        { role: "user", content: userMessage },
+        {
+          role: "assistant",
+          content: "Sorry, I encountered an error. Please try again.",
+        },
       ]);
     } finally {
       setChatLoading(false);
@@ -50,48 +67,126 @@ export default function DesignHelper({ datasetType, currentArchitecture, message
   }
 
   return (
-    <>
-      <div className="chat-messages">
+    <Paper
+      variant="outlined"
+      sx={{
+        borderColor: "divider",
+        overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      <Box
+        sx={{
+          maxHeight: 300,
+          overflowY: "auto",
+          p: 1.5,
+          flex: 1,
+        }}
+      >
         {messages.length === 0 && (
-          <div className="chat-welcome">
-            <p>Ask me anything about neural network design:</p>
-            <ul>
+          <Box sx={{ textAlign: "center", py: 2, px: 1 }}>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              Ask me anything about neural network design:
+            </Typography>
+            <Typography
+              component="ul"
+              variant="body2"
+              color="text.secondary"
+              sx={{ pl: 2.5, m: 0, textAlign: "left", "& li": { mb: 0.5 } }}
+            >
               <li>Layer types and when to use them</li>
               <li>Training parameters</li>
               <li>Architecture patterns</li>
               <li>Troubleshooting tips</li>
-            </ul>
-          </div>
+            </Typography>
+          </Box>
         )}
         {messages.map((msg, i) => (
-          <div key={i} className={`chat-message ${msg.role}`}>
-            <div className="message-content">
-              {msg.role === 'assistant' ? (
+          <Box
+            key={i}
+            sx={{
+              mb: 1.5,
+              textAlign: msg.role === "user" ? "right" : "left",
+            }}
+          >
+            <Box
+              sx={{
+                display: "inline-block",
+                maxWidth: "85%",
+                p: 1.25,
+                borderRadius: 1,
+                fontSize: "0.9375rem",
+                lineHeight: 1.6,
+                textAlign: "left",
+                ...(msg.role === "user"
+                  ? { bgcolor: "primary.main", color: "primary.contrastText" }
+                  : {
+                      bgcolor: "background.default",
+                      border: "1px solid",
+                      borderColor: "divider",
+                    }),
+              }}
+            >
+              {msg.role === "assistant" ? (
                 <Markdown remarkPlugins={[remarkGfm]}>{msg.content}</Markdown>
               ) : (
                 msg.content
               )}
-            </div>
-          </div>
+            </Box>
+          </Box>
         ))}
         {chatLoading && (
-          <div className="chat-message assistant">
-            <div className="message-content typing">Thinking...</div>
-          </div>
+          <Box sx={{ mb: 1.5, textAlign: "left" }}>
+            <Box
+              sx={{
+                display: "inline-block",
+                p: 1.25,
+                borderRadius: 1,
+                border: "1px solid",
+                borderColor: "divider",
+                fontStyle: "italic",
+                color: "text.secondary",
+              }}
+            >
+              Thinking...
+            </Box>
+          </Box>
         )}
-      </div>
-      <form className="chat-input-form" onSubmit={handleChatSubmit}>
-        <input
-          type="text"
+      </Box>
+      <Box
+        component="form"
+        onSubmit={handleChatSubmit}
+        sx={{
+          display: "flex",
+          gap: 1,
+          p: 1,
+          borderTop: "1px solid",
+          borderColor: "divider",
+          bgcolor: "background.default",
+        }}
+      >
+        <TextField
+          size="small"
+          fullWidth
+          placeholder="Ask about layers, training, etc..."
           value={chatInput}
           onChange={(e) => setChatInput(e.target.value)}
-          placeholder="Ask about layers, training, etc..."
           disabled={chatLoading}
+          sx={{
+            "& .MuiOutlinedInput-root": {
+              bgcolor: "action.hover",
+            },
+          }}
         />
-        <button type="submit" className="btn primary" disabled={!chatInput.trim() || chatLoading}>
+        <Button
+          type="submit"
+          variant="contained"
+          disabled={!chatInput.trim() || chatLoading}
+        >
           Send
-        </button>
-      </form>
-    </>
+        </Button>
+      </Box>
+    </Paper>
   );
 }

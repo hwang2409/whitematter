@@ -40,6 +40,7 @@ ext_modules = [
             os.path.join(ROOT, "core", "loss.cpp"),
             os.path.join(ROOT, "core", "optimizer.cpp"),
             os.path.join(ROOT, "core", "serialize.cpp"),
+            os.path.join(ROOT, "core", "memory_pool.cpp"),
         ],
         include_dirs=[
             ROOT,
