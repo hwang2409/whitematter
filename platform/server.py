@@ -23,6 +23,7 @@ from config import MODELS_DIR
 from routes.health import router as health_router
 from routes.auth import router as auth_router
 from routes.credentials import router as credentials_router
+from routes.storage import router as storage_router
 from routes.datasets import router as datasets_router
 from routes.design import router as design_router
 from routes.training import router as training_router
@@ -42,6 +43,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, 
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(credentials_router)
+app.include_router(storage_router)
 app.include_router(datasets_router)
 app.include_router(design_router)
 app.include_router(training_router)
