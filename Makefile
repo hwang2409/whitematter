@@ -147,7 +147,6 @@ $(BUILD_DIR)/cuda_stub.o: $(CORE_DIR)/cuda/cuda_stub.cpp $(CORE_DIR)/device.h | 
 
 $(BUILD_DIR)/cuda_backend.o: $(CORE_DIR)/cuda/cuda_backend.cu $(CORE_DIR)/cuda/cuda_backend.h $(CORE_DIR)/device.h | $(BUILD_DIR)
 	$(NVCC) -std=c++17 -O3 -I$(CORE_DIR) -I$(CORE_DIR)/cuda -c -o $@ $<
-
 # Dataset compilation
 $(BUILD_DIR)/mnist.o: $(DATASETS_DIR)/mnist.cpp $(DATASETS_DIR)/mnist.h $(CORE_DIR)/tensor.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
