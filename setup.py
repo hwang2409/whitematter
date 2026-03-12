@@ -64,7 +64,7 @@ def _read_readme():
 
 setup(
     name="whitematter",
-    version="0.1.0",
+    version="0.5.0",
     author="Whitematter Contributors",
     description="Lightweight neural network framework with GPU support",
     long_description=_read_readme(),

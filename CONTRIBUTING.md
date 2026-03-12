@@ -4,10 +4,48 @@ Thank you for your interest in contributing. This document explains how to set u
 
 ## Table of contents
 
+- [Getting started for contributors](#getting-started-for-contributors)
 - [Development setup](#development-setup)
 - [Running tests](#running-tests)
 - [Pull request process](#pull-request-process)
+- [PR conventions](#pr-conventions)
 - [Issue tracking](#issue-tracking)
+- [API reference](#api-reference)
+
+## Getting started for contributors
+
+### Option A: Docker (fastest)
+
+```bash
+git clone https://github.com/hwang2409/whitematter.git
+cd whitematter
+docker compose up --build
+```
+
+The platform is now running at **http://localhost:5173** (frontend) and **http://localhost:8080** (API).
+
+### Option B: Local dev
+
+```bash
+git clone https://github.com/hwang2409/whitematter.git
+cd whitematter
+
+# Backend
+cd platform
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python server.py &
+cd ..
+
+# Frontend
+cd frontend
+npm install
+npm run dev
+```
+
+### Option C: GitHub Codespaces
+
+Click **Code > Codespaces > New codespace** on the repo page. The `.devcontainer/devcontainer.json` pre-installs all dependencies. Then run `make dev`.
 
 ## Development setup
 
@@ -153,6 +191,23 @@ Before opening a PR, run the C++ tests (`make test`) and, if you changed platfor
    A maintainer will merge once the PR is approved and CI (if configured) passes.
 
 We do not require a formal CLA for small fixes; by submitting a PR you agree that your contributions may be used under the project’s license (MIT).
+
+## PR conventions
+
+- **Branch naming**: `feat/description`, `fix/description`, or `docs/description`
+- **Commit messages**: Use imperative mood (e.g. "Add LSTM layer" not "Added LSTM layer"). Reference issues with `fixes #N` or `closes #N`.
+- **One concern per PR**: Keep PRs focused. A bug fix and a new feature should be separate PRs.
+- **Tests required**: All C++ changes must pass `make test`. Platform changes need passing `pytest`. Frontend changes must pass `npm run lint`.
+- **Changelog**: For user-facing changes, add an entry to `CHANGELOG.md` under the `[Unreleased]` section.
+
+## API reference
+
+The FastAPI backend auto-generates interactive API documentation:
+
+- **Swagger UI**: [http://localhost:8080/docs](http://localhost:8080/docs) (when running locally)
+- **ReDoc**: [http://localhost:8080/redoc](http://localhost:8080/redoc)
+
+These are the authoritative references for all REST endpoints, request/response schemas, and authentication requirements.
 
 ## Issue tracking
 

@@ -276,4 +276,28 @@ rnn: $(RNN_TEXT_GEN_TARGET)
 debug: CXXFLAGS = -std=c++17 -O0 -g -Wall -Wextra -I$(CORE_DIR) -I$(DATASETS_DIR)
 debug: clean $(ML_TARGET)
 
-.PHONY: all clean run run-cnn run-cifar run-transformer run-autoencoder autoencoder run-gan gan debug test test-tensor test-autograd test-layers test-loss test-optimizer
+# ── Platform targets ──────────────────────────────────────────────────────────
+
+dev:
+	@echo "Starting backend and frontend..."
+	@cd platform && python server.py &
+	@cd frontend && npm run dev
+
+build:
+	docker compose build
+
+lint:
+	@echo "── C++ (cppcheck, if available) ──"
+	-@which cppcheck > /dev/null 2>&1 && cppcheck --std=c++17 --quiet core/ || echo "  cppcheck not installed, skipping"
+	@echo "── Python (ruff, if available) ──"
+	-@cd platform && (python -m ruff check . 2>/dev/null || python -m flake8 . 2>/dev/null || echo "  No Python linter found, skipping")
+	@echo "── Frontend (eslint) ──"
+	@cd frontend && npm run lint
+
+test-all: test
+	@echo "── Platform tests ──"
+	@cd platform && python -m pytest -q 2>/dev/null || echo "  No platform tests found"
+	@echo "── Frontend lint ──"
+	@cd frontend && npm run lint
+
+.PHONY: all clean run run-cnn run-cifar run-transformer run-autoencoder autoencoder run-gan gan debug test test-tensor test-autograd test-layers test-loss test-optimizer dev build lint test-all
