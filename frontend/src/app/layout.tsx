@@ -3,6 +3,7 @@ import { Providers } from "./providers";
 import "@/app/globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"),
   title: "whitematter — Train neural networks from your browser",
   description:
     "Design architectures with AI, train models in real-time, and deploy with one click.",
