@@ -23,6 +23,7 @@ from schemas import ModelMetadata, TrainStatus
 from dataset_manager import DatasetManager, DataType
 from codegen import CodeGenerator, compile_training_code
 from services.dataset_service import DatasetService
+from services.job_store import TrainingJobStore
 from llm.service import get_llm_service
 from model_format import (
     validate_model_file, ModelFormatError, is_whitematter_model,
@@ -42,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 # Shared mutable state
 loaded_models: dict = {}
-training_jobs: dict = {}
+training_jobs: TrainingJobStore = TrainingJobStore()
 
 # WebSocket subscriber registry for real-time training updates
 _ws_subscribers: Dict[str, list] = {}  # job_id -> list of asyncio.Queue
