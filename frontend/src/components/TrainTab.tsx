@@ -4,6 +4,7 @@ import * as api from "@/api";
 import TrainingChart from "./TrainingChart";
 import ArchitectureGraph from "./ArchitectureGraph";
 import ParamTooltip from "./ParamTooltip";
+import NextLink from "next/link";
 import { parseTrainingError } from "@/lib/trainingErrors";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
@@ -32,9 +33,6 @@ interface Props {
   selectedDataset?: string | null;
   onDatasetChange?: (id: string) => void;
   onTrainingComplete?: () => void;
-  helperOpen?: boolean;
-  onHelperToggle?: (open: boolean) => void;
-  onHelperContextChange?: (context: { datasetType?: string; architecture?: api.Architecture | null }) => void;
 }
 
 export default function TrainTab({
@@ -42,9 +40,6 @@ export default function TrainTab({
   selectedDataset,
   onDatasetChange,
   onTrainingComplete,
-  helperOpen,
-  onHelperToggle,
-  onHelperContextChange,
 }: Props) {
   // Mode toggle
   const [mode, setMode] = useState<TrainMode>('quick');
@@ -184,16 +179,6 @@ export default function TrainTab({
       onDatasetChange?.(firstId);
     }
   }, [datasets, mode]);
-
-  // Update helper context
-  useEffect(() => {
-    if (mode === 'custom') {
-      onHelperContextChange?.({
-        datasetType: currentDataset?.data_type,
-        architecture: architecture,
-      });
-    }
-  }, [architecture, currentDataset?.data_type, mode]);
 
   // Filter presets for selected built-in dataset
   const filteredPresets = presets.filter((p) => p.dataset === selectedBuiltInDataset);
@@ -461,16 +446,11 @@ export default function TrainTab({
           <Button
             variant="outlined"
             size="small"
-            onClick={() => onHelperToggle?.(!helperOpen)}
-            sx={{
-              ...(helperOpen && {
-                bgcolor: "action.selected",
-                borderColor: "primary.main",
-                color: "primary.main",
-              }),
-            }}
+            component={NextLink}
+            href="/architect"
+            sx={{ textDecoration: "none" }}
           >
-            {helperOpen ? "Close Helper" : "AI Helper"}
+            Open AI Architect →
           </Button>
         )}
       </Box>
