@@ -12,7 +12,7 @@ vi.mock("@/lib/safeJson", () => ({
 }));
 
 const mockFetch = vi.fn();
-global.fetch = mockFetch;
+vi.stubGlobal('fetch', mockFetch);
 
 const mockTokens = {
   access_token: "test-access-token",
