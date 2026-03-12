@@ -1,30 +1,117 @@
-# whitematter: a NN framework
+# Whitematter
+
+Train and deploy custom neural networks from your browser — powered by a C++ framework that compiles and runs models natively.
 
 [![CI](https://github.com/hwang2409/whitematter/actions/workflows/ci.yml/badge.svg)](https://github.com/hwang2409/whitematter/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.5.0-brightgreen.svg)](CHANGELOG.md)
+[![GitHub Stars](https://img.shields.io/github/stars/hwang2409/whitematter?style=social)](https://github.com/hwang2409/whitematter)
 
-A lightweight PyTorch-like neural network framework written in C++ with automatic differentiation (autograd), SIMD optimizations, and an MNIST example.
+![Demo](docs/demo.gif)
 
 ## Quick Start
 
 ```bash
-# Build
-make
-
-# Download MNIST data
-mkdir -p data && cd data
-curl -LO https://storage.googleapis.com/cvdf-datasets/mnist/train-images-idx3-ubyte.gz
-curl -LO https://storage.googleapis.com/cvdf-datasets/mnist/train-labels-idx1-ubyte.gz
-curl -LO https://storage.googleapis.com/cvdf-datasets/mnist/t10k-images-idx3-ubyte.gz
-curl -LO https://storage.googleapis.com/cvdf-datasets/mnist/t10k-labels-idx1-ubyte.gz
-gunzip *.gz && cd ..
-
-# Run training
-./build/ml
+docker compose up
 ```
 
-## Distribution
+Open **http://localhost:5173** — upload a dataset, describe your model, train, and deploy.
 
-**Python (pip install from repo root)**
+Set `ANTHROPIC_API_KEY` in `.env` to enable AI-assisted architecture design.
+
+## Features
+
+- **AI Architecture Designer** — Describe your model in natural language; Claude suggests layer configurations, hyperparameters, and training recipes
+- **Live Training Dashboard** — Real-time loss curves, accuracy charts, stat cards, and training logs streamed to the browser
+- **One-Click Deploy** — Push trained models to AWS EC2 as inference APIs with a single button
+- **Visual Model Builder** — Drag-and-drop architecture graph with interactive node editing
+- **Dataset Management** — Upload ZIPs, import from Hugging Face or URL, automatic preprocessing for images/text/tabular data
+- **Model Zoo** — Browse pretrained architectures, inspect model cards, run predictions in the playground
+- **Native C++ Performance** — Models compile to optimized C++ with SIMD, OpenMP, Metal, and CUDA backends
+
+## Architecture
+
+```mermaid
+graph TB
+    subgraph Frontend["Frontend (Next.js)"]
+        UI[React UI]
+        Graph[Architecture Graph]
+        Charts[Training Charts]
+    end
+
+    subgraph Backend["Backend (FastAPI)"]
+        API[REST API]
+        LLM[LLM Service<br/>Claude API]
+        CodeGen[Code Generator]
+        DataMgr[Dataset Manager]
+    end
+
+    subgraph Core["C++ Core"]
+        Tensor[Tensor + Autograd]
+        Layers[Layers / Optimizers / Loss]
+        GPU[Metal / CUDA Backends]
+    end
+
+    UI -->|HTTP| API
+    Graph -->|HTTP| API
+    Charts -->|SSE| API
+    API --> LLM
+    API --> CodeGen
+    API --> DataMgr
+    CodeGen -->|generates| Core
+    Core -->|compiles & trains| Tensor
+    Tensor --> Layers
+    Layers --> GPU
+```
+
+## API Documentation
+
+The FastAPI backend auto-generates interactive API docs at [`/docs`](http://localhost:8080/docs) (Swagger UI) and [`/redoc`](http://localhost:8080/redoc).
+
+Key endpoint groups:
+
+| Group | Endpoints | Description |
+|-------|-----------|-------------|
+| **Datasets** | `POST /datasets/upload`, `GET /datasets/{id}` | Upload, list, and manage training datasets |
+| **Design** | `POST /design/suggest`, `POST /design/refine` | AI-assisted model architecture suggestions |
+| **Training** | `POST /train`, `GET /train/{job_id}` | Start training jobs, stream progress, retrieve results |
+| **Models** | `GET /models`, `GET /models/{id}` | Browse trained models and metadata |
+| **Predict** | `POST /predict/{model_id}` | Run inference on trained models |
+| **Deploy** | `POST /deploy` | One-click deploy to AWS EC2 |
+| **Auth** | `POST /auth/register`, `POST /auth/login` | User registration and JWT authentication |
+
+## Community
+
+- **Discord**: [Join the community](https://discord.gg/TODO) — questions, show & tell, feature requests
+- **Public Roadmap**: [GitHub Projects board](https://github.com/hwang2409/whitematter/projects) — see what's planned and vote on priorities
+- **Contributing**: See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions and PR guidelines
+- **Changelog**: See [CHANGELOG.md](CHANGELOG.md) for release history
+
+## "Built with Whitematter" Badge
+
+Add this badge to your project's README:
+
+```markdown
+[![Built with Whitematter](https://raw.githubusercontent.com/hwang2409/whitematter/main/docs/badge.svg)](https://github.com/hwang2409/whitematter)
+```
+
+Or in HTML:
+
+```html
+<a href="https://github.com/hwang2409/whitematter">
+  <img src="https://raw.githubusercontent.com/hwang2409/whitematter/main/docs/badge.svg" alt="Built with Whitematter" />
+</a>
+```
+
+---
+
+## C++ Framework
+
+Whitematter's core is a lightweight PyTorch-like neural network framework written in C++ with automatic differentiation, SIMD optimizations, and GPU backends (Metal / CUDA).
+
+### Distribution
+
+**Python (pip)**
 
 ```bash
 pip install .
@@ -32,11 +119,7 @@ pip install .
 import whitematter as wm
 ```
 
-To publish to PyPI: build with `python -m build`, upload with `twine upload dist/*`.
-
 **C++ (CMake / FetchContent)**
-
-From another CMake project:
 
 ```cmake
 include(FetchContent)
@@ -50,49 +133,23 @@ target_link_libraries(your_app PRIVATE whitematter)
 
 Build options: `-DWHITEMATTER_METAL=ON` (macOS), `-DWHITEMATTER_CUDA=ON` (GPU).
 
-**One-line platform boot (Docker)**
+### C++ Quick Start
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/hwang2409/whitematter/main/install.sh | bash
+make                # Build all examples
+make test           # Run unit tests
+./build/ml          # Train an MLP on MNIST
 ```
 
-Or from a clone: `./install.sh`. Requires Docker and Docker Compose. API: http://localhost:8080, Frontend: http://localhost:5173. Optional: `ANTHROPIC_API_KEY=sk-... ./install.sh` for LLM features.
-
-## Framework Structure
+### Framework Structure
 
 ```
-├── core/                       # C++ core framework
-│   ├── tensor.h/cpp            # Core tensor with autograd
-│   ├── layer.h/cpp             # Neural network layers
-│   ├── loss.h/cpp              # Loss functions
-│   ├── optimizer.h/cpp         # Parameter optimizers
-│   ├── serialize.h/cpp         # Model save/load
-│   ├── dataloader.h/cpp        # Multi-threaded data loading
-│   ├── model_zoo.h/cpp         # Pretrained model registry
-│   ├── onnx_export.h/cpp       # ONNX format export
-│   ├── amp.h                   # Mixed precision training (fp16)
-│   └── logging.h               # Training logger and metrics
-├── datasets/                   # Dataset loaders
-│   ├── mnist.h/cpp             # MNIST data loader
-│   └── cifar10.h/cpp           # CIFAR-10 data loader
-├── examples/                   # Training examples
-│   ├── ml.cpp                  # MLP training
-│   ├── cnn_mnist.cpp           # CNN (MNIST)
-│   ├── cnn_cifar10.cpp         # CNN (CIFAR-10)
-│   └── transformer_example.cpp # Transformer LM
-├── bindings/                   # Language bindings
-│   └── whitematter_py.cpp      # Python bindings (pybind11)
-├── platform/                   # ML platform server
-│   ├── server.py               # FastAPI server
-│   ├── dataset_manager.py      # Dataset upload/processing
-│   ├── codegen/                # C++ code generation
-│   ├── llm/                    # Claude API integration
-│   └── preprocessing/          # Data preprocessors
-├── frontend/                   # React web UI
-├── build/                      # Build artifacts (*.o, binaries)
-├── models/                     # Trained model files
-├── data/                       # Training datasets
-└── Makefile                    # Build configuration
+core/               C++ core (tensor, layers, loss, optimizer, autograd)
+datasets/           MNIST and CIFAR-10 loaders
+examples/           Training examples (CNN, GAN, RNN, transformer, autoencoder)
+bindings/           Python bindings (pybind11)
+platform/           FastAPI backend server
+frontend/           Next.js React UI
 ```
 
 ## Usage Guide
@@ -1383,288 +1440,6 @@ TOTAL: 152 passed, 0 failed (0.01s)
 
 ---
 
-## Platform Architecture
+## License
 
-whitematter includes a self-service ML training platform where users can upload custom datasets, design models with natural language, and deploy trained models via API.
-
-### Workflow
-
-1. **Upload** - Users upload labeled datasets (ZIP of folders, one folder per class)
-2. **Design** - Describe the model in natural language; LLM suggests architecture
-3. **Train** - Generated C++ code compiles and trains the model
-4. **Deploy** - Trained models are exposed via REST API
-
-### System Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              FRONTEND (React)                                │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐          │
-│  │ Datasets │ │  Design  │ │ Presets  │ │  Models  │ │ Predict  │          │
-│  │   Tab    │ │   Tab    │ │   Tab    │ │   Tab    │ │   Tab    │          │
-│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘          │
-└───────┼────────────┼────────────┼────────────┼────────────┼─────────────────┘
-        │            │            │            │            │
-        ▼            ▼            ▼            ▼            ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         FastAPI SERVER (server.py)                           │
-│                                                                              │
-│  /datasets/upload    /design/suggest    /train         /models    /predict  │
-│  /datasets/{id}      /design/validate   /train/custom  /models/{id}         │
-│                      /design/refine     /train/{job}              /api/{id} │
-└───────┬────────────────────┬────────────────────┬───────────────────┬───────┘
-        │                    │                    │                   │
-        ▼                    ▼                    ▼                   ▼
-┌───────────────┐    ┌───────────────┐    ┌───────────────┐    ┌─────────────┐
-│ DatasetManager│    │  LLMService   │    │ CodeGenerator │    │ whitematter │
-│               │    │  (Claude API) │    │  (Templates)  │    │   (C++)     │
-│ - extract ZIP │    │               │    │               │    │             │
-│ - detect type │    │ - suggest     │    │ - generate    │    │ - Tensor    │
-│ - preprocess  │    │ - refine      │    │   train.cpp   │    │ - Layers    │
-└───────┬───────┘    └───────────────┘    │ - Makefile    │    │ - Optimizer │
-        │                                  └───────┬───────┘    │ - Loss      │
-        ▼                                          │            └──────┬──────┘
-┌───────────────┐                                  ▼                   │
-│ Preprocessors │                          ┌───────────────┐           │
-│               │                          │   Compiler    │           │
-│ - image       │                          │               │           │
-│ - text        │                          │ - make train  │           │
-│ - tabular     │                          │ - subprocess  │           │
-└───────┬───────┘                          └───────┬───────┘           │
-        │                                          │                   │
-        ▼                                          ▼                   │
-┌─────────────────────────────────────────────────────────────────────┴───────┐
-│                              FILE SYSTEM                                     │
-│                                                                              │
-│  uploads/{dataset_id}/          generated/{job_id}/       models/           │
-│    raw/                           train.cpp                 {model}.bin     │
-│    processed/                     infer.cpp                 {model}.json    │
-│      train_images.bin             Makefile                                  │
-│      train_labels.bin             build.log                                 │
-│      test_images.bin              train (executable)                        │
-│      test_labels.bin              infer (executable)                        │
-│    metadata.json                                                            │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Data Flow (Custom Training)
-
-```
-1. Upload    2. Design       3. Generate     4. Compile    5. Train      6. Predict
-   ZIP          Prompt          C++ Code        Binary        Model         API
-    │             │                │               │            │             │
-    ▼             ▼                ▼               ▼            ▼             ▼
-┌───────┐   ┌─────────┐      ┌──────────┐    ┌────────┐   ┌────────┐   ┌────────┐
-│ ZIP   │──▶│ Claude  │─────▶│ Template │───▶│  g++   │──▶│ ./train│──▶│./infer │
-│ file  │   │   API   │      │ Engine   │    │  make  │   │        │   │        │
-└───────┘   └─────────┘      └──────────┘    └────────┘   └────────┘   └────────┘
-    │             │                │                            │             │
-    ▼             ▼                ▼                            ▼             ▼
- Extract     Architecture      train.cpp                    model.bin    JSON result
- & Process   JSON              infer.cpp
-                               Makefile
-```
-
-### Custom Model Inference
-
-Custom models trained via the platform are run through a generated inference executable (infer.cpp) that mirrors the training architecture. This allows prediction on models with dynamically generated architectures that can't be loaded through the Python bindings.
-
-```
-generated/{job_id}/
-  ├── train.cpp      # Training code with architecture
-  ├── infer.cpp      # Inference code (same architecture)
-  ├── Makefile       # Builds both train and infer
-  ├── train          # Training executable
-  └── infer          # Inference executable
-```
-
-The inference executable:
-- Loads the trained model weights from `.bin` file
-- Accepts input tensors in binary format
-- Outputs JSON with predicted class and probabilities
-
-### Frontend Design System
-
-The React frontend uses a CSS design system with semantic tokens for consistent styling:
-
-**Status Colors:**
-- Green (`--color-success`) - Completed, ready states
-- Purple (`--color-running`) - Training in progress
-- Red (`--color-error`) - Failed states
-- Amber (`--color-warning`) - Warnings
-
-**Surfaces:** Dark theme with layered surfaces (`--surface-0` to `--surface-4`)
-
-**Typography:** Hierarchical text colors (`--text-primary`, `--text-secondary`, `--text-muted`)
-
-### Key Components
-
-| Component | Location | Purpose |
-|-----------|----------|---------|
-| C++ Engine | `core/tensor.cpp`, `core/layer.cpp`, etc. | Core autograd & NN ops |
-| Data Loader | `core/dataloader.cpp` | Multi-threaded batch prefetching |
-| Model Zoo | `core/model_zoo.cpp` | Pretrained model registry |
-| ONNX Export | `core/onnx_export.cpp` | Export to ONNX format |
-| Mixed Precision | `core/amp.h` | GradScaler, HalfTensor, fp16 utils |
-| Training Logger | `core/logging.h` | TrainingLogger, MetricTracker, CSV/JSON |
-| Python Bindings | `bindings/whitematter_py.cpp` | pybind11 inference wrapper |
-| Server | `platform/server.py` | FastAPI REST endpoints |
-| Dataset Manager | `platform/dataset_manager.py` | Upload, extract, preprocess |
-| Image Processor | `platform/preprocessing/image_processor.py` | Resize, normalize, binarize |
-| Code Generator | `platform/codegen/generator.py` | Architecture JSON to C++ (train.cpp + infer.cpp) |
-| LLM Service | `platform/llm/service.py` | Claude API for design |
-| Frontend | `frontend/src/` | React UI |
-
-### API Endpoints
-
-**Dataset Management:**
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/datasets/upload` | POST | Upload ZIP dataset |
-| `/datasets` | GET | List all datasets |
-| `/datasets/{id}` | GET | Get dataset metadata |
-| `/datasets/{id}` | DELETE | Delete dataset |
-
-**Architecture Design:**
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/design/suggest` | POST | Get LLM architecture suggestion |
-| `/design/validate` | POST | Validate architecture JSON |
-| `/design/refine` | POST | Refine architecture with feedback |
-
-**Training:**
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/train` | POST | Start preset training |
-| `/train/custom` | POST | Start custom training |
-| `/train/{job_id}` | GET | Get training status |
-| `/train/{job_id}` | DELETE | Cancel training |
-
-**Inference:**
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/predict` | POST | Predict with preset model |
-| `/api/{model_id}/predict` | POST | Predict with custom model |
-| `/api/{model_id}/info` | GET | Get model metadata |
-
-### Running the Platform
-
-**Option A — One command (Docker):** From repo root run `./install.sh`, or use the [one-line install](#distribution) (curl \| bash).
-
-**Option B — Local dev:**
-
-```bash
-# Build the C++ framework first
-make
-
-# Start the backend server
-cd platform && python server.py
-
-# In another terminal, start the frontend
-cd frontend && npm run dev
-
-# Open http://localhost:5173 in browser
-```
-
-**UI Features:**
-- Dark theme with semantic status colors
-- Real-time training progress with loss charts
-- Dataset preview with sample images
-- Responsive layout with auto-sizing containers
-
-### Architecture JSON Schema
-
-Models are defined using a JSON schema:
-
-```json
-{
-  "name": "my_classifier",
-  "description": "CNN for image classification",
-  "data_type": "image",
-  "input_shape": [3, 32, 32],
-  "num_classes": 10,
-  "layers": [
-    {"type": "conv2d", "params": {"in_channels": 3, "out_channels": 32, "kernel_size": 3, "padding": 1}},
-    {"type": "batchnorm2d", "params": {"num_features": 32}},
-    {"type": "relu", "params": {}},
-    {"type": "maxpool2d", "params": {"kernel_size": 2}},
-    {"type": "flatten", "params": {}},
-    {"type": "linear", "params": {"in_features": 8192, "out_features": 10}}
-  ],
-  "training": {
-    "optimizer": {"type": "adam", "params": {"learning_rate": 0.001}},
-    "scheduler": {"type": "cosine", "params": {"T_max": 50}},
-    "epochs": 50,
-    "batch_size": 64
-  }
-}
-```
-
-**Available layer types:** `conv2d`, `linear`, `relu`, `sigmoid`, `tanh`, `softmax`, `dropout`, `flatten`, `maxpool2d`, `avgpool2d`, `batchnorm2d`, `layernorm`, `embedding`, `lstm`, `gru`
-
----
-
-## TODO
-
-Future improvements to make this framework more extensive:
-
-### Layers
-- [x] Conv2d - 2D convolutional layer
-- [x] ConvTranspose2d - 2D transposed convolution (upsampling for decoders/GANs)
-- [x] MaxPool2d - Max pooling layer
-- [x] AvgPool2d - Average pooling layer
-- [x] Flatten - Flatten spatial dimensions
-- [x] BatchNorm2d - Batch normalization
-- [x] LayerNorm - Layer normalization
-- [x] Embedding - Embedding layer for NLP
-- [x] LSTM - Long Short-Term Memory recurrent layer
-- [x] GRU - Gated Recurrent Unit layer
-- [x] MultiHeadAttention - Transformer multi-head attention
-
-### Tensor Operations
-- [x] Broadcasting for add/sub/mul/div operations
-- [x] Concatenate / Stack tensors
-- [x] Squeeze / Unsqueeze dimensions
-- [x] Permute / View operations
-- [x] Convolution operations (conv2d)
-- [x] Pooling operations (maxpool2d)
-- [x] Batch matrix multiplication (bmm)
-- [x] Max / Min reduction and element-wise operations
-- [x] Argmax / Argmin operations
-
-### Optimizers
-- [x] AdamW - Adam with decoupled weight decay
-- [x] RMSprop - RMSprop with optional momentum
-- [x] Learning rate schedulers (StepLR, ExponentialLR, CosineAnnealingLR, ReduceLROnPlateau)
-- [x] Gradient clipping (clip_grad_norm_, clip_grad_value_)
-
-### Loss Functions
-- [x] BCELoss / BCEWithLogitsLoss - Binary cross entropy
-- [x] L1Loss - Mean absolute error
-- [x] SmoothL1Loss - Huber loss
-- [x] KLDivLoss - KL divergence
-- [x] FocalLoss / BinaryFocalLoss - For imbalanced classification
-
-### Data & Training
-- [x] CIFAR-10 data loader with normalization
-- [x] Data augmentation (random flip, crop, padding)
-- [x] Multi-threaded data loading with prefetching
-- [x] Mixed precision training (fp16, GradScaler, HalfTensor)
-- [x] Gradient accumulation (GradientAccumulator)
-- [x] Early stopping (EarlyStopping, ModelCheckpoint)
-
-### Infrastructure
-- [x] GPU support (CUDA/Metal; optional: `make METAL=1` on macOS, `make CUDA=1` with nvcc)
-- [x] Model summary / parameter count (summary(), ModelSummary, format utilities)
-- [x] TensorBoard-style logging (TrainingLogger, MetricTracker, CSV/JSON export)
-- [x] ONNX export
-- [x] Pretrained model zoo
-- [x] Unit tests (152 tests across tensor, autograd, layers, loss, optimizer)
-
-### Examples
-- [x] CIFAR-10 image classification (cnn_cifar10.cpp)
-- [x] Simple CNN example (cnn_mnist.cpp)
-- [x] Transformer language model (transformer_example.cpp)
-- [x] RNN text generation (character-level Shakespeare)
-- [x] Autoencoder (convolutional, using ConvTranspose2d)
-- [x] GAN (DCGAN for MNIST digit generation)
+[MIT](LICENSE)
