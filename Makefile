@@ -283,7 +283,7 @@ dev:
 	@cd platform && python server.py &
 	@cd frontend && npm run dev
 
-build:
+docker-build:
 	docker compose build
 
 lint:
@@ -300,4 +300,4 @@ test-all: test
 	@echo "── Frontend lint ──"
 	@cd frontend && npm run lint
 
-.PHONY: all clean run run-cnn run-cifar run-transformer run-autoencoder autoencoder run-gan gan debug test test-tensor test-autograd test-layers test-loss test-optimizer dev build lint test-all
+.PHONY: all clean run run-cnn run-cifar run-transformer run-autoencoder autoencoder run-gan gan debug test test-tensor test-autograd test-layers test-loss test-optimizer dev docker-build lint test-all
