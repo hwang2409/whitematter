@@ -1,7 +1,19 @@
 """Tests for /train routes: start, status, cancel, custom training."""
 
 from unittest.mock import patch, MagicMock
+
+import pytest
+
 import dependencies
+
+
+@pytest.fixture(autouse=True)
+def _isolate_training_jobs():
+    """Save and restore dependencies.training_jobs around each test."""
+    saved = dict(dependencies.training_jobs)
+    yield
+    dependencies.training_jobs.clear()
+    dependencies.training_jobs.update(saved)
 
 
 # ---------------------------------------------------------------------------
@@ -11,8 +23,6 @@ import dependencies
 class TestStartTraining:
     def test_start_training_cifar10(self, client):
         """POST /train with cifar10 dataset starts a training job."""
-        # Clear training_jobs before test
-        dependencies.training_jobs.clear()
 
         mock_threading = MagicMock()
         mock_thread_instance = MagicMock()
@@ -63,8 +73,6 @@ class TestStartTraining:
 
     def test_start_training_with_layers(self, client):
         """POST /train with custom layers starts training."""
-        dependencies.training_jobs.clear()
-
         mock_threading = MagicMock()
         mock_thread_instance = MagicMock()
         mock_threading.Thread.return_value = mock_thread_instance
@@ -114,9 +122,6 @@ class TestGetTrainingStatus:
         assert data["epoch"] == 3
         assert data["accuracy"] == 72.0
 
-        # Cleanup
-        dependencies.training_jobs.pop("test-job-1", None)
-
     def test_get_status_nonexistent_job(self, client):
         """GET /train/{job_id} returns 404 for unknown job."""
         response = client.get("/train/nonexistent-job-xyz")
@@ -149,9 +154,6 @@ class TestCancelTraining:
         assert dependencies.training_jobs["cancel-job"]["cancelled"] is True
         mock_process.terminate.assert_called_once()
 
-        # Cleanup
-        dependencies.training_jobs.pop("cancel-job", None)
-
     def test_cancel_completed_job(self, client):
         """DELETE /train/{job_id} on a completed job returns 400."""
         dependencies.training_jobs["done-job"] = {
@@ -169,8 +171,6 @@ class TestCancelTraining:
         response = client.delete("/train/done-job")
         assert response.status_code == 400
         assert "not running" in response.json()["detail"].lower()
-
-        dependencies.training_jobs.pop("done-job", None)
 
     def test_cancel_nonexistent_job(self, client):
         """DELETE /train/{job_id} returns 404 for unknown job."""
@@ -213,8 +213,6 @@ class TestCustomTraining:
 
     def test_custom_training_success(self, client):
         """POST /train/custom starts a custom training job."""
-        dependencies.training_jobs.clear()
-
         mock_ds = {"id": "ds-1", "name": "my_dataset", "status": "ready"}
 
         mock_threading = MagicMock()

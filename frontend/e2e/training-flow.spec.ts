@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { registerUser, uniqueTestEmail } from "./helpers";
+import { registerUser, loginUser, uniqueTestEmail } from "./helpers";
 
 const TEST_PASSWORD = "TestPassword123!";
 
@@ -9,13 +9,24 @@ const TEST_PASSWORD = "TestPassword123!";
  * These verify that each main view renders correctly after authentication.
  * Full training/prediction flows require a running C++ backend and real
  * datasets, so the tests here focus on page structure and navigation.
+ *
+ * Uses a shared test account created once in beforeAll to avoid polluting
+ * the database with orphaned accounts on every test run.
  */
 test.describe("Authenticated page navigation", () => {
   let testEmail: string;
 
-  test.beforeEach(async ({ page }) => {
+  test.beforeAll(() => {
     testEmail = uniqueTestEmail();
-    await registerUser(page, testEmail, TEST_PASSWORD);
+  });
+
+  test.beforeEach(async ({ page }) => {
+    // Try logging in first; register only if the account doesn't exist yet
+    try {
+      await loginUser(page, testEmail, TEST_PASSWORD);
+    } catch {
+      await registerUser(page, testEmail, TEST_PASSWORD);
+    }
   });
 
   test("dashboard page loads with expected sections", async ({ page }) => {

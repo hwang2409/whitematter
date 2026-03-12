@@ -1,4 +1,5 @@
 import "@testing-library/jest-dom/vitest";
+import { vi } from "vitest";
 
 // Mock window.location for WebSocket tests
 Object.defineProperty(window, "location", {
@@ -9,6 +10,12 @@ Object.defineProperty(window, "location", {
     port: "3000",
     pathname: "/",
     href: "http://localhost:3000/",
+    origin: "http://localhost:3000",
+    search: "",
+    hash: "",
+    assign: vi.fn(),
+    replace: vi.fn(),
+    reload: vi.fn(),
   },
   writable: true,
 });

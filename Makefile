@@ -280,10 +280,12 @@ debug: clean $(ML_TARGET)
 
 dev:
 	@echo "Starting backend and frontend..."
-	@cd platform && python server.py &
-	@cd frontend && npm run dev
+	@cd platform && python server.py & PID=$$!; \
+	trap "kill $$PID 2>/dev/null; exit" INT TERM EXIT; \
+	cd frontend && npm run dev; \
+	kill $$PID 2>/dev/null
 
-build:
+docker-build:
 	docker compose build
 
 lint:

@@ -1,5 +1,6 @@
 """Tests for /credentials/aws routes: store, get, update, delete."""
 
+import pytest
 from unittest.mock import patch, MagicMock
 from datetime import datetime
 
@@ -22,15 +23,23 @@ def _mock_cred(user_id="test-user-123"):
     return cred
 
 
+@pytest.fixture
+def mock_session(app):
+    """Provide a fresh mock DB session, independent of the autouse _override_db fixture."""
+    from db.database import get_db
+    session = MagicMock()
+    app.dependency_overrides[get_db] = lambda: session
+    yield session
+    app.dependency_overrides.pop(get_db, None)
+
+
 # ---------------------------------------------------------------------------
 # POST /credentials/aws
 # ---------------------------------------------------------------------------
 
 class TestStoreCredentials:
-    def test_store_success(self, client, _override_db):
+    def test_store_success(self, client, mock_session):
         """POST /credentials/aws stores credentials."""
-        mock_session = _override_db
-        # No existing credentials
         mock_session.query.return_value.filter.return_value.first.return_value = None
 
         def _refresh(c):
@@ -53,10 +62,9 @@ class TestStoreCredentials:
 
         assert response.status_code == 201
 
-    def test_store_duplicate(self, client, _override_db):
+    def test_store_duplicate(self, client, mock_session):
         """POST /credentials/aws with existing creds returns 409."""
         existing_cred = _mock_cred()
-        mock_session = _override_db
         mock_session.query.return_value.filter.return_value.first.return_value = existing_cred
 
         response = client.post("/credentials/aws", json={
@@ -72,9 +80,8 @@ class TestStoreCredentials:
 # ---------------------------------------------------------------------------
 
 class TestGetCredentials:
-    def test_get_no_credentials(self, client, _override_db):
+    def test_get_no_credentials(self, client, mock_session):
         """GET /credentials/aws when none exist returns has_credentials=False."""
-        mock_session = _override_db
         mock_session.query.return_value.filter.return_value.first.return_value = None
 
         response = client.get("/credentials/aws")
@@ -82,10 +89,9 @@ class TestGetCredentials:
         assert response.status_code == 200
         assert response.json()["has_credentials"] is False
 
-    def test_get_with_credentials(self, client, _override_db):
+    def test_get_with_credentials(self, client, mock_session):
         """GET /credentials/aws returns credential info when present."""
         cred = _mock_cred()
-        mock_session = _override_db
         mock_session.query.return_value.filter.return_value.first.return_value = cred
 
         response = client.get("/credentials/aws")
@@ -101,9 +107,8 @@ class TestGetCredentials:
 # ---------------------------------------------------------------------------
 
 class TestUpdateCredentials:
-    def test_update_not_found(self, client, _override_db):
+    def test_update_not_found(self, client, mock_session):
         """PUT /credentials/aws when none exist returns 404."""
-        mock_session = _override_db
         mock_session.query.return_value.filter.return_value.first.return_value = None
 
         response = client.put("/credentials/aws", json={
@@ -119,9 +124,8 @@ class TestUpdateCredentials:
 # ---------------------------------------------------------------------------
 
 class TestDeleteCredentials:
-    def test_delete_not_found(self, client, _override_db):
+    def test_delete_not_found(self, client, mock_session):
         """DELETE /credentials/aws when none exist returns 404."""
-        mock_session = _override_db
         mock_session.query.return_value.filter.return_value.first.return_value = None
 
         response = client.delete("/credentials/aws")

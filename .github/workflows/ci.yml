@@ -27,7 +27,7 @@ jobs:
         run: make test
 
   platform:
-    name: Platform tests & security
+    name: Platform tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -46,17 +46,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pytest pytest-asyncio httpx pip-audit bandit
+          pip install pytest pytest-asyncio httpx
           pip install -r platform/requirements.txt
-
-      - name: Security audit (pip)
-        # pip-audit checks installed packages for known vulnerabilities
-        run: pip-audit || true
-
-      - name: Static analysis (bandit)
-        working-directory: platform
-        # TODO: Remove || true once existing issues are resolved to fail the build on findings
-        run: bandit -r . -ll -ii --exclude ./tests -f json -o bandit-report.json || true
 
       - name: Type check (mypy)
         working-directory: platform
@@ -83,10 +74,6 @@ jobs:
       - name: Install dependencies
         working-directory: frontend
         run: npm ci
-
-      - name: Security audit (npm)
-        working-directory: frontend
-        run: npm audit --audit-level=high || true
 
       - name: Type check
         working-directory: frontend
@@ -157,20 +144,23 @@ jobs:
           pip install -r platform/requirements.txt
 
       - name: pip audit
-        run: pip-audit || true
+        # CVE-2024-23342 (ecdsa): transitive dep via python-jose, no fix available.
+        # TODO: migrate from python-jose to PyJWT to drop ecdsa entirely.
+        run: pip-audit --ignore-vuln CVE-2024-23342
 
       - name: Bandit static analysis
         working-directory: platform
-        # TODO: Remove --exit-zero once existing issues are resolved to fail the build
+        # Non-blocking: bandit produces too many false positives for a new codebase.
+        # Re-evaluate once the codebase stabilizes and findings are triaged.
         run: bandit -r . -ll -ii --exclude ./tests --exit-zero
 
       - name: Install Node dependencies
         working-directory: frontend
         run: npm ci
 
-      - name: npm audit
+      - name: npm audit (production deps only)
         working-directory: frontend
-        run: npm audit --audit-level=high || true
+        run: npm audit --audit-level=high --omit=dev
 
   staging-deploy:
     name: Deploy to staging

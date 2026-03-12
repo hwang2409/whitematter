@@ -161,25 +161,28 @@ class TestMe:
     def test_me_invalid_token(self, client, app):
         """GET /auth/me with invalid token returns 401/403."""
         # Remove the autouse auth override so real auth validation is used
-        app.dependency_overrides.pop(get_current_user, None)
+        original_override = app.dependency_overrides.pop(get_current_user, None)
         try:
             response = client.get("/auth/me", headers={
                 "Authorization": "Bearer invalid.token.here"
             })
             assert response.status_code in (401, 403)
         finally:
-            # Restore for other tests (the autouse fixture will also restore)
-            pass
+            # Restore the override for other tests
+            if original_override is not None:
+                app.dependency_overrides[get_current_user] = original_override
 
     def test_me_no_token(self, client, app):
         """GET /auth/me with no auth header returns 401/403."""
         # Remove the autouse auth override so real auth validation is used
-        app.dependency_overrides.pop(get_current_user, None)
+        original_override = app.dependency_overrides.pop(get_current_user, None)
         try:
             response = client.get("/auth/me")
             assert response.status_code in (401, 403)
         finally:
-            pass
+            # Restore the override for other tests
+            if original_override is not None:
+                app.dependency_overrides[get_current_user] = original_override
 
 
 # ---------------------------------------------------------------------------
