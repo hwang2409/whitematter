@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, type KeyboardEvent } from "react";
+import { useState, useCallback, useRef, type KeyboardEvent, type ChangeEvent } from "react";
 import Box from "@mui/material/Box";
 import TextField from "@mui/material/TextField";
 import IconButton from "@mui/material/IconButton";
@@ -10,13 +10,22 @@ import { themeTokens } from "@/theme";
 
 interface ChatInputProps {
   onSend: (text: string) => void;
+  onFileUpload?: (file: File) => void;
   disabled?: boolean;
   placeholder?: string;
+  maxUploadMB?: number;
 }
 
-export default function ChatInput({ onSend, disabled, placeholder }: ChatInputProps) {
+export default function ChatInput({
+  onSend,
+  onFileUpload,
+  disabled,
+  placeholder,
+  maxUploadMB = 200,
+}: ChatInputProps) {
   const [value, setValue] = useState("");
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSend = useCallback(() => {
     const text = value.trim();
@@ -37,6 +46,29 @@ export default function ChatInput({ onSend, disabled, placeholder }: ChatInputPr
     [handleSend],
   );
 
+  const handleAttachClick = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileChange = useCallback(
+    (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      // Reset input so the same file can be re-selected
+      e.target.value = "";
+
+      const maxBytes = maxUploadMB * 1024 * 1024;
+      if (file.size > maxBytes) {
+        alert(`File too large. Maximum size is ${maxUploadMB} MB.`);
+        return;
+      }
+
+      onFileUpload?.(file);
+    },
+    [onFileUpload, maxUploadMB],
+  );
+
   return (
     <Box
       sx={{
@@ -48,6 +80,7 @@ export default function ChatInput({ onSend, disabled, placeholder }: ChatInputPr
       <IconButton
         size="small"
         disabled={disabled}
+        onClick={handleAttachClick}
         sx={{
           color: "text.secondary",
           mb: 0.5,
@@ -57,6 +90,14 @@ export default function ChatInput({ onSend, disabled, placeholder }: ChatInputPr
       >
         <AttachFileOutlined fontSize="small" />
       </IconButton>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".zip"
+        hidden
+        onChange={handleFileChange}
+      />
 
       <TextField
         inputRef={inputRef}
