@@ -657,6 +657,7 @@ export interface ChatMessage {
     | "architecture"
     | "training_progress"
     | "training_complete"
+    | "training_error"
     | "file_upload"
     | "quick_start_chips"
     | "prediction";

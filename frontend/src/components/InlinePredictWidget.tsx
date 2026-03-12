@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import CircularProgress from "@mui/material/CircularProgress";
@@ -21,19 +21,30 @@ export default function InlinePredictWidget({ modelId }: InlinePredictWidgetProp
   const [error, setError] = useState("");
   const [dragOver, setDragOver] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const prevUrlRef = useRef<string | null>(null);
+
+  // Cleanup object URLs to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      if (prevUrlRef.current) URL.revokeObjectURL(prevUrlRef.current);
+    };
+  }, []);
 
   const handleFile = useCallback(async (file: File) => {
     setLoading(true);
     setError("");
     setPredictions(null);
-    setPreviewUrl(URL.createObjectURL(file));
+    if (prevUrlRef.current) URL.revokeObjectURL(prevUrlRef.current);
+    const newUrl = URL.createObjectURL(file);
+    prevUrlRef.current = newUrl;
+    setPreviewUrl(newUrl);
 
     const token = localStorage.getItem("access_token");
     const formData = new FormData();
     formData.append("file", file);
 
     try {
-      const res = await fetch(`${API_BASE}/predict?model_id=${modelId}`, {
+      const res = await fetch(`${API_BASE}/predict?model_id=${encodeURIComponent(modelId)}`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: formData,

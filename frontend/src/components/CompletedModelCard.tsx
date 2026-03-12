@@ -41,16 +41,22 @@ export default function CompletedModelCard({
   }
 
   function handleSaveImage() {
-    import("html2canvas").then((html2canvas) => {
-      const el = document.getElementById(`model-card-${modelId}`);
-      if (!el) return;
-      html2canvas.default(el).then((canvas) => {
+    import("html2canvas")
+      .then((html2canvas) => {
+        const el = document.getElementById(`model-card-${modelId}`);
+        if (!el) return;
+        return html2canvas.default(el);
+      })
+      .then((canvas) => {
+        if (!canvas) return;
         const link = document.createElement("a");
         link.download = `whitematter-${modelId}.png`;
         link.href = canvas.toDataURL();
         link.click();
+      })
+      .catch((err) => {
+        console.error("Failed to save image:", err);
       });
-    });
   }
 
   return (
