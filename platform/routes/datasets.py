@@ -1,5 +1,7 @@
 """
 Dataset upload and management endpoints.
+
+All dataset storage is via dataset_service (database-backed).
 """
 
 import logging
@@ -8,15 +10,14 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, File, UploadFile, HTTPException, Form
+from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form, Request
 
-from dataset_manager import DataType
-from preprocessing import ImageProcessor
-from dependencies import (
-    dataset_manager, dataset_service, process_mnist_idx,
-)
+from schemas import DatasetListResponse, DetailResponse
+from dependencies import dataset_service, limiter
 from services.url_fetcher import fetch_for_import, URLFetchError
 from schemas.import_schemas import ImportFromUrlRequest, ImportFromHuggingFaceRequest
+from auth.dependencies import get_current_user
+from db.auth_models import User
 
 logger = logging.getLogger(__name__)
 
@@ -24,59 +25,38 @@ router = APIRouter()
 
 
 @router.post("/datasets/upload")
+@limiter.limit("10/hour")
 async def upload_dataset(
+    request: Request,
     file: UploadFile = File(...),
-    name: Optional[str] = Form(None)
+    name: Optional[str] = Form(None),
+    user: User = Depends(get_current_user),
 ):
     """Upload a ZIP file containing labeled data (folder per class)."""
     if not file.filename.endswith('.zip'):
         raise HTTPException(status_code=400, detail="File must be a ZIP archive")
 
-    dataset_id = dataset_manager.create_dataset(name or file.filename.replace('.zip', ''))
+    dataset_name = name or file.filename.replace('.zip', '')
+    dataset_info = dataset_service.create_dataset(dataset_name)
+    dataset_id = dataset_info['id']
 
     with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp:
-        content = await file.read()
-        tmp.write(content)
+        while chunk := await file.read(1024 * 1024):  # 1 MB chunks
+            tmp.write(chunk)
         tmp_path = Path(tmp.name)
 
     try:
-        metadata = dataset_manager.extract_zip(dataset_id, tmp_path)
-
-        if metadata.data_type == DataType.IMAGE:
-            raw_dir = dataset_manager.uploads_dir / dataset_id / "raw"
-            processed_dir = dataset_manager.uploads_dir / dataset_id / "processed"
-
-            if metadata.format == "mnist_idx":
-                config = process_mnist_idx(raw_dir, processed_dir, metadata)
-            else:
-                processor = ImageProcessor(
-                    target_size=(metadata.input_shape[1], metadata.input_shape[2]),
-                    channels=metadata.input_shape[0]
-                )
-                config = processor.process_dataset(
-                    raw_dir, processed_dir, metadata.class_names
-                )
-
-            metadata.input_shape = config["input_shape"]
-            metadata.status = "ready"
-            dataset_manager._save_metadata(dataset_id, metadata)
-
-        logger.info("Successfully uploaded dataset %s (%s)", dataset_id, metadata.name)
-        return {
-            "id": dataset_id,
-            "name": metadata.name,
-            "data_type": metadata.data_type.value,
-            "format": metadata.format,
-            "num_classes": metadata.num_classes,
-            "class_names": metadata.class_names,
-            "total_samples": metadata.total_samples,
-            "input_shape": metadata.input_shape,
-            "created_at": metadata.created_at,
-            "status": metadata.status
-        }
+        zip_content = tmp_path.read_bytes()
+        result = dataset_service.upload_zip(
+            dataset_id=dataset_id,
+            file_content=zip_content,
+            filename=file.filename,
+        )
+        logger.info("Successfully uploaded dataset %s (%s)", dataset_id, dataset_name)
+        return result
     except (ValueError, IOError, OSError) as e:
         logger.exception("Failed to upload dataset %s", dataset_id)
-        dataset_manager.delete_dataset(dataset_id)
+        dataset_service.delete_dataset(dataset_id)
         raise HTTPException(status_code=400, detail=str(e)) from e
     finally:
         tmp_path.unlink(missing_ok=True)
@@ -87,7 +67,8 @@ async def upload_text_dataset(
     file: UploadFile = File(...),
     name: Optional[str] = Form(None),
     tokenizer_type: str = Form("character"),
-    seq_length: int = Form(128)
+    seq_length: int = Form(128),
+    user: User = Depends(get_current_user),
 ):
     """Upload a text file for language model training."""
     if not file.filename.endswith('.txt'):
@@ -101,7 +82,10 @@ async def upload_text_dataset(
     dataset_id = dataset_info['id']
 
     try:
-        content = await file.read()
+        chunks = []
+        while chunk := await file.read(1024 * 1024):
+            chunks.append(chunk)
+        content = b"".join(chunks)
         result = dataset_service.upload_text(
             dataset_id=dataset_id,
             file_content=content,
@@ -148,7 +132,10 @@ def _infer_name_from_url(url: str, suggested_filename: str | None) -> str:
 
 
 @router.post("/datasets/import/url")
-async def import_dataset_from_url(body: ImportFromUrlRequest):
+async def import_dataset_from_url(
+    body: ImportFromUrlRequest,
+    user: User = Depends(get_current_user),
+):
     """
     Import a dataset from a public HTTPS URL.
     Supports ZIP (folder-per-class images or MNIST IDX) and TXT (text for language models).
@@ -163,50 +150,29 @@ async def import_dataset_from_url(body: ImportFromUrlRequest):
     content = result.content
     suggested = (result.suggested_filename or "").lower()
 
-    # ZIP: use legacy dataset_manager path (same as file upload)
+    # ZIP
     if suggested.endswith(".zip") or (result.content_type or "").startswith("application/zip"):
-        dataset_id = dataset_manager.create_dataset(name)
+        dataset_info = dataset_service.create_dataset(name)
+        dataset_id = dataset_info["id"]
         with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
             tmp.write(content)
             tmp_path = Path(tmp.name)
         try:
-            metadata = dataset_manager.extract_zip(dataset_id, tmp_path)
-            if metadata.data_type == DataType.IMAGE:
-                raw_dir = dataset_manager.uploads_dir / dataset_id / "raw"
-                processed_dir = dataset_manager.uploads_dir / dataset_id / "processed"
-                if metadata.format == "mnist_idx":
-                    config = process_mnist_idx(raw_dir, processed_dir, metadata)
-                else:
-                    processor = ImageProcessor(
-                        target_size=(metadata.input_shape[1], metadata.input_shape[2]),
-                        channels=metadata.input_shape[0],
-                    )
-                    config = processor.process_dataset(
-                        raw_dir, processed_dir, metadata.class_names
-                    )
-                metadata.input_shape = config["input_shape"]
-                metadata.status = "ready"
-                dataset_manager._save_metadata(dataset_id, metadata)
-            logger.info("Imported dataset from URL %s -> %s (%s)", url_str[:80], dataset_id, metadata.name)
-            return {
-                "id": dataset_id,
-                "name": metadata.name,
-                "data_type": metadata.data_type.value,
-                "format": metadata.format,
-                "num_classes": metadata.num_classes,
-                "class_names": metadata.class_names,
-                "total_samples": metadata.total_samples,
-                "input_shape": metadata.input_shape,
-                "created_at": metadata.created_at,
-                "status": metadata.status,
-            }
+            result_dict = dataset_service.upload_zip(
+                dataset_id=dataset_id,
+                file_content=tmp_path.read_bytes(),
+                filename=result.suggested_filename or "imported.zip",
+            )
+            logger.info("Imported dataset from URL %s -> %s", url_str[:80], dataset_id)
+            return result_dict
         except (ValueError, IOError, OSError) as e:
             logger.exception("Failed to import dataset from URL %s", dataset_id)
-            dataset_manager.delete_dataset(dataset_id)
+            dataset_service.delete_dataset(dataset_id)
             raise HTTPException(status_code=400, detail=str(e)) from e
         finally:
             tmp_path.unlink(missing_ok=True)
-    # TXT: use dataset_service
+
+    # TXT
     if suggested.endswith(".txt") or (result.content_type or "").startswith("text/"):
         dataset_info = dataset_service.create_dataset(name)
         dataset_id = dataset_info["id"]
@@ -233,7 +199,10 @@ async def import_dataset_from_url(body: ImportFromUrlRequest):
 
 
 @router.post("/datasets/import/huggingface")
-async def import_dataset_from_huggingface(body: ImportFromHuggingFaceRequest):
+async def import_dataset_from_huggingface(
+    body: ImportFromHuggingFaceRequest,
+    user: User = Depends(get_current_user),
+):
     """
     Import a dataset from Hugging Face Hub by dataset ID (e.g. 'username/dataset-name').
     Auto-detects image classification (image + label columns) or text datasets.
@@ -254,58 +223,33 @@ async def import_dataset_from_huggingface(body: ImportFromHuggingFaceRequest):
     return result
 
 
-@router.get("/datasets")
-async def list_uploaded_datasets():
-    """List all uploaded datasets (from both legacy manager and database)."""
-    legacy_datasets = dataset_manager.list_datasets()
-    legacy_list = [d.to_dict() for d in legacy_datasets]
-
-    db_datasets = dataset_service.list_datasets()
-
-    all_ids = set(d.get('id') for d in legacy_list)
-    combined = legacy_list.copy()
-    for d in db_datasets:
-        if d.get('id') not in all_ids:
-            combined.append(d)
-
-    return {"datasets": combined}
+@router.get("/datasets", response_model=DatasetListResponse)
+async def list_uploaded_datasets(user: User = Depends(get_current_user)):
+    """List all uploaded datasets."""
+    return {"datasets": dataset_service.list_datasets()}
 
 
 @router.get("/datasets/{dataset_id}")
-async def get_dataset(dataset_id: str):
+async def get_dataset(dataset_id: str, user: User = Depends(get_current_user)):
     """Get dataset metadata."""
-    metadata = dataset_manager.get_metadata(dataset_id)
-    if metadata:
-        return metadata.to_dict()
-
     db_dataset = dataset_service.get_dataset(dataset_id)
     if db_dataset:
         return db_dataset
-
     raise HTTPException(status_code=404, detail="Dataset not found")
 
 
 @router.get("/datasets/{dataset_id}/preview")
-async def get_dataset_preview(dataset_id: str):
+async def get_dataset_preview(dataset_id: str, user: User = Depends(get_current_user)):
     """Get a preview of the dataset."""
-    preview = dataset_manager.get_preview(dataset_id)
-    if preview:
-        return preview
-
     db_preview = dataset_service.get_preview(dataset_id)
     if db_preview:
         return db_preview
-
     raise HTTPException(status_code=404, detail="Dataset not found")
 
 
-@router.delete("/datasets/{dataset_id}")
-async def delete_dataset(dataset_id: str):
+@router.delete("/datasets/{dataset_id}", response_model=DetailResponse)
+async def delete_dataset(dataset_id: str, user: User = Depends(get_current_user)):
     """Delete a dataset."""
-    if dataset_manager.delete_dataset(dataset_id):
-        return {"message": f"Dataset {dataset_id} deleted"}
-
     if dataset_service.delete_dataset(dataset_id):
-        return {"message": f"Dataset {dataset_id} deleted"}
-
+        return {"detail": f"Dataset {dataset_id} deleted"}
     raise HTTPException(status_code=404, detail="Dataset not found")

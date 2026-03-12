@@ -14,6 +14,8 @@ from typing import Optional, Dict, Any
 import numpy as np
 from fastapi import HTTPException
 from PIL import Image
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from config import (
     PROJECT_ROOT, MODELS_DIR, DATA_DIR, UPLOADS_DIR, GENERATED_DIR,
@@ -23,6 +25,7 @@ from schemas import ModelMetadata, TrainStatus
 from dataset_manager import DatasetManager, DataType
 from codegen import CodeGenerator, compile_training_code
 from services.dataset_service import DatasetService
+from services.job_store import TrainingJobStore
 from llm.service import get_llm_service
 from model_format import (
     validate_model_file, ModelFormatError, is_whitematter_model,
@@ -40,9 +43,12 @@ except Exception as e:
 
 logger = logging.getLogger(__name__)
 
+# Shared rate limiter (single instance so all routes share counters)
+limiter = Limiter(key_func=get_remote_address)
+
 # Shared mutable state
 loaded_models: dict = {}
-training_jobs: dict = {}
+training_jobs: TrainingJobStore = TrainingJobStore()
 
 # WebSocket subscriber registry for real-time training updates
 _ws_subscribers: Dict[str, list] = {}  # job_id -> list of asyncio.Queue

@@ -24,29 +24,17 @@ if _platform_dir not in sys.path:
 # ---------------------------------------------------------------------------
 # Environment variables required before importing server.py
 # ---------------------------------------------------------------------------
+# These MUST be set at module level (not in a fixture) because
+# auth/dependencies.py instantiates AuthService() at import time,
+# and AuthService.__init__ validates that JWT_SECRET is set.
+# Pytest collects/imports test modules before session-scoped fixtures run.
 _TEST_JWT_SECRET = "test-secret-key-for-unit-tests-minimum-32-chars"
 
 import base64 as _b64
 _fernet_test_key = _b64.urlsafe_b64encode(b"0" * 32).decode()
 
-
-@pytest.fixture(scope="session", autouse=True)
-def _set_test_env_vars():
-    """Set required env vars within pytest lifecycle instead of at import time."""
-    old_jwt = os.environ.get("JWT_SECRET")
-    old_cred = os.environ.get("CREDENTIAL_ENCRYPTION_KEY")
-    os.environ.setdefault("JWT_SECRET", _TEST_JWT_SECRET)
-    os.environ.setdefault("CREDENTIAL_ENCRYPTION_KEY", _fernet_test_key)
-    yield
-    # Restore original state
-    if old_jwt is None:
-        os.environ.pop("JWT_SECRET", None)
-    else:
-        os.environ["JWT_SECRET"] = old_jwt
-    if old_cred is None:
-        os.environ.pop("CREDENTIAL_ENCRYPTION_KEY", None)
-    else:
-        os.environ["CREDENTIAL_ENCRYPTION_KEY"] = old_cred
+os.environ.setdefault("JWT_SECRET", _TEST_JWT_SECRET)
+os.environ.setdefault("CREDENTIAL_ENCRYPTION_KEY", _fernet_test_key)
 
 
 # ---------------------------------------------------------------------------
@@ -54,7 +42,7 @@ def _set_test_env_vars():
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(scope="session")
-def app(_set_test_env_vars):
+def app():
     """Create the FastAPI app once per test session."""
     from server import app as _app
     return _app

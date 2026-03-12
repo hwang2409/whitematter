@@ -57,6 +57,7 @@ class Dataset(Base):
     __tablename__ = "datasets"
 
     id = Column(String(32), primary_key=True)
+    user_id = Column(String(32), ForeignKey("users.id"), nullable=True, index=True)
     name = Column(String(255), nullable=False)
     data_type = Column(String(20), default=DataType.IMAGE.value)
     format = Column(String(30), default=DatasetFormat.UNKNOWN.value)
@@ -94,6 +95,7 @@ class Model(Base):
     __tablename__ = "models"
 
     id = Column(String(32), primary_key=True)
+    user_id = Column(String(32), ForeignKey("users.id"), nullable=True, index=True)
     name = Column(String(255), nullable=False)
     dataset_id = Column(String(32), ForeignKey("datasets.id"), nullable=True)
     dataset_name = Column(String(255), nullable=True)  # For display (includes preset names)
@@ -127,6 +129,7 @@ class TrainingJob(Base):
     __tablename__ = "training_jobs"
 
     id = Column(String(32), primary_key=True)
+    user_id = Column(String(32), ForeignKey("users.id"), nullable=True, index=True)
     model_id = Column(String(32), ForeignKey("models.id"), nullable=False)
     worker_id = Column(String(64), nullable=True)  # Which worker is handling this
 

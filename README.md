@@ -70,18 +70,20 @@ Full API documentation is available at [`/docs`](http://localhost:8080/docs) (Sw
 
 Quick-reference for the main endpoint groups:
 
-| Group | Base Path | Description |
+| Group | Endpoints | Description |
 |-------|-----------|-------------|
-| **Auth** | `/auth` | User registration, login, and JWT authentication |
-| **Datasets** | `/datasets` | Upload, list, and manage training datasets |
-| **Training** | `/train` | Start training jobs, stream progress, retrieve results |
-| **Models** | `/models` | Browse trained models and metadata |
-| **Predict** | `/predict` | Run inference on trained models |
-| **Deploy** | `/deploy` | One-click deploy to AWS EC2 |
+| **Auth** | `POST /auth/register`, `POST /auth/login` | User registration, login, and JWT authentication |
+| **Datasets** | `POST /datasets/upload`, `GET /datasets/{id}` | Upload, list, and manage training datasets |
+| **Design** | `POST /design/suggest`, `POST /design/refine` | AI-assisted model architecture suggestions |
+| **Training** | `POST /train`, `GET /train/{job_id}` | Start training jobs, stream progress, retrieve results |
+| **Models** | `GET /models`, `GET /models/{id}` | Browse trained models and metadata |
+| **Predict** | `POST /predict/{model_id}` | Run inference on trained models |
+| **Deploy** | `POST /deploy` | One-click deploy to AWS EC2 |
 | **Credentials** | `/credentials` | Manage cloud provider and API credentials |
 | **Health** | `/health` | Server health and readiness checks |
 
 ## Community
+
 
 - **Public Roadmap**: [GitHub Projects board](https://github.com/hwang2409/whitematter/projects) — see what's planned and vote on priorities
 - **Contributing**: See [CONTRIBUTING.md](CONTRIBUTING.md) for setup instructions and PR guidelines
