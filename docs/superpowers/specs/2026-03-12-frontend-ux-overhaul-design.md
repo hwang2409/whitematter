@@ -15,12 +15,12 @@
 **Component**: `components/OnboardingWizard.tsx` — replaces normal dashboard content (not a modal).
 
 **Steps** (MUI `Stepper`):
-1. **"Upload your first dataset"** — inline drag-drop zone + "Use sample dataset" button that calls `importDatasetFromHuggingFace("ylecun/mnist", { name: "MNIST Sample", split: "train" })`. Shows progress indicator.
-2. **"Design your architecture"** — CTA linking to `/design?dataset={id}`. Brief explanation of the AI architect.
+1. **"Upload your first dataset"** — inline drag-drop zone + "Use sample dataset" button that calls `importDatasetFromHuggingFace("ylecun/mnist", { name: "MNIST Sample", split: "train" })`. Shows progress indicator. **Error handling**: if import fails or times out (120s limit), show an error alert with "Try again" button and a fallback "Upload manually" link to `/data`.
+2. **"Design your architecture"** — CTA linking to `/architect?dataset={id}`. Brief explanation of the AI architect.
 3. **"Train your model"** — links to `/train` with dataset pre-selected.
 4. **"Make a prediction"** — links to `/predict`.
 
-Each step has "Skip." Step 1 completion auto-advances. Steps 2-4 are informational CTAs. Wizard state persists in `localStorage` key `wm_onboarding_step`.
+Each step has "Skip." Step 1 completion auto-advances. Steps 2-4 are informational CTAs. Wizard state persists in `localStorage` key `wm_onboarding_{userId}` (scoped per user). Resets if user has zero datasets AND zero models (handles dataset deletion case).
 
 **Files**: New `components/OnboardingWizard.tsx`, modified `views/DashboardPage.tsx`.
 
@@ -32,31 +32,55 @@ Each step has "Skip." Step 1 completion auto-advances. Steps 2-4 are information
 
 **Behavior**:
 1. If no MNIST dataset → imports via HuggingFace API (inline progress)
-2. Once ready → calls `startCustomTraining` with hardcoded config
+2. Once ready → calls `startCustomTraining(datasetId, architecture)` with full `Architecture` object
 3. Navigates to `/train` where live chart appears via WebSocket
 
-**Defaults**: `QUICK_START_CONFIG` constant in `lib/quickStart.ts`:
-- Architecture: Conv2d(1,16,3)→ReLU→MaxPool(2)→Conv2d(16,32,3)→ReLU→MaxPool(2)→Flatten→Linear(32*5*5, 10)
-- Training: Adam lr=0.001, batch_size=32, 10 epochs
-- Scheduler: StepLR step_size=5, gamma=0.5
+**Defaults**: `QUICK_START_CONFIG` constant in `lib/quickStart.ts` — a full `Architecture` object:
+```ts
+const QUICK_START_ARCHITECTURE: Architecture = {
+  name: "MNIST Digit Classifier",
+  description: "Simple CNN for handwritten digit recognition",
+  data_type: "image",
+  input_shape: [1, 28, 28],
+  num_classes: 10,
+  layers: [
+    { type: "conv2d", params: { in_channels: 1, out_channels: 16, kernel_size: 3 } },
+    { type: "relu", params: {} },
+    { type: "maxpool2d", params: { kernel_size: 2 } },
+    { type: "conv2d", params: { in_channels: 16, out_channels: 32, kernel_size: 3 } },
+    { type: "relu", params: {} },
+    { type: "maxpool2d", params: { kernel_size: 2 } },
+    { type: "flatten", params: {} },
+    { type: "linear", params: { in_features: 800, out_features: 10 } },
+  ],
+  training: {
+    optimizer: { type: "adam", params: { lr: 0.001 } },
+    scheduler: { type: "step_lr", params: { step_size: 5, gamma: 0.5 } },
+    epochs: 10,
+    batch_size: 32,
+  },
+};
+```
 
 **Files**: New `lib/quickStart.ts`, modified `views/DashboardPage.tsx`.
 
-### B3. Dedicated `/design` Route — AI Architect
+### B3. Dedicated `/architect` Route — AI Architect
 
-**New route**: `app/(authenticated)/design/page.tsx` → `views/DesignPage.tsx`
+> **Note**: Route is `/architect` (not `/design`) to avoid conflict with the existing Next.js rewrite rule at `/design/:path*` → backend API in `next.config.mjs` line 16.
 
-**Nav update**: Add "Design" between Data and Train in sidebar (`AutoAwesomeOutlined` icon). Move Predict icon to `BatchPredictionOutlined`.
+**New route**: `app/(authenticated)/architect/page.tsx` → `views/ArchitectPage.tsx`
+
+**Nav update**: Add "Design" between Data and Train in sidebar (`AutoAwesomeOutlined` icon, label "Design", href `/architect`). Move Predict icon to `BatchPredictionOutlined` (verified available in `@mui/icons-material` v7). Predict label stays "Predict".
 
 **Layout** — two-column:
 - **Left (60%)**: Dataset selector → `ArchitectureGraph` visualization → architecture summary chips + param counts → "Send to Training" button
 - **Right (40%)**: `DesignHelper` chat. Enhanced with "Suggest Architecture" button calling `suggestArchitecture(datasetId, prompt)`. AI suggestions render in the graph in real-time. "Apply & Train" navigates to `/train?dataset={id}`.
 
-**State sharing**: New `context/DesignContext.tsx` holding current `Architecture` object. Design page writes, Train page reads. SessionStorage fallback for cross-navigation.
+**State sharing**: New `context/DesignContext.tsx` holding current `Architecture` object. Added to `Providers` tree in `app/providers.tsx`. Design page writes, Train page reads. SessionStorage key `wm_design_architecture` as fallback for cross-navigation (JSON-serialized `Architecture`). When Train page loads without DesignContext data, it falls back to existing behavior (user configures manually).
 
-**Train page changes**: Remove DesignHelper sidebar toggle from `TrainTab`. Replace with "Open AI Architect →" link to `/design`. Keep architecture display as read-only.
+**Train page changes**: Remove DesignHelper sidebar toggle from `TrainTab`. Replace with "Open AI Architect →" link to `/architect`. Keep architecture display as read-only.
 
-**Files**: New `views/DesignPage.tsx`, `app/(authenticated)/design/page.tsx`, `context/DesignContext.tsx`. Modified `app/(authenticated)/layout.tsx` (nav), `components/TrainTab.tsx` (remove helper sidebar).
+**Files**: New `views/ArchitectPage.tsx`, `app/(authenticated)/architect/page.tsx`, `context/DesignContext.tsx`. Modified `app/(authenticated)/layout.tsx` (nav), `app/providers.tsx` (add DesignProvider), `components/TrainTab.tsx` (remove helper sidebar), `app/(authenticated)/train/page.tsx` (simplify to thin wrapper).
 
 ### B4. Tooltips on Training Parameters
 
@@ -75,7 +99,7 @@ Each step has "Skip." Step 1 completion auto-advances. Steps 2-4 are information
 
 ### B5. AWS Optional Badge
 
-**DataPage.tsx**: MUI `Alert` (severity="info") at top of S3 Storage tab: "S3 storage requires AWS or S3-compatible credentials. Configure in Settings. This is optional — core training and prediction work without it."
+**DataPage.tsx**: MUI `Alert` (severity="info") at top of S3 Storage tab content area (inside the `{tab === "storage" && ...}` branch, before `<S3ManagerPage />`): "S3 storage requires AWS or S3-compatible credentials. Configure in Settings. This is optional — core training and prediction work without it."
 
 **ModelsTab.tsx**: `Typography` caption next to "Deploy to API" button: "Requires AWS credentials (optional)" with link to `/settings`.
 
@@ -104,16 +128,30 @@ Falls back to raw message with collapsible "Show raw output" `<details>`.
 
 ### C1. CSP Headers (Token Storage)
 
-**Decision**: Keep localStorage for JWT. Add strict CSP headers in `next.config.ts` via `headers()`:
-- `Content-Security-Policy`: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data: https://img.shields.io`
-- `Referrer-Policy`: `strict-origin-when-cross-origin`
-- `X-Content-Type-Options`: `nosniff`
+**Decision**: Keep localStorage for JWT. Add strict CSP headers in `next.config.mjs` via `headers()`.
 
-**Files**: Modified `next.config.ts` (or `next.config.js` — check which exists).
+**Note**: `'unsafe-inline'` for `style-src` is required because MUI/Emotion injects inline `<style>` tags at runtime. A nonce-based approach (Emotion's `nonce` option + Next.js nonce support) is the proper long-term fix but out of scope for this pass. This is an intentional and acceptable trade-off.
+
+```
+Content-Security-Policy:
+  default-src 'self';
+  script-src 'self';
+  style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+  font-src 'self' https://fonts.gstatic.com;
+  connect-src 'self' ws: wss:;
+  img-src 'self' data: https://img.shields.io
+
+Referrer-Policy: strict-origin-when-cross-origin
+X-Content-Type-Options: nosniff
+```
+
+**Production note**: If the backend runs on a different origin than the frontend in production, `connect-src` will need the backend origin added.
+
+**Files**: Modified `next.config.mjs`.
 
 ### C2. Accessibility Pass
 
-**Skip-nav**: Visually-hidden "Skip to main content" link as first focusable element in `app/(authenticated)/layout.tsx`. Target: `<Box component="main" id="main-content">`.
+**Skip-nav**: Visually-hidden "Skip to main content" link as first focusable element in `app/(authenticated)/layout.tsx`. Target: `<Box component="main" id="main-content">`. The skip-nav link gets a visible `:focus` style (outline + background) to satisfy WCAG 2.4.1.
 
 **ARIA labels**:
 - Sidebar nav links: add `aria-label` (e.g., `aria-label="Dashboard"`)
@@ -133,26 +171,31 @@ Falls back to raw message with collapsible "Show raw output" `<details>`.
 
 **Direction**: All page logic in `views/`, route files are thin one-line wrappers.
 
-After B3, `train/page.tsx` DesignHelper state moves to `DesignPage.tsx`. All route files become:
+**Specific refactors needed**:
+- `train/page.tsx` (105 lines) → after B3, DesignHelper state moves to `ArchitectPage.tsx`. Remaining dataset/training state moves into `views/TrainPage.tsx` (rename from inline logic). Route file becomes thin wrapper.
+- `predict/page.tsx` (24 lines) → model fetching/filtering logic moves to new `views/PredictPage.tsx`. Route file becomes thin wrapper.
+- `models/page.tsx` (6 lines) — already a thin wrapper (passes empty callbacks to `ModelsTab`). No change needed.
+- `dashboard/page.tsx`, `data/page.tsx`, `settings/page.tsx` — already thin wrappers. No change.
+
+All route files end up as:
 ```tsx
 "use client";
 import XPage from "@/views/XPage";
 export default function XRoute() { return <XPage />; }
 ```
 
-Verify all routes match this pattern after B3 changes.
+**Files**: New `views/TrainPage.tsx`, `views/PredictPage.tsx`. Modified `app/(authenticated)/train/page.tsx`, `app/(authenticated)/predict/page.tsx`.
 
 ### C4. Remove Dead CSS
 
 **Delete**:
 - `views/AuthPages.css` — zero imports
 - `views/DashboardPage.css` — zero imports
+- `src/index.css` — zero imports (confirmed dead; `#root` selector is a Vite-era artifact, Next.js doesn't use `#root`)
 
 **Keep**:
 - `views/S3ManagerPage.css` — imported by `S3ManagerPage.tsx`
 - `app/globals.css` — imported by layout
-
-**Check**: `src/index.css` — verify if imported anywhere; delete if dead.
 
 ---
 
@@ -160,7 +203,7 @@ Verify all routes match this pattern after B3 changes.
 
 ### A1. Landing Page
 
-**Route**: `app/page.tsx` — client component wrapper. Auth check: if authenticated redirect to `/dashboard`, else render `<LandingPage />`. Landing page content itself is a server component imported by the wrapper.
+**Route**: `app/page.tsx` — client component. Uses `useAuth()` to check auth state: if authenticated, redirect to `/dashboard`; otherwise render `<LandingPage />`. Both the wrapper and `LandingPage` are client components (server component is not possible here since auth state lives in React context, and a child component inside a client component boundary runs on the client regardless).
 
 **Component**: `views/LandingPage.tsx`
 
@@ -218,9 +261,10 @@ export const metadata: Metadata = {
 
 **Behavior**: "Share" button:
 1. Renders hidden DOM element: share card with model name, accuracy %, architecture chips, mini loss sparkline, "Built with whitematter" footer
-2. `html2canvas` converts to PNG
+2. `html2canvas` (lazy-loaded via `import('html2canvas')` to avoid main bundle bloat — ~180KB gzipped) converts to PNG
 3. Downloads as `{model-name}-results.png`
 4. Optional "Copy to clipboard" via `navigator.clipboard.write()`
+5. **Fallback**: if html2canvas rendering fails, show toast "Failed to generate share image" and skip
 
 **Share card design**: 600x400px, dark background (#0a0a0a), accent (#7EB8FF) accuracy number, architecture chips row, mini loss sparkline, "whitematter" branding.
 
@@ -236,12 +280,14 @@ export const metadata: Metadata = {
 |------|-------|---------|
 | `components/OnboardingWizard.tsx` | B1 | First-run wizard |
 | `lib/quickStart.ts` | B2 | Quick start config constants |
-| `views/DesignPage.tsx` | B3 | Dedicated AI architect page |
-| `app/(authenticated)/design/page.tsx` | B3 | Design route wrapper |
+| `views/ArchitectPage.tsx` | B3 | Dedicated AI architect page |
+| `app/(authenticated)/architect/page.tsx` | B3 | Architect route wrapper |
 | `context/DesignContext.tsx` | B3 | Shared architecture state |
 | `components/ParamTooltip.tsx` | B4 | Tooltip component |
 | `lib/paramTooltips.ts` | B4 | Tooltip content map |
 | `lib/trainingErrors.ts` | B6 | Error pattern matching |
+| `views/TrainPage.tsx` | C3 | Train page (extracted from route) |
+| `views/PredictPage.tsx` | C3 | Predict page (extracted from route) |
 | `views/LandingPage.tsx` | A1 | Public landing page |
 | `public/og-image.png` | A2 | Social sharing image |
 | `components/ShareCard.tsx` | A3 | Shareable results card |
@@ -252,14 +298,17 @@ export const metadata: Metadata = {
 |------|--------|---------|
 | `views/DashboardPage.tsx` | B1, B2 | Onboarding wizard, quick start button |
 | `app/(authenticated)/layout.tsx` | B3, C2 | Nav update (Design route), skip-nav, ARIA |
+| `app/providers.tsx` | B3 | Add DesignContext provider |
 | `components/TrainTab.tsx` | B3, B4, B6, C2 | Remove design sidebar, add tooltips, error parsing, aria-live |
+| `app/(authenticated)/train/page.tsx` | B3, C3 | Simplify to thin wrapper |
+| `app/(authenticated)/predict/page.tsx` | C3 | Simplify to thin wrapper |
 | `views/DataPage.tsx` | B5 | AWS optional badge |
 | `components/ModelsTab.tsx` | B5, A3 | AWS badge, share button |
 | `components/DatasetsTab.tsx` | C2 | ARIA labels, keyboard nav on upload |
 | `components/TrainingChart.tsx` | C2 | ARIA label |
 | `app/layout.tsx` | A2 | OG + social meta tags |
 | `app/page.tsx` | A1 | Landing page (replaces redirect) |
-| `next.config.ts` | C1 | CSP headers |
+| `next.config.mjs` | C1 | CSP headers |
 
 ## Deleted Files
 
@@ -267,4 +316,33 @@ export const metadata: Metadata = {
 |------|--------|
 | `views/AuthPages.css` | Zero imports — dead code |
 | `views/DashboardPage.css` | Zero imports — dead code |
-| `src/index.css` | Verify; delete if no imports |
+| `src/index.css` | Zero imports — dead code (Vite-era artifact) |
+
+---
+
+## Testing Strategy
+
+**Existing tests that will need updates**:
+- Any tests importing from `views/DashboardPage.tsx` (onboarding wizard changes the conditional rendering)
+- Tests for `TrainTab` if they reference the DesignHelper sidebar toggle
+
+**New tests to write** (vitest + testing-library):
+- `OnboardingWizard` — renders stepper, step navigation, skip behavior
+- `QuickStart` — button renders, triggers import flow
+- `ParamTooltip` — renders tooltip content for each param key
+- `trainingErrors` — unit tests for pattern matching (pure function, easy to test)
+- `ArchitectPage` — renders two-column layout, dataset selector
+
+**Manual QA checklist**:
+- [ ] First login with zero data → onboarding wizard appears
+- [ ] Quick start → MNIST import → training starts → chart appears
+- [ ] `/architect` page → select dataset → chat with AI → architecture appears in graph
+- [ ] "Send to Training" from architect → Train page has architecture pre-loaded
+- [ ] Tooltips visible on all training params
+- [ ] AWS badge visible on S3 tab and Deploy button
+- [ ] Training failure → user-friendly error with "Show raw output"
+- [ ] Skip-nav link visible on focus, navigates to main content
+- [ ] File upload drop zone keyboard-accessible (Tab → Enter)
+- [ ] Landing page renders for unauthenticated users, redirects for authenticated
+- [ ] OG tags render correctly (test with `curl -s URL | grep og:`)
+- [ ] Share button generates downloadable PNG

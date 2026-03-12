@@ -5,13 +5,117 @@ Shared pytest fixtures for platform tests.
 import os
 import shutil
 import struct
+import sys
 import tempfile
 import zipfile
 from pathlib import Path
 from typing import Generator
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+
+# Ensure platform/ is on sys.path so imports work like they do for server.py
+_platform_dir = str(Path(__file__).resolve().parent.parent)
+if _platform_dir not in sys.path:
+    sys.path.insert(0, _platform_dir)
+
+
+# ---------------------------------------------------------------------------
+# Environment variables required before importing server.py
+# ---------------------------------------------------------------------------
+_TEST_JWT_SECRET = "test-secret-key-for-unit-tests-minimum-32-chars"
+
+os.environ.setdefault("JWT_SECRET", _TEST_JWT_SECRET)
+# Fernet key: 32 url-safe base64-encoded bytes.  Generate a deterministic test key.
+import base64 as _b64
+_fernet_test_key = _b64.urlsafe_b64encode(b"0" * 32).decode()
+os.environ.setdefault("CREDENTIAL_ENCRYPTION_KEY", _fernet_test_key)
+
+
+# ---------------------------------------------------------------------------
+# FastAPI app / TestClient fixtures
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="session")
+def app():
+    """Create the FastAPI app once per test session."""
+    from server import app as _app
+    return _app
+
+
+@pytest.fixture
+def client(app):
+    """Create a TestClient for the FastAPI app."""
+    from fastapi.testclient import TestClient
+    return TestClient(app)
+
+
+@pytest.fixture
+def auth_token():
+    """Create a valid JWT access token for testing."""
+    from services.auth_service import AuthService
+    svc = AuthService(jwt_secret=_TEST_JWT_SECRET)
+    return svc.create_access_token(user_id="test-user-123", email="test@test.com")
+
+
+@pytest.fixture
+def auth_headers(auth_token):
+    """Return Authorization headers dict with a valid Bearer token."""
+    return {"Authorization": f"Bearer {auth_token}"}
+
+
+@pytest.fixture
+def refresh_token():
+    """Create a valid JWT refresh token for testing."""
+    from services.auth_service import AuthService
+    svc = AuthService(jwt_secret=_TEST_JWT_SECRET)
+    return svc.create_refresh_token(user_id="test-user-123")
+
+
+@pytest.fixture
+def mock_db():
+    """Return a MagicMock that can stand in for a SQLAlchemy Session."""
+    return MagicMock()
+
+
+@pytest.fixture
+def mock_user():
+    """Return a mock User object with standard test attributes."""
+    user = MagicMock()
+    user.id = "test-user-123"
+    user.email = "test@test.com"
+    user.oauth_provider = None
+    user.created_at = MagicMock()
+    user.created_at.isoformat.return_value = "2025-01-01T00:00:00"
+    user.password_hash = "$2b$12$fakehash"
+    return user
+
+
+@pytest.fixture(autouse=True)
+def _override_auth(app, mock_user):
+    """Auto-override get_current_user for all tests so authenticated routes work.
+
+    Individual tests that need different auth behavior (e.g. test_routes_auth.py)
+    can override get_current_user again in their own fixtures.
+    """
+    from auth.dependencies import get_current_user
+    app.dependency_overrides[get_current_user] = lambda: mock_user
+    yield
+    app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest.fixture(autouse=True)
+def _override_db(app):
+    """Auto-override get_db for all route tests to avoid touching real DB.
+
+    Provides a fresh mock session per test.
+    """
+    from db.database import get_db
+    mock_session = MagicMock()
+    app.dependency_overrides[get_db] = lambda: mock_session
+    yield mock_session
+    app.dependency_overrides.pop(get_db, None)
 
 
 @pytest.fixture
