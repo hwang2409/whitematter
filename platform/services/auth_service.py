@@ -6,13 +6,23 @@ from passlib.context import CryptContext
 from jose import jwt, JWTError, ExpiredSignatureError
 
 
+_DEFAULT_DEV_SECRET = "dev-secret-change-me"
+
+
 class AuthService:
     ALGORITHM = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES = 30
     REFRESH_TOKEN_EXPIRE_DAYS = 7
 
     def __init__(self, jwt_secret: Optional[str] = None):
-        self.jwt_secret = jwt_secret or os.environ.get("JWT_SECRET", "dev-secret-change-me")
+        self.jwt_secret = jwt_secret or os.environ.get("JWT_SECRET", "")
+        if not self.jwt_secret:
+            raise RuntimeError("JWT_SECRET environment variable is not set")
+        if self.jwt_secret == _DEFAULT_DEV_SECRET:
+            raise RuntimeError(
+                "JWT_SECRET is set to the insecure default 'dev-secret-change-me'. "
+                "Set a strong, unique secret."
+            )
         self.pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
     def hash_password(self, password: str) -> str:

@@ -30,6 +30,8 @@ public:
     }
 };
 
+using ModulePtr = std::shared_ptr<Module>;
+
 class Linear : public Module {
 public:
     TensorPtr weight;
@@ -317,7 +319,7 @@ public:
 
 class Sequential : public Module {
 public:
-    std::vector<std::unique_ptr<Module>> layers;
+    std::vector<std::shared_ptr<Module>> layers;
 
     Sequential() = default;
     Sequential(std::initializer_list<Module*> modules);
@@ -329,6 +331,7 @@ public:
     Sequential& operator=(const Sequential&) = delete;
 
     void add(Module* module);
+    void add(std::shared_ptr<Module> module);
     TensorPtr forward(const TensorPtr& input) override;
     std::vector<TensorPtr> parameters() override;
     std::string name() const override { return "Sequential"; }

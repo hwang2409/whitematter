@@ -1,5 +1,6 @@
 # Build artifacts
 build/
+build_cmake/
 *.o
 
 # Data (large; do not commit; .gitkeep keeps dir for scripts)
@@ -18,6 +19,10 @@ platform/models/*.json
 
 # Personal / internal tooling (purged from history; keep local only)
 dongha.md
+
+# Alembic / SQLite (generated; do not commit)
+platform/alembic_default.db
+**/alembic*.db
 .beads/
 mayor/
 deacon/
@@ -30,15 +35,18 @@ pretrained/*.bin
 __pycache__/
 *.pyc
 *.egg-info/
+dist/
+*.whl
 *.so
 
 # Uploads and generated code
 uploads/
 generated/
 
-# IDE
+# IDE / editor / tooling
 .vscode/
 .idea/
+.claude/
 
 # Node
 node_modules/

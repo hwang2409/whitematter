@@ -4,13 +4,13 @@
 
 | Part | Status | Details |
 |------|--------|---------|
-| Part 1: Server Modularization | **FILES CREATED, NEEDS COMMIT** | All files written, tests pass (77/78, 1 pre-existing failure) |
-| Part 2: Sequential unique_ptr | **NOT STARTED** | Needs C++ changes |
-| Part 3: Metal GPU Backend | **NOT STARTED** | Needs new files + Makefile changes |
+| Part 1: Server Modularization | **DONE** | Modular routes, config, schemas, dependencies; server.py slim entrypoint |
+| Part 2: Sequential unique_ptr | **DONE** | Sequential uses `std::vector<std::unique_ptr<Module>>` |
+| Part 3: Metal GPU Backend | **DONE** | core/metal/ backend, device abstraction, Makefile METAL=1 support |
 
 ---
 
-## Part 1: Server Modularization — DONE (needs git commit)
+## Part 1: Server Modularization — DONE
 
 ### What was completed:
 - **Deleted** `platform/server_v2.py` (the 44K incomplete rewrite)

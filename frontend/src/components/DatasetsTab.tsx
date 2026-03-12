@@ -1,11 +1,36 @@
 "use client";
-import { useState, useEffect, useRef } from 'react';
-import * as api from '@/api';
-import ConfirmDialog from './ConfirmDialog';
+import { useState, useEffect, useRef } from "react";
+import * as api from "@/api";
+import ConfirmDialog from "./ConfirmDialog";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import Button from "@mui/material/Button";
+import TextField from "@mui/material/TextField";
+import Paper from "@mui/material/Paper";
+import FormControl from "@mui/material/FormControl";
+import InputLabel from "@mui/material/InputLabel";
+import Select from "@mui/material/Select";
+import MenuItem from "@mui/material/MenuItem";
+import FormHelperText from "@mui/material/FormHelperText";
+import Chip from "@mui/material/Chip";
+import { themeTokens } from "@/theme";
 
 interface Props {
   onDatasetSelect?: (id: string | null) => void;
   onUpdate?: () => void;
+}
+
+function getStatusColor(status: string): "success" | "error" | "default" | "warning" {
+  switch (status) {
+    case "ready":
+      return "success";
+    case "processing":
+      return "warning";
+    case "error":
+      return "error";
+    default:
+      return "default";
+  }
 }
 
 export default function DatasetsTab({ onDatasetSelect, onUpdate }: Props) {
@@ -17,23 +42,20 @@ export default function DatasetsTab({ onDatasetSelect, onUpdate }: Props) {
   const [uploading, setUploading] = useState(false);
   const [uploadedDataset, setUploadedDataset] = useState<api.CustomDataset | null>(null);
   const [uploadPreview, setUploadPreview] = useState<api.DatasetPreviewSample[]>([]);
-  const [error, setError] = useState('');
-  const [datasetName, setDatasetName] = useState('');
+  const [error, setError] = useState("");
+  const [datasetName, setDatasetName] = useState("");
   const [file, setFile] = useState<File | null>(null);
-  const [fileType, setFileType] = useState<'zip' | 'text'>('zip');
-  const [tokenizerType, setTokenizerType] = useState<'character' | 'word'>('character');
+  const [fileType, setFileType] = useState<"zip" | "text">("zip");
+  const [tokenizerType, setTokenizerType] = useState<"character" | "word">("character");
   const [seqLength, setSeqLength] = useState(128);
   const [textPreview, setTextPreview] = useState<api.TextPreview | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Import from URL / Hugging Face
-  const [importUrl, setImportUrl] = useState('');
-  const [importHfId, setImportHfId] = useState('');
-  const [importName, setImportName] = useState('');
-  const [importHfSplit, setImportHfSplit] = useState<'train' | 'validation' | 'test'>('train');
+  const [importUrl, setImportUrl] = useState("");
+  const [importHfId, setImportHfId] = useState("");
+  const [importName, setImportName] = useState("");
+  const [importHfSplit, setImportHfSplit] = useState<"train" | "validation" | "test">("train");
   const [importing, setImporting] = useState(false);
-
-  // Confirm dialog state
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
   useEffect(() => {
@@ -53,14 +75,8 @@ export default function DatasetsTab({ onDatasetSelect, onUpdate }: Props) {
     try {
       const data = await api.getDatasetPreview(datasetId);
       setPreview(data.samples || []);
-      // Handle text preview
-      if ((data as any).text_preview) {
-        setTextPreview((data as any).text_preview);
-      } else {
-        setTextPreview(null);
-      }
-    } catch (e) {
-      console.error('Failed to load preview:', e);
+      setTextPreview((data as { text_preview?: api.TextPreview }).text_preview ?? null);
+    } catch {
       setPreview([]);
       setTextPreview(null);
     } finally {
@@ -74,8 +90,8 @@ export default function DatasetsTab({ onDatasetSelect, onUpdate }: Props) {
       const data = await api.getCustomDatasets();
       setDatasets(data);
       onUpdate?.();
-    } catch (e) {
-      setError('Failed to load datasets');
+    } catch {
+      setError("Failed to load datasets");
     } finally {
       setLoading(false);
     }
@@ -90,18 +106,13 @@ export default function DatasetsTab({ onDatasetSelect, onUpdate }: Props) {
     const f = e.target.files?.[0];
     if (f) {
       setFile(f);
-      setError('');
-      // Detect file type and auto-fill name
-      if (f.name.endsWith('.txt')) {
-        setFileType('text');
-        if (!datasetName) {
-          setDatasetName(f.name.replace(/\.txt$/i, ''));
-        }
-      } else if (f.name.endsWith('.zip')) {
-        setFileType('zip');
-        if (!datasetName) {
-          setDatasetName(f.name.replace(/\.zip$/i, ''));
-        }
+      setError("");
+      if (f.name.endsWith(".txt")) {
+        setFileType("text");
+        if (!datasetName) setDatasetName(f.name.replace(/\.txt$/i, ""));
+      } else {
+        setFileType("zip");
+        if (!datasetName) setDatasetName(f.name.replace(/\.zip$/i, ""));
       }
     }
   }
@@ -109,22 +120,18 @@ export default function DatasetsTab({ onDatasetSelect, onUpdate }: Props) {
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
     const f = e.dataTransfer.files[0];
-    if (f && (f.name.endsWith('.zip') || f.name.endsWith('.txt'))) {
+    if (f && (f.name.endsWith(".zip") || f.name.endsWith(".txt"))) {
       setFile(f);
-      setError('');
-      if (f.name.endsWith('.txt')) {
-        setFileType('text');
-        if (!datasetName) {
-          setDatasetName(f.name.replace(/\.txt$/i, ''));
-        }
+      setError("");
+      if (f.name.endsWith(".txt")) {
+        setFileType("text");
+        if (!datasetName) setDatasetName(f.name.replace(/\.txt$/i, ""));
       } else {
-        setFileType('zip');
-        if (!datasetName) {
-          setDatasetName(f.name.replace(/\.zip$/i, ''));
-        }
+        setFileType("zip");
+        if (!datasetName) setDatasetName(f.name.replace(/\.zip$/i, ""));
       }
     } else {
-      setError('Please upload a ZIP or TXT file');
+      setError("Please upload a ZIP or TXT file");
     }
   }
 
@@ -135,29 +142,29 @@ export default function DatasetsTab({ onDatasetSelect, onUpdate }: Props) {
   async function handleImportFromUrl() {
     const url = importUrl.trim();
     if (!url) {
-      setError('Enter a URL');
+      setError("Enter a URL");
       return;
     }
     setImporting(true);
-    setError('');
+    setError("");
     try {
       const dataset = await api.importDatasetFromUrl(url, importName.trim() || undefined);
       setDatasets((prev) => [dataset, ...prev]);
-      setImportUrl('');
-      setImportName('');
+      setImportUrl("");
+      setImportName("");
       setUploadedDataset(dataset);
       setSelectedDataset(dataset);
       try {
         const previewData = await api.getDatasetPreview(dataset.id);
         setUploadPreview(previewData.samples || []);
-        if (dataset.data_type === 'text' && (previewData as any).text_preview) {
-          setTextPreview((previewData as any).text_preview);
+        if (dataset.data_type === "text" && (previewData as { text_preview?: api.TextPreview }).text_preview) {
+          setTextPreview((previewData as { text_preview?: api.TextPreview }).text_preview ?? null);
         }
       } catch {
         setUploadPreview([]);
       }
-    } catch (e: any) {
-      setError(e.message || 'Import failed');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Import failed");
     } finally {
       setImporting(false);
     }
@@ -166,32 +173,32 @@ export default function DatasetsTab({ onDatasetSelect, onUpdate }: Props) {
   async function handleImportFromHf() {
     const id = importHfId.trim();
     if (!id) {
-      setError('Enter a Hugging Face dataset ID (e.g. username/dataset-name)');
+      setError("Enter a Hugging Face dataset ID (e.g. username/dataset-name)");
       return;
     }
     setImporting(true);
-    setError('');
+    setError("");
     try {
       const dataset = await api.importDatasetFromHuggingFace(id, {
         name: importName.trim() || undefined,
         split: importHfSplit,
       });
       setDatasets((prev) => [dataset, ...prev]);
-      setImportHfId('');
-      setImportName('');
+      setImportHfId("");
+      setImportName("");
       setUploadedDataset(dataset);
       setSelectedDataset(dataset);
       try {
         const previewData = await api.getDatasetPreview(dataset.id);
         setUploadPreview(previewData.samples || []);
-        if (dataset.data_type === 'text' && (previewData as any).text_preview) {
-          setTextPreview((previewData as any).text_preview);
+        if (dataset.data_type === "text" && (previewData as { text_preview?: api.TextPreview }).text_preview) {
+          setTextPreview((previewData as { text_preview?: api.TextPreview }).text_preview ?? null);
         }
       } catch {
         setUploadPreview([]);
       }
-    } catch (e: any) {
-      setError(e.message || 'Import failed');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Import failed");
     } finally {
       setImporting(false);
     }
@@ -199,20 +206,18 @@ export default function DatasetsTab({ onDatasetSelect, onUpdate }: Props) {
 
   async function handleUpload() {
     if (!file) {
-      setError('Please select a file');
+      setError("Please select a file");
       return;
     }
     if (!datasetName.trim()) {
-      setError('Please enter a dataset name');
+      setError("Please enter a dataset name");
       return;
     }
-
     setUploading(true);
-    setError('');
-
+    setError("");
     try {
       let dataset: api.CustomDataset;
-      if (fileType === 'text') {
+      if (fileType === "text") {
         dataset = await api.uploadTextDataset(file, datasetName.trim(), {
           tokenizer_type: tokenizerType,
           seq_length: seqLength,
@@ -222,29 +227,22 @@ export default function DatasetsTab({ onDatasetSelect, onUpdate }: Props) {
       }
       setDatasets((prev) => [dataset, ...prev]);
       setFile(null);
-      setDatasetName('');
-      setFileType('zip');
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
-      // Show upload success with preview
+      setDatasetName("");
+      setFileType("zip");
+      if (fileInputRef.current) fileInputRef.current.value = "";
       setUploadedDataset(dataset);
       setSelectedDataset(dataset);
-
-      // Load preview for the uploaded dataset
       try {
         const previewData = await api.getDatasetPreview(dataset.id);
         setUploadPreview(previewData.samples || []);
-        // For text datasets, also get text preview
-        if (dataset.data_type === 'text' && (previewData as any).text_preview) {
-          setTextPreview((previewData as any).text_preview);
+        if (dataset.data_type === "text" && (previewData as { text_preview?: api.TextPreview }).text_preview) {
+          setTextPreview((previewData as { text_preview?: api.TextPreview }).text_preview ?? null);
         }
-      } catch (e) {
-        console.error('Failed to load upload preview:', e);
+      } catch {
         setUploadPreview([]);
       }
-    } catch (e: any) {
-      setError(e.message || 'Upload failed');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Upload failed");
     } finally {
       setUploading(false);
     }
@@ -254,11 +252,9 @@ export default function DatasetsTab({ onDatasetSelect, onUpdate }: Props) {
     try {
       await api.deleteCustomDataset(id);
       setDatasets(datasets.filter((d) => d.id !== id));
-      if (selectedDataset?.id === id) {
-        setSelectedDataset(null);
-      }
-    } catch (e) {
-      setError('Failed to delete dataset');
+      if (selectedDataset?.id === id) setSelectedDataset(null);
+    } catch {
+      setError("Failed to delete dataset");
     } finally {
       setDeleteConfirm(null);
     }
@@ -268,412 +264,402 @@ export default function DatasetsTab({ onDatasetSelect, onUpdate }: Props) {
     return new Date(dateStr).toLocaleString();
   }
 
-  function getStatusClass(status: string) {
-    switch (status) {
-      case 'ready':
-        return 'status-completed';
-      case 'processing':
-        return 'status-running';
-      case 'error':
-        return 'status-failed';
-      default:
-        return 'status-pending';
-    }
-  }
-
   if (loading) {
-    return <div className="datasets-tab"><p>Loading datasets...</p></div>;
+    return (
+      <Box sx={{ py: 3 }}>
+        <Typography color="text.secondary">Loading datasets...</Typography>
+      </Box>
+    );
   }
 
   return (
-    <div className="datasets-tab">
-      <h2>Datasets</h2>
+    <Box>
+      <Typography variant="h2" sx={{ mb: 2 }}>
+        Datasets
+      </Typography>
 
-      {error && <div className="error">{error}</div>}
+      {error && (
+        <Box
+          sx={{
+            border: "1px solid",
+            borderColor: "error.main",
+            color: "error.main",
+            p: 1.25,
+            borderRadius: 1,
+            mb: 2,
+            fontSize: "0.875rem",
+          }}
+        >
+          {error}
+        </Box>
+      )}
 
       {/* Import from URL */}
-      <div className="import-section">
-        <h3>Import from URL</h3>
-        <p className="help-text">
+      <Paper variant="outlined" sx={{ p: 2, mb: 2, borderColor: "divider" }}>
+        <Typography variant="h3" sx={{ mb: 0.5 }}>
+          Import from URL
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
           Public HTTPS link to a ZIP (images) or TXT (text) file. Max 1 GB.
-        </p>
-        <div className="form-row import-row">
-          <input
-            type="url"
+        </Typography>
+        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+          <TextField
+            size="small"
+            placeholder="https://example.com/dataset.zip"
             value={importUrl}
             onChange={(e) => setImportUrl(e.target.value)}
-            placeholder="https://example.com/dataset.zip"
             disabled={importing}
-            className="import-url-input"
+            sx={{ flex: 1, minWidth: 200 }}
           />
-          <input
-            type="text"
+          <TextField
+            size="small"
+            placeholder="Dataset name (optional)"
             value={importName}
             onChange={(e) => setImportName(e.target.value)}
-            placeholder="Dataset name (optional)"
             disabled={importing}
-            className="import-name-input"
+            sx={{ width: 180 }}
           />
-          <button
-            type="button"
-            className="btn secondary"
+          <Button
+            variant="outlined"
             onClick={handleImportFromUrl}
             disabled={!importUrl.trim() || importing}
           >
-            {importing ? 'Importing...' : 'Import'}
-          </button>
-        </div>
-      </div>
+            {importing ? "Importing..." : "Import"}
+          </Button>
+        </Box>
+      </Paper>
 
       {/* Import from Hugging Face */}
-      <div className="import-section">
-        <h3>Import from Hugging Face</h3>
-        <p className="help-text">
-          Dataset ID from the Hub (e.g. <code>username/dataset-name</code>). Image (image + label) or text datasets. Limits: 50k image rows, 100k text rows.
-        </p>
-        <div className="form-row import-row">
-          <input
-            type="text"
+      <Paper variant="outlined" sx={{ p: 2, mb: 2, borderColor: "divider" }}>
+        <Typography variant="h3" sx={{ mb: 0.5 }}>
+          Import from Hugging Face
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+          Dataset ID from the Hub (e.g. <code>username/dataset-name</code>). Limits: 50k image rows, 100k text rows.
+        </Typography>
+        <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap", alignItems: "center" }}>
+          <TextField
+            size="small"
+            placeholder="username/dataset-name"
             value={importHfId}
             onChange={(e) => setImportHfId(e.target.value)}
-            placeholder="username/dataset-name"
             disabled={importing}
-            className="import-url-input"
+            sx={{ flex: 1, minWidth: 200 }}
           />
-          <input
-            type="text"
+          <TextField
+            size="small"
+            placeholder="Dataset name (optional)"
             value={importName}
             onChange={(e) => setImportName(e.target.value)}
-            placeholder="Dataset name (optional)"
             disabled={importing}
-            className="import-name-input"
+            sx={{ width: 180 }}
           />
-          <select
-            value={importHfSplit}
-            onChange={(e) => setImportHfSplit(e.target.value as 'train' | 'validation' | 'test')}
-            disabled={importing}
-            className="import-split-select"
-            title="Split"
-          >
-            <option value="train">train</option>
-            <option value="validation">validation</option>
-            <option value="test">test</option>
-          </select>
-          <button
-            type="button"
-            className="btn secondary"
+          <FormControl size="small" sx={{ minWidth: 120 }}>
+            <InputLabel>Split</InputLabel>
+            <Select
+              value={importHfSplit}
+              label="Split"
+              onChange={(e) => setImportHfSplit(e.target.value as "train" | "validation" | "test")}
+              disabled={importing}
+            >
+              <MenuItem value="train">train</MenuItem>
+              <MenuItem value="validation">validation</MenuItem>
+              <MenuItem value="test">test</MenuItem>
+            </Select>
+          </FormControl>
+          <Button
+            variant="outlined"
             onClick={handleImportFromHf}
             disabled={!importHfId.trim() || importing}
           >
-            {importing ? 'Importing...' : 'Import'}
-          </button>
-        </div>
-      </div>
+            {importing ? "Importing..." : "Import"}
+          </Button>
+        </Box>
+      </Paper>
 
-      {/* Upload Section */}
-      <div className="upload-section">
-        <h3>Upload from device</h3>
-        <p className="help-text">
+      {/* Upload */}
+      <Paper variant="outlined" sx={{ p: 2, mb: 2, borderColor: "divider" }}>
+        <Typography variant="h3" sx={{ mb: 0.5 }}>
+          Upload from device
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
           Upload a ZIP file for images, or a TXT file for text/language model training.
-        </p>
+        </Typography>
 
-        <div className="form-group">
-          <label>Dataset Name</label>
-          <input
-            type="text"
-            value={datasetName}
-            onChange={(e) => setDatasetName(e.target.value)}
-            placeholder="my_dataset"
-            disabled={uploading}
-          />
-        </div>
+        <TextField
+          fullWidth
+          label="Dataset Name"
+          value={datasetName}
+          onChange={(e) => setDatasetName(e.target.value)}
+          placeholder="my_dataset"
+          disabled={uploading}
+          sx={{ mb: 1.5 }}
+        />
 
-        <div
-          className={`drop-zone ${file ? 'has-file' : ''}`}
+        <Box
           onDrop={handleDrop}
           onDragOver={handleDragOver}
           onClick={() => !file && fileInputRef.current?.click()}
+          onKeyDown={(e: React.KeyboardEvent) => {
+            if ((e.key === "Enter" || e.key === " ") && !file) {
+              e.preventDefault();
+              fileInputRef.current?.click();
+            }
+          }}
+          tabIndex={0}
+          role="button"
+          aria-label="Upload dataset file"
+          sx={{
+            border: "1px dashed",
+            borderColor: file ? themeTokens.accentMuted : "divider",
+            borderRadius: 1,
+            p: file ? 2 : 3,
+            textAlign: "center",
+            cursor: file ? "default" : "pointer",
+            bgcolor: "action.hover",
+            mb: 1.5,
+            "&:hover": { borderColor: themeTokens.accentMuted },
+          }}
         >
           {file ? (
-            <div className="file-info">
-              <span className="file-name">{file.name}</span>
-              <span className="file-size">({(file.size / 1024 / 1024).toFixed(2)} MB)</span>
-              <span className="file-type">{fileType === 'text' ? 'Text' : 'Images'}</span>
-              <button
-                className="clear-btn"
+            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 1, flexWrap: "wrap" }}>
+              <Typography fontWeight={500}>{file.name}</Typography>
+              <Typography variant="body2" color="text.secondary">
+                ({(file.size / 1024 / 1024).toFixed(2)} MB)
+              </Typography>
+              <Chip size="small" label={fileType === "text" ? "Text" : "Images"} sx={{ fontFamily: "inherit" }} />
+              <Button
+                size="small"
                 onClick={(e) => {
                   e.stopPropagation();
                   setFile(null);
-                  setFileType('zip');
-                  if (fileInputRef.current) fileInputRef.current.value = '';
+                  setFileType("zip");
+                  if (fileInputRef.current) fileInputRef.current.value = "";
                 }}
+                sx={{ minWidth: 24, height: 24 }}
               >
-                &times;
-              </button>
-            </div>
+                ×
+              </Button>
+            </Box>
           ) : (
-            <div className="drop-zone-content">
-              <p>Drop a file here or click to upload</p>
-              <p className="hint">ZIP: folder-per-class, MNIST IDX | TXT: text for language models</p>
-            </div>
+            <>
+              <Typography variant="body2" color="text.secondary">
+                Drop a file here or click to upload
+              </Typography>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                ZIP: folder-per-class, MNIST IDX | TXT: text for language models
+              </Typography>
+            </>
           )}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".zip,.txt"
-            onChange={handleFileChange}
-            hidden
-          />
-        </div>
+          <input ref={fileInputRef} type="file" accept=".zip,.txt" onChange={handleFileChange} hidden />
+        </Box>
 
-        {/* Text-specific options */}
-        {fileType === 'text' && file && (
-          <div className="text-options">
-            <div className="form-row">
-              <div className="form-group">
-                <label>Tokenizer</label>
-                <select
+        {fileType === "text" && file && (
+          <Box sx={{ mb: 1.5, p: 1.5, bgcolor: "action.hover", borderRadius: 1 }}>
+            <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2, mb: 1 }}>
+              <FormControl size="small" fullWidth>
+                <InputLabel>Tokenizer</InputLabel>
+                <Select
                   value={tokenizerType}
-                  onChange={(e) => setTokenizerType(e.target.value as 'character' | 'word')}
+                  label="Tokenizer"
+                  onChange={(e) => setTokenizerType(e.target.value as "character" | "word")}
                   disabled={uploading}
                 >
-                  <option value="character">Character-level</option>
-                  <option value="word">Word-level</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label>Sequence Length</label>
-                <input
-                  type="number"
-                  value={seqLength}
-                  onChange={(e) => setSeqLength(parseInt(e.target.value) || 128)}
-                  min={32}
-                  max={512}
-                  disabled={uploading}
-                />
-              </div>
-            </div>
-            <p className="hint">
-              Character-level works well for small datasets like Shakespeare.
-              Word-level is better for larger corpora.
-            </p>
-          </div>
+                  <MenuItem value="character">Character-level</MenuItem>
+                  <MenuItem value="word">Word-level</MenuItem>
+                </Select>
+              </FormControl>
+              <TextField
+                size="small"
+                type="number"
+                label="Sequence Length"
+                value={seqLength}
+                onChange={(e) => setSeqLength(parseInt(e.target.value) || 128)}
+                inputProps={{ min: 32, max: 512 }}
+                disabled={uploading}
+              />
+            </Box>
+            <FormHelperText>
+              Character-level works well for small datasets. Word-level is better for larger corpora.
+            </FormHelperText>
+          </Box>
         )}
 
-        <button
-          className="btn primary"
+        <Button
+          variant="contained"
           onClick={handleUpload}
           disabled={!file || !datasetName.trim() || uploading}
         >
-          {uploading ? 'Uploading...' : 'Upload Dataset'}
-        </button>
+          {uploading ? "Uploading..." : "Upload Dataset"}
+        </Button>
 
-        {/* Upload Success Preview */}
+        <Box aria-live="polite">
         {uploadedDataset && (
-          <div className="upload-success">
-            <div className="upload-success-header">
-              <h4>Upload Successful: {uploadedDataset.name}</h4>
-              <button
-                className="btn-close"
-                onClick={() => {
-                  setUploadedDataset(null);
-                  setUploadPreview([]);
-                }}
-              >
-                &times;
-              </button>
-            </div>
-            <div className="upload-success-info">
+          <Box sx={{ mt: 2, p: 2, bgcolor: "background.default", borderRadius: 1, border: "1px solid", borderColor: "divider" }}>
+            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+              <Typography variant="subtitle1" color="success.main">
+                Upload Successful: {uploadedDataset.name}
+              </Typography>
+              <Button size="small" onClick={() => { setUploadedDataset(null); setUploadPreview([]); }}>×</Button>
+            </Box>
+            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, mb: 1, fontSize: "0.8125rem", color: "text.secondary" }}>
               <span>{uploadedDataset.data_type}</span>
-              <span>{uploadedDataset.format?.replace(/_/g, ' ')}</span>
+              <span>{uploadedDataset.format?.replace(/_/g, " ")}</span>
               <span>{uploadedDataset.num_classes} classes</span>
               <span>{uploadedDataset.total_samples?.toLocaleString()} samples</span>
               {uploadedDataset.input_shape?.length > 0 && (
-                <span>Shape: [{uploadedDataset.input_shape.join('x')}]</span>
+                <span>Shape: [{uploadedDataset.input_shape.join("x")}]</span>
               )}
-            </div>
+            </Box>
             {uploadedDataset.class_names?.length > 0 && (
-              <div className="upload-success-classes">
+              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 1 }}>
                 {uploadedDataset.class_names.map((name, i) => (
-                  <span key={i} className="class-chip">{name}</span>
+                  <Chip key={i} size="small" label={name} variant="outlined" />
                 ))}
-              </div>
+              </Box>
             )}
-            {uploadedDataset.data_type === 'text' && textPreview ? (
-              <div className="text-preview-section">
-                <h5>Text Preview</h5>
-                <div className="text-preview-stats">
-                  <span>Vocab: {textPreview.vocab_size} tokens</span>
-                  <span>Sequences: {textPreview.train_sequences} train / {textPreview.test_sequences} test</span>
-                  <span>Total: {textPreview.total_tokens?.toLocaleString()} tokens</span>
-                </div>
+            {uploadedDataset.data_type === "text" && textPreview && (
+              <Box sx={{ mt: 1, p: 1, bgcolor: "background.paper", borderRadius: 1 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Vocab: {textPreview.vocab_size} · Sequences: {textPreview.train_sequences} / {textPreview.test_sequences} · Total: {textPreview.total_tokens?.toLocaleString()} tokens
+                </Typography>
                 {textPreview.sample_text && (
-                  <div className="text-sample">
-                    <pre>{textPreview.sample_text.slice(0, 300)}...</pre>
-                  </div>
+                  <Box component="pre" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: "0.8125rem", overflow: "auto", mt: 0.5 }}>
+                    {textPreview.sample_text.slice(0, 300)}...
+                  </Box>
                 )}
                 {textPreview.sample_tokens?.length > 0 && (
-                  <div className="token-preview">
-                    <span className="label">Sample tokens:</span>
-                    <div className="token-chips">
-                      {textPreview.sample_tokens.slice(0, 20).map((t, i) => (
-                        <span key={i} className="token-chip">{t === ' ' ? '␣' : t === '\n' ? '↵' : t}</span>
-                      ))}
-                    </div>
-                  </div>
+                  <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.25, mt: 0.5 }}>
+                    {textPreview.sample_tokens.slice(0, 20).map((t, i) => (
+                      <Chip key={i} size="small" label={t === " " ? "␣" : t === "\n" ? "↵" : t} sx={{ fontFamily: '"JetBrains Mono", monospace' }} />
+                    ))}
+                  </Box>
                 )}
-              </div>
-            ) : uploadPreview.length > 0 && (
-              <div className="upload-preview">
-                <h5>Sample Images</h5>
-                <div className="preview-grid">
-                  {uploadPreview.map((sample, i) => (
-                    <div key={i} className="preview-item">
-                      <img
-                        src={`data:image/png;base64,${sample.image}`}
-                        alt={sample.label}
-                      />
-                      <span className="preview-label">{sample.label}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              </Box>
             )}
-          </div>
+            {uploadPreview.length > 0 && (
+              <Box sx={{ mt: 1 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase" }}>
+                  Sample Images
+                </Typography>
+                <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(80px, 1fr))", gap: 1, mt: 0.5 }}>
+                  {uploadPreview.map((sample, i) => (
+                    <Box key={i} sx={{ textAlign: "center", bgcolor: "background.paper", borderRadius: 1, overflow: "hidden" }}>
+                      <Box component="img" src={`data:image/png;base64,${sample.image}`} alt={sample.label} sx={{ width: "100%", height: 80, objectFit: "contain" }} />
+                      <Typography variant="caption" sx={{ display: "block", p: 0.5, fontFamily: '"JetBrains Mono", monospace' }}>
+                        {sample.label}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              </Box>
+            )}
+          </Box>
         )}
-      </div>
+        </Box>
+      </Paper>
 
-      {/* Datasets List */}
-      <div className="datasets-header">
-        <h3>Your Datasets</h3>
-        <button className="btn" onClick={loadDatasets}>Refresh</button>
-      </div>
+      {/* Your Datasets */}
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.5 }}>
+        <Typography variant="h3">Your Datasets</Typography>
+        <Button variant="outlined" size="small" onClick={loadDatasets}>
+          Refresh
+        </Button>
+      </Box>
 
       {datasets.length === 0 ? (
-        <p className="empty-state">No datasets yet. Upload one above!</p>
+        <Typography color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
+          No datasets yet. Upload one above!
+        </Typography>
       ) : (
-        <div className="datasets-layout">
-          <div className="datasets-list">
+        <Box sx={{ display: "grid", gridTemplateColumns: "minmax(280px, 320px) 1fr", gap: 2, alignItems: "start" }}>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1, maxHeight: "min(60vh, 600px)", overflowY: "auto" }}>
             {datasets.map((dataset) => (
-              <div
+              <Paper
                 key={dataset.id}
-                className={`dataset-card ${selectedDataset?.id === dataset.id ? 'selected' : ''}`}
+                variant="outlined"
                 onClick={() => handleSelectDataset(dataset)}
+                sx={{
+                  p: 1.25,
+                  cursor: "pointer",
+                  borderColor: selectedDataset?.id === dataset.id ? "primary.main" : "divider",
+                  "&:hover": { borderColor: "primary.main" },
+                }}
               >
-                <div className="dataset-card-header">
-                  <h4>{dataset.name}</h4>
-                  <span className={`status-badge ${getStatusClass(dataset.status)}`}>
-                    {dataset.status}
-                  </span>
-                </div>
-                <div className="dataset-card-info">
-                  <span>{dataset.data_type}</span>
-                  <span>{dataset.num_classes} classes</span>
-                  <span>{dataset.total_samples} samples</span>
-                </div>
-              </div>
+                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 0.5, mb: 0.75 }}>
+                  <Typography variant="subtitle2" sx={{ wordBreak: "break-word" }}>
+                    {dataset.name}
+                  </Typography>
+                  <Chip size="small" label={dataset.status} color={getStatusColor(dataset.status)} sx={{ textTransform: "uppercase", fontSize: "0.6875rem" }} />
+                </Box>
+                <Box sx={{ fontSize: "0.75rem", color: "text.secondary" }}>
+                  {dataset.data_type} · {dataset.num_classes} classes · {dataset.total_samples} samples
+                </Box>
+              </Paper>
             ))}
-          </div>
+          </Box>
 
           {selectedDataset && (
-            <div className="dataset-details">
-              <h3>{selectedDataset.name}</h3>
-
-              <div className="details-grid">
-                <div className="detail-item">
-                  <span className="label">ID</span>
-                  <span className="value">{selectedDataset.id}</span>
-                </div>
-                <div className="detail-item">
-                  <span className="label">Type</span>
-                  <span className="value">{selectedDataset.data_type}</span>
-                </div>
-                <div className="detail-item">
-                  <span className="label">Format</span>
-                  <span className="value">{selectedDataset.format?.replace(/_/g, ' ') || 'unknown'}</span>
-                </div>
+            <Paper variant="outlined" sx={{ p: 2, borderColor: "divider", minWidth: 0 }}>
+              <Typography variant="h3" sx={{ mb: 1.5 }}>
+                {selectedDataset.name}
+              </Typography>
+              <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 1.5, mb: 1.5 }}>
+                <DetailItem label="ID" value={selectedDataset.id} />
+                <DetailItem label="Type" value={selectedDataset.data_type} />
+                <DetailItem label="Format" value={selectedDataset.format?.replace(/_/g, " ") || "unknown"} />
                 {selectedDataset.input_shape?.length > 0 && (
-                  <div className="detail-item">
-                    <span className="label">Input Shape</span>
-                    <span className="value">[{selectedDataset.input_shape.join('x')}]</span>
-                  </div>
+                  <DetailItem label="Input Shape" value={`[${selectedDataset.input_shape.join("x")}]`} />
                 )}
-                <div className="detail-item">
-                  <span className="label">Classes</span>
-                  <span className="value">{selectedDataset.num_classes}</span>
-                </div>
-                <div className="detail-item">
-                  <span className="label">Total Samples</span>
-                  <span className="value">{selectedDataset.total_samples.toLocaleString()}</span>
-                </div>
-                <div className="detail-item">
-                  <span className="label">Created</span>
-                  <span className="value">{formatDate(selectedDataset.created_at)}</span>
-                </div>
-                <div className="detail-item">
-                  <span className="label">Status</span>
-                  <span className={`value ${getStatusClass(selectedDataset.status)}`}>
-                    {selectedDataset.status}
-                  </span>
-                </div>
-              </div>
-
+                <DetailItem label="Classes" value={String(selectedDataset.num_classes)} />
+                <DetailItem label="Total Samples" value={selectedDataset.total_samples.toLocaleString()} />
+                <DetailItem label="Created" value={formatDate(selectedDataset.created_at)} />
+                <DetailItem label="Status" value={selectedDataset.status} statusColor={getStatusColor(selectedDataset.status)} />
+              </Box>
               {selectedDataset.class_names?.length > 0 && (
-                <div className="class-list">
-                  <h4>Classes</h4>
-                  <div className="class-chips">
+                <Box sx={{ mb: 1.5 }}>
+                  <Typography variant="overline" sx={{ color: "text.secondary" }}>Classes</Typography>
+                  <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mt: 0.5 }}>
                     {selectedDataset.class_names.map((name, i) => (
-                      <span key={i} className="class-chip">{name}</span>
+                      <Chip key={i} size="small" label={name} variant="outlined" />
                     ))}
-                  </div>
-                </div>
+                  </Box>
+                </Box>
               )}
-
-              <div className="dataset-preview">
-                <h4>Sample Data</h4>
+              <Box sx={{ mt: 1.5, pt: 1.5, borderTop: "1px solid", borderColor: "divider" }}>
+                <Typography variant="overline" sx={{ color: "text.secondary" }}>Sample Data</Typography>
                 {loadingPreview ? (
-                  <p className="loading-text">Loading preview...</p>
-                ) : selectedDataset.data_type === 'text' && textPreview ? (
-                  <div className="text-preview-section">
-                    <div className="text-preview-stats">
-                      <span>Vocab: {textPreview.vocab_size} tokens</span>
-                      <span>Type: {textPreview.tokenizer_type}</span>
-                      {textPreview.seq_length && <span>Seq length: {textPreview.seq_length}</span>}
-                    </div>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Loading preview...</Typography>
+                ) : selectedDataset.data_type === "text" && textPreview ? (
+                  <Box sx={{ mt: 0.5 }}>
+                    <Typography variant="body2" color="text.secondary">
+                      Vocab: {textPreview.vocab_size} · {textPreview.tokenizer_type} · Seq: {textPreview.seq_length}
+                    </Typography>
                     {textPreview.sample_text && (
-                      <div className="text-sample">
-                        <pre>{textPreview.sample_text}</pre>
-                      </div>
+                      <Box component="pre" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: "0.8125rem", mt: 0.5, p: 1, bgcolor: "action.hover", borderRadius: 1 }}>
+                        {textPreview.sample_text}
+                      </Box>
                     )}
-                  </div>
+                  </Box>
                 ) : preview.length > 0 ? (
-                  <div className="preview-grid">
+                  <Box sx={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(80px, 1fr))", gap: 1, mt: 0.5 }}>
                     {preview.map((sample, i) => (
-                      <div key={i} className="preview-item">
-                        <img
-                          src={`data:image/png;base64,${sample.image}`}
-                          alt={sample.label}
-                        />
-                        <span className="preview-label">{sample.label}</span>
-                      </div>
+                      <Box key={i} sx={{ textAlign: "center", bgcolor: "action.hover", borderRadius: 1, overflow: "hidden" }}>
+                        <Box component="img" src={`data:image/png;base64,${sample.image}`} alt={sample.label} sx={{ width: "100%", height: 80, objectFit: "contain" }} />
+                        <Typography variant="caption" sx={{ display: "block", p: 0.5, fontFamily: '"JetBrains Mono", monospace' }}>{sample.label}</Typography>
+                      </Box>
                     ))}
-                  </div>
+                  </Box>
                 ) : (
-                  <p className="empty-text">No preview available</p>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>No preview available</Typography>
                 )}
-              </div>
-
-              <div className="dataset-actions">
-                <button
-                  className="btn danger"
-                  onClick={() => setDeleteConfirm(selectedDataset.id)}
-                >
-                  Delete Dataset
-                </button>
-              </div>
-            </div>
+              </Box>
+              <Button variant="outlined" color="error" size="small" onClick={() => setDeleteConfirm(selectedDataset.id)} sx={{ mt: 2 }}>
+                Delete Dataset
+              </Button>
+            </Paper>
           )}
-        </div>
+        </Box>
       )}
 
       <ConfirmDialog
@@ -686,6 +672,27 @@ export default function DatasetsTab({ onDatasetSelect, onUpdate }: Props) {
         onConfirm={() => deleteConfirm && confirmDelete(deleteConfirm)}
         onCancel={() => setDeleteConfirm(null)}
       />
-    </div>
+    </Box>
+  );
+}
+
+function DetailItem({
+  label,
+  value,
+  statusColor,
+}: {
+  label: string;
+  value: string;
+  statusColor?: "success" | "error" | "default" | "warning";
+}) {
+  return (
+    <Box>
+      <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+        {label}
+      </Typography>
+      <Typography variant="body2" fontWeight={500} color={statusColor && statusColor !== "default" ? statusColor : "text.primary"}>
+        {value}
+      </Typography>
+    </Box>
   );
 }

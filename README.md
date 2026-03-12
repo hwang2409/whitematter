@@ -1,5 +1,7 @@
 # whitematter: a NN framework
 
+[![CI](https://github.com/hwang2409/whitematter/actions/workflows/ci.yml/badge.svg)](https://github.com/hwang2409/whitematter/actions/workflows/ci.yml)
+
 A lightweight PyTorch-like neural network framework written in C++ with automatic differentiation (autograd), SIMD optimizations, and an MNIST example.
 
 ## Quick Start
