@@ -2,7 +2,9 @@
 import json
 import logging
 import os
+import shutil
 from enum import Enum
+from pathlib import Path
 from typing import AsyncIterator, Optional, Dict, Any, List
 
 from sqlalchemy.orm import Session
@@ -11,6 +13,8 @@ from db.chat_models import Conversation, ConversationMessage
 from db.auth_models import User
 
 logger = logging.getLogger(__name__)
+
+PRESETS_DIR = Path(__file__).resolve().parent.parent.parent / "presets"
 
 
 class ConversationPhase(str, Enum):
@@ -264,6 +268,39 @@ class ChatService:
                 pass
         return None
 
+    def _handle_quick_start_mnist(
+        self, db: Session, conversation: Conversation, user: User
+    ) -> dict:
+        """Load pre-bundled MNIST dataset and return CNN architecture info."""
+        from services.dataset_service import DatasetService
+
+        dataset_service = DatasetService()
+        dataset = dataset_service.create_dataset("mnist-quickstart")
+        dataset_id = dataset["id"]
+
+        # Copy preset .bin files into blob storage
+        mnist_preset_dir = PRESETS_DIR / "mnist"
+        dest_dir = Path(__file__).resolve().parent.parent / "uploads" / dataset_id
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(str(mnist_preset_dir), str(dest_dir), dirs_exist_ok=True)
+
+        # Link dataset to conversation
+        conversation.dataset_id = dataset_id
+        conversation.phase = ConversationPhase.READY_TO_TRAIN.value
+
+        architecture = {
+            "name": "MNIST CNN",
+            "description": "A simple CNN for handwritten digit classification",
+            "layers": "Conv2d(1,16,3) → ReLU → MaxPool → Conv2d(16,32,3) → ReLU → MaxPool → FC(32*5*5, 128) → ReLU → FC(128, 10)",
+            "trainingConfig": "SGD lr=0.01, batch_size=64, epochs=5",
+            "params": "~207K",
+            "dataset": "MNIST (60K train, 10K test)",
+        }
+        conversation.architecture = architecture
+        db.commit()
+
+        return architecture
+
     async def process_message(
         self,
         db: Session,
@@ -298,6 +335,24 @@ class ChatService:
             conv.title = content[:100]
 
         db.commit()
+
+        # Quick Start MNIST detection
+        if (
+            "quick start" in content.lower() or "mnist" in content.lower()
+        ) and conv.phase == ConversationPhase.GREETING.value:
+            architecture = self._handle_quick_start_mnist(db, conv, user)
+            msg = ConversationMessage(
+                conversation_id=conv.id,
+                role="assistant",
+                content="Great! I've loaded MNIST for you. Here's a simple CNN for digit classification:",
+                message_type="architecture",
+                metadata_=architecture,
+            )
+            db.add(msg)
+            db.commit()
+            yield f"data: {json.dumps({'type': 'architecture', 'content': msg.content, 'metadata': architecture})}\n\n"
+            yield "data: [DONE]\n\n"
+            return
 
         # Get full message history
         messages = (
