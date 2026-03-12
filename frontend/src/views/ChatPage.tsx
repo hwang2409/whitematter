@@ -28,7 +28,7 @@ interface ChatPageProps {
 
 export default function ChatPage({ conversationId }: ChatPageProps) {
   const router = useRouter();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [phase, setPhase] = useState<ConversationPhase>("greeting");
   const [streaming, setStreaming] = useState(false);
@@ -39,7 +39,8 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<{ abort: () => void } | null>(null);
 
-  const uploadLimitMB = 200;
+  const UPLOAD_LIMITS: Record<string, number> = { free: 200, pro: 1000, scale: 5000 };
+  const uploadLimitMB = UPLOAD_LIMITS[user?.plan ?? "free"] ?? 200;
 
   // Scroll to bottom whenever messages change
   useEffect(() => {
