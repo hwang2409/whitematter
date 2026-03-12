@@ -1,10 +1,12 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import LinearProgress from "@mui/material/LinearProgress";
 import Chip from "@mui/material/Chip";
 import { themeTokens } from "@/theme";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 interface TrainingStatus {
   job_id: string;
@@ -25,43 +27,52 @@ interface Props {
 export default function TrainingProgress({ conversationId, jobId, onComplete }: Props) {
   const [status, setStatus] = useState<TrainingStatus | null>(null);
   const [history, setHistory] = useState<{ epoch: number; loss: number; accuracy: number }[]>([]);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    const poll = async () => {
+    const token = localStorage.getItem("access_token");
+    const controller = new AbortController();
+
+    async function connectSSE() {
       try {
-        const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
-        const res = await fetch(`/chat/conversations/${conversationId}/training`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (!res.ok) return;
-        const data: TrainingStatus = await res.json();
-        setStatus(data);
+        const res = await fetch(
+          `${API_BASE}/chat/conversations/${conversationId}/training/stream`,
+          {
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            signal: controller.signal,
+          },
+        );
+        const reader = res.body?.getReader();
+        const decoder = new TextDecoder();
 
-        if (data.epoch > 0) {
-          setHistory((prev) => {
-            const exists = prev.some((h) => h.epoch === data.epoch);
-            if (exists) return prev;
-            return [...prev, { epoch: data.epoch, loss: data.loss, accuracy: data.accuracy }];
-          });
+        while (reader) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const text = decoder.decode(value);
+          const lines = text.split("\n");
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const data: TrainingStatus = JSON.parse(line.slice(6));
+              setStatus(data);
+              setHistory((prev) => [...prev, {
+                epoch: data.epoch,
+                loss: data.loss,
+                accuracy: data.accuracy,
+              }]);
+              if (["completed", "failed", "cancelled"].includes(data.status)) {
+                onComplete?.(data);
+                return;
+              }
+            }
+          }
         }
-
-        if (["completed", "failed", "cancelled"].includes(data.status)) {
-          if (intervalRef.current) clearInterval(intervalRef.current);
-          onComplete?.(data);
-        }
-      } catch {
-        // ignore polling errors
+      } catch (err) {
+        if (!controller.signal.aborted) console.error("SSE error:", err);
       }
-    };
+    }
 
-    poll();
-    intervalRef.current = setInterval(poll, 2000);
-
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [conversationId, jobId, onComplete]);
+    connectSSE();
+    return () => controller.abort();
+  }, [conversationId, jobId]);
 
   const progress = status && status.total_epochs > 0
     ? (status.epoch / status.total_epochs) * 100
