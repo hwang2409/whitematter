@@ -1,0 +1,38 @@
+version: '3.8'
+services:
+  whitematter:
+    image: ghcr.io/${GITHUB_REPOSITORY:-whitematter}:staging
+    ports:
+      - "8080:8080"
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://whitematter:${POSTGRES_PASSWORD}@db:5432/whitematter
+      - JWT_SECRET=${JWT_SECRET}
+      - CREDENTIAL_ENCRYPTION_KEY=${CREDENTIAL_ENCRYPTION_KEY}
+      - WORKERS=2
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=whitematter
+      - POSTGRES_USER=whitematter
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - staging-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U whitematter"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  staging-db:

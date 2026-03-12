@@ -103,10 +103,10 @@ node_modules/
 .idea/
 
 # =============================================================================
-# Explicitly track (override above patterns)
+# Environment / secrets
 # =============================================================================
-# Note: .beads/ has its own .gitignore that handles SQLite files
-# and keeps issues.jsonl, metadata.json, config file as source of truth
 .env
+!.env.example
+!frontend/.env.example
 
 frontend/.next/

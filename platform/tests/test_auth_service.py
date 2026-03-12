@@ -36,3 +36,14 @@ def test_expired_token_raises(auth_service):
     )
     with pytest.raises(Exception):
         auth_service.decode_token(token)
+
+
+def test_missing_jwt_secret_raises(monkeypatch):
+    monkeypatch.delenv("JWT_SECRET", raising=False)
+    with pytest.raises(RuntimeError, match="JWT_SECRET.*not set"):
+        AuthService(jwt_secret="")
+
+
+def test_default_dev_secret_raises():
+    with pytest.raises(RuntimeError, match="insecure default"):
+        AuthService(jwt_secret="dev-secret-change-me")
