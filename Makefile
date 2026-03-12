@@ -280,8 +280,11 @@ debug: clean $(ML_TARGET)
 
 dev:
 	@echo "Starting backend and frontend..."
-	@cd platform && python server.py &
-	@cd frontend && npm run dev
+	@cd platform && python3 server.py & \
+	echo "Waiting for backend..." && \
+	until curl -sf http://localhost:8080/health > /dev/null 2>&1; do sleep 0.5; done && \
+	echo "Backend ready." && \
+	cd frontend && npm run dev
 
 docker-build:
 	docker compose build
