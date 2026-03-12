@@ -1,6 +1,7 @@
 "use client";
 import { useMemo } from "react";
 import { AuthProvider } from "@/context/AuthContext";
+import { DesignProvider } from "@/context/DesignContext";
 import { ThemeContextProvider, useThemeMode } from "@/context/ThemeContext";
 import { ThemeProvider } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
@@ -21,7 +22,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <ThemeContextProvider>
       <ThemedApp>
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <DesignProvider>{children}</DesignProvider>
+        </AuthProvider>
       </ThemedApp>
     </ThemeContextProvider>
   );
