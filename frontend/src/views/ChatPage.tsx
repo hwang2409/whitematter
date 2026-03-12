@@ -16,6 +16,8 @@ import {
 } from "@/api";
 import type { ChatMessage, ConversationPhase } from "@/api";
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -31,10 +33,13 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
   const [phase, setPhase] = useState<ConversationPhase>("greeting");
   const [streaming, setStreaming] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [dragOver, setDragOver] = useState(false);
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(conversationId || null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<{ abort: () => void } | null>(null);
+
+  const uploadLimitMB = 200;
 
   // Scroll to bottom whenever messages change
   useEffect(() => {
@@ -208,11 +213,115 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
     [streaming, currentConversationId, token],
   );
 
+  const handleFileUpload = useCallback(
+    async (file: File) => {
+      if (!currentConversationId || !token) return;
+
+      const uploadMsgId = crypto.randomUUID();
+      const uploadMessage: ChatMessage = {
+        id: uploadMsgId,
+        role: "user",
+        content: `Uploading dataset: ${file.name}...`,
+        type: "file_upload",
+        createdAt: new Date().toISOString(),
+      };
+
+      setMessages((prev) => [...prev, uploadMessage]);
+
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("name", file.name);
+
+        const res = await fetch(`${API_BASE}/datasets/upload`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          body: formData,
+        });
+
+        if (!res.ok) {
+          const errBody = await res.text().catch(() => "Upload failed");
+          throw new Error(errBody);
+        }
+
+        const data = await res.json();
+
+        // Update the upload message to show success
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === uploadMsgId
+              ? { ...m, content: `Dataset uploaded: ${file.name}` }
+              : m,
+          ),
+        );
+
+        // Notify the chat about the uploaded dataset
+        handleSend(
+          `I uploaded a dataset: ${file.name} (id: ${data.id ?? data.dataset_id ?? "unknown"})`,
+        );
+      } catch (err) {
+        console.error("File upload error:", err);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === uploadMsgId
+              ? {
+                  ...m,
+                  content: `Failed to upload ${file.name}: ${err instanceof Error ? err.message : "Unknown error"}`,
+                }
+              : m,
+          ),
+        );
+      }
+    },
+    [currentConversationId, token, handleSend],
+  );
+
   const handleQuickStart = useCallback(
     (text: string) => {
       handleSend(text);
     },
     [handleSend],
+  );
+
+  // Drag-and-drop handlers
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setDragOver(false);
+
+      const file = e.dataTransfer.files?.[0];
+      if (!file) return;
+
+      // Only accept .zip files
+      if (!file.name.endsWith(".zip")) {
+        alert("Only .zip files are accepted.");
+        return;
+      }
+
+      const maxBytes = uploadLimitMB * 1024 * 1024;
+      if (file.size > maxBytes) {
+        alert(`File too large. Maximum size is ${uploadLimitMB} MB.`);
+        return;
+      }
+
+      handleFileUpload(file);
+    },
+    [handleFileUpload, uploadLimitMB],
   );
 
   const placeholderForPhase = (p: ConversationPhase): string => {
@@ -267,6 +376,9 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
       {/* Messages area */}
       <Box
         ref={messagesContainerRef}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
         sx={{
           flex: 1,
           overflowY: "auto",
@@ -275,8 +387,32 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
           display: "flex",
           flexDirection: "column",
           gap: 2,
+          position: "relative",
         }}
       >
+        {/* Drag-and-drop overlay */}
+        {dragOver && (
+          <Box
+            sx={{
+              position: "absolute",
+              inset: 0,
+              zIndex: 10,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              bgcolor: "rgba(0, 0, 0, 0.5)",
+              borderRadius: 2,
+              border: "2px dashed",
+              borderColor: "primary.main",
+              pointerEvents: "none",
+            }}
+          >
+            <Typography variant="h6" sx={{ color: "common.white" }}>
+              Drop your dataset here (max {uploadLimitMB} MB)
+            </Typography>
+          </Box>
+        )}
+
         <Box sx={{ maxWidth: 780, width: "100%", mx: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
           {messages.map((msg) => (
             <ChatMessageBubble key={msg.id} message={msg} />
@@ -314,6 +450,8 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
         <Box sx={{ maxWidth: 780, mx: "auto" }}>
           <ChatInput
             onSend={handleSend}
+            onFileUpload={handleFileUpload}
+            maxUploadMB={uploadLimitMB}
             disabled={streaming}
             placeholder={placeholderForPhase(phase)}
           />
