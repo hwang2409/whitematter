@@ -547,6 +547,12 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
                     <Button variant="contained" onClick={() => setDeployModalOpen(true)}>
                       Deploy to API
                     </Button>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                      Requires AWS credentials (optional).{" "}
+                      <Link href="/settings" style={{ color: "inherit", textDecoration: "underline" }}>
+                        Settings
+                      </Link>
+                    </Typography>
                   </Box>
                 </>
               )}

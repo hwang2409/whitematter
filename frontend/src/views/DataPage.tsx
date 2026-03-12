@@ -4,6 +4,8 @@ import Box from "@mui/material/Box";
 import Tabs from "@mui/material/Tabs";
 import Tab from "@mui/material/Tab";
 import Typography from "@mui/material/Typography";
+import Alert from "@mui/material/Alert";
+import NextLink from "next/link";
 import DatasetsTab from "@/components/DatasetsTab";
 import S3ManagerPage from "@/views/S3ManagerPage";
 
@@ -35,7 +37,18 @@ export default function DataPage() {
           onUpdate={() => {}}
         />
       )}
-      {tab === "storage" && <S3ManagerPage />}
+      {tab === "storage" && (
+        <>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            S3 storage requires AWS or S3-compatible credentials.{" "}
+            <NextLink href="/settings" style={{ color: "inherit", fontWeight: 600 }}>
+              Configure in Settings
+            </NextLink>
+            . This is optional — core training and prediction work without it.
+          </Alert>
+          <S3ManagerPage />
+        </>
+      )}
     </Box>
   );
 }
