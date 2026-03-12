@@ -400,6 +400,15 @@ export default function DatasetsTab({ onDatasetSelect, onUpdate }: Props) {
           onDrop={handleDrop}
           onDragOver={handleDragOver}
           onClick={() => !file && fileInputRef.current?.click()}
+          onKeyDown={(e: React.KeyboardEvent) => {
+            if ((e.key === "Enter" || e.key === " ") && !file) {
+              e.preventDefault();
+              fileInputRef.current?.click();
+            }
+          }}
+          tabIndex={0}
+          role="button"
+          aria-label="Upload dataset file"
           sx={{
             border: "1px dashed",
             borderColor: file ? themeTokens.accentMuted : "divider",
@@ -484,6 +493,7 @@ export default function DatasetsTab({ onDatasetSelect, onUpdate }: Props) {
           {uploading ? "Uploading..." : "Upload Dataset"}
         </Button>
 
+        <Box aria-live="polite">
         {uploadedDataset && (
           <Box sx={{ mt: 2, p: 2, bgcolor: "background.default", borderRadius: 1, border: "1px solid", borderColor: "divider" }}>
             <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
@@ -546,6 +556,7 @@ export default function DatasetsTab({ onDatasetSelect, onUpdate }: Props) {
             )}
           </Box>
         )}
+        </Box>
       </Paper>
 
       {/* Your Datasets */}
