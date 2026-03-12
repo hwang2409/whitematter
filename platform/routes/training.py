@@ -1,8 +1,7 @@
 """
-Training endpoints including start, status, cancel, and WebSocket progress.
+Training endpoints including start, status, and cancel.
 """
 
-import asyncio
 import json
 import logging
 import shutil
@@ -11,7 +10,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Request
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 from auth.dependencies import get_current_user
@@ -23,10 +22,10 @@ from schemas import (
     TrainingJobResponse, DetailResponse,
 )
 from dependencies import (
-    training_jobs, _ws_subscribers, _ws_lock,
+    training_jobs,
     dataset_service, code_generator,
     save_model_metadata, get_model_path,
-    notify_training_subscribers, _get_job_snapshot,
+    notify_training_subscribers,
 )
 from codegen import compile_training_code
 from codegen.compiler import run_training as run_custom_training_process
@@ -315,49 +314,6 @@ async def start_training(request: Request, req: TrainRequest, user: User = Depen
         "message": job["message"],
         "config": config
     }
-
-
-@router.websocket("/ws/train/{job_id}")
-async def ws_training_status(websocket: WebSocket, job_id: str):
-    """WebSocket endpoint for real-time training updates."""
-    if job_id not in training_jobs:
-        await websocket.close(code=4004, reason="Training job not found")
-        return
-
-    await websocket.accept()
-
-    queue: asyncio.Queue = asyncio.Queue()
-    with _ws_lock:
-        _ws_subscribers.setdefault(job_id, []).append(queue)
-
-    try:
-        snapshot = _get_job_snapshot(job_id)
-        if snapshot:
-            await websocket.send_json(snapshot)
-
-        while True:
-            try:
-                update = await asyncio.wait_for(queue.get(), timeout=5.0)
-                await websocket.send_json(update)
-                if update.get("status") in ("completed", "failed", "cancelled"):
-                    await websocket.close(code=1000)
-                    break
-            except asyncio.TimeoutError:
-                try:
-                    await websocket.send_json({"type": "ping"})
-                except Exception:
-                    break
-    except WebSocketDisconnect:
-        pass
-    except Exception:
-        pass
-    finally:
-        with _ws_lock:
-            subs = _ws_subscribers.get(job_id, [])
-            if queue in subs:
-                subs.remove(queue)
-            if not subs:
-                _ws_subscribers.pop(job_id, None)
 
 
 @router.get("/train/{job_id}", response_model=TrainingJobResponse)
