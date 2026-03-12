@@ -8,34 +8,13 @@ import CircularProgress from "@mui/material/CircularProgress";
 import ChatMessageBubble from "@/components/ChatMessage";
 import ChatInput from "@/components/ChatInput";
 import QuickStartChips from "@/components/QuickStartChips";
+import { useAuth } from "@/context/AuthContext";
+import {
+  createConversation,
+  getConversation,
+  sendChatMessage,
+} from "@/api";
 import type { ChatMessage, ConversationPhase } from "@/api";
-
-// ---------------------------------------------------------------------------
-// Mock helpers -- will be replaced by real API calls later
-// ---------------------------------------------------------------------------
-
-const GREETING_MESSAGE: ChatMessage = {
-  id: "greeting",
-  role: "assistant",
-  content:
-    "Hi! I'm **WhiteMatter**, your AI assistant for building and training neural networks.\n\nTell me what you'd like to build, or pick one of the quick starts below to get going.",
-  type: "text",
-  createdAt: new Date().toISOString(),
-};
-
-function mockAssistantReply(userText: string): Promise<ChatMessage> {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve({
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content: `Thanks! You said: "${userText}". (This is a placeholder response -- real SSE streaming will be wired up in a later chunk.)`,
-        type: "text",
-        createdAt: new Date().toISOString(),
-      });
-    }, 800);
-  });
-}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -47,35 +26,102 @@ interface ChatPageProps {
 
 export default function ChatPage({ conversationId }: ChatPageProps) {
   const router = useRouter();
-  const [messages, setMessages] = useState<ChatMessage[]>([GREETING_MESSAGE]);
+  const { token } = useAuth();
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [phase, setPhase] = useState<ConversationPhase>("greeting");
   const [streaming, setStreaming] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [currentConversationId, setCurrentConversationId] = useState<string | null>(conversationId || null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<{ abort: () => void } | null>(null);
 
   // Scroll to bottom whenever messages change
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // If there is a conversationId, we'd load the conversation here.
-  // For now this is a placeholder.
+  // Create or load conversation on mount
   useEffect(() => {
-    if (conversationId) {
-      setLoading(true);
-      // TODO: load conversation from API via getConversation(conversationId)
-      // For now just reset with greeting
-      setMessages([GREETING_MESSAGE]);
-      setPhase("greeting");
-      setLoading(false);
+    if (!token) return;
+
+    let cancelled = false;
+
+    async function init() {
+      try {
+        if (conversationId) {
+          // Load existing conversation
+          const data = await getConversation(token!, conversationId);
+          if (cancelled) return;
+          setCurrentConversationId(conversationId);
+          setPhase(data.conversation?.phase ?? "greeting");
+          setMessages(
+            (data.messages ?? []).map((m: any) => ({
+              id: m.id ?? crypto.randomUUID(),
+              role: m.role,
+              content: m.content,
+              type: m.type ?? m.message_type ?? "text",
+              metadata: m.metadata,
+              createdAt: m.created_at ?? m.createdAt ?? new Date().toISOString(),
+            })),
+          );
+        } else {
+          // Create a new conversation, then fetch it to get the greeting
+          const conv = await createConversation(token!);
+          if (cancelled) return;
+          setCurrentConversationId(conv.id);
+
+          const data = await getConversation(token!, conv.id);
+          if (cancelled) return;
+          setPhase(data.conversation?.phase ?? "greeting");
+          setMessages(
+            (data.messages ?? []).map((m: any) => ({
+              id: m.id ?? crypto.randomUUID(),
+              role: m.role,
+              content: m.content,
+              type: m.type ?? m.message_type ?? "text",
+              metadata: m.metadata,
+              createdAt: m.created_at ?? m.createdAt ?? new Date().toISOString(),
+            })),
+          );
+        }
+      } catch (err) {
+        console.error("Failed to initialise conversation:", err);
+        if (!cancelled) {
+          setMessages([
+            {
+              id: crypto.randomUUID(),
+              role: "assistant",
+              content:
+                "I'm having trouble connecting right now. Please refresh to try again.",
+              type: "text",
+              createdAt: new Date().toISOString(),
+            },
+          ]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
-  }, [conversationId]);
+
+    init();
+    return () => {
+      cancelled = true;
+    };
+  }, [token, conversationId]);
+
+  // Cleanup SSE abort on unmount
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
   const handleSend = useCallback(
-    async (text: string) => {
-      if (!text.trim() || streaming) return;
+    (text: string) => {
+      if (!text.trim() || streaming || !currentConversationId) return;
 
+      // Add user message immediately
       const userMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: "user",
@@ -84,29 +130,82 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
         createdAt: new Date().toISOString(),
       };
 
-      setMessages((prev) => [...prev, userMessage]);
-      setPhase("exploring");
+      // Add empty assistant placeholder for streaming
+      const assistantPlaceholderId = crypto.randomUUID();
+      const assistantPlaceholder: ChatMessage = {
+        id: assistantPlaceholderId,
+        role: "assistant",
+        content: "",
+        type: "text",
+        createdAt: new Date().toISOString(),
+      };
+
+      setMessages((prev) => [...prev, userMessage, assistantPlaceholder]);
       setStreaming(true);
 
-      try {
-        const reply = await mockAssistantReply(text);
-        setMessages((prev) => [...prev, reply]);
-      } catch {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: crypto.randomUUID(),
-            role: "assistant",
-            content: "Sorry, something went wrong. Please try again.",
-            type: "text",
-            createdAt: new Date().toISOString(),
-          },
-        ]);
-      } finally {
-        setStreaming(false);
-      }
+      const handle = sendChatMessage(
+        currentConversationId,
+        text,
+        // onChunk: append chunk text to last (assistant) message
+        (chunkText: string) => {
+          setMessages((prev) => {
+            const updated = [...prev];
+            const last = updated[updated.length - 1];
+            updated[updated.length - 1] = {
+              ...last,
+              content: last.content + chunkText,
+            };
+            return updated;
+          });
+        },
+        // onDone: replace last message with full response
+        (doneMessage: ChatMessage) => {
+          setMessages((prev) => {
+            const updated = [...prev];
+            updated[updated.length - 1] = {
+              ...doneMessage,
+              id: doneMessage.id || assistantPlaceholderId,
+              type: doneMessage.type ?? (doneMessage as any).message_type ?? "text",
+              createdAt: doneMessage.createdAt ?? new Date().toISOString(),
+            };
+            return updated;
+          });
+
+          // Update phase if the response carries metadata.phase
+          const newPhase =
+            (doneMessage.metadata?.phase as ConversationPhase | undefined) ??
+            undefined;
+          if (newPhase) {
+            setPhase(newPhase);
+          }
+
+          setStreaming(false);
+          abortRef.current = null;
+        },
+        // onError
+        (error: Error) => {
+          console.error("Chat SSE error:", error);
+          setMessages((prev) => {
+            const updated = [...prev];
+            updated[updated.length - 1] = {
+              id: assistantPlaceholderId,
+              role: "assistant",
+              content:
+                "I'm having trouble thinking right now, try again in a moment.",
+              type: "text",
+              createdAt: new Date().toISOString(),
+            };
+            return updated;
+          });
+          setStreaming(false);
+          abortRef.current = null;
+        },
+        token ?? undefined,
+      );
+
+      abortRef.current = handle;
     },
-    [streaming],
+    [streaming, currentConversationId, token],
   );
 
   const handleQuickStart = useCallback(
