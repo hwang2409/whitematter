@@ -2,7 +2,15 @@
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { useEffect, useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import * as api from "@/api";
 import { getCustomDatasets, getModels } from "@/api";
+import OnboardingWizard from "@/components/OnboardingWizard";
+import {
+  QUICK_START_ARCHITECTURE,
+  QUICK_START_DATASET_HF_ID,
+  QUICK_START_DATASET_NAME,
+} from "@/lib/quickStart";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Card from "@mui/material/Card";
@@ -12,6 +20,7 @@ import Button from "@mui/material/Button";
 import UploadFileOutlined from "@mui/icons-material/UploadFileOutlined";
 import PlayArrowOutlined from "@mui/icons-material/PlayArrowOutlined";
 import AutoAwesomeOutlined from "@mui/icons-material/AutoAwesomeOutlined";
+import RocketLaunchOutlined from "@mui/icons-material/RocketLaunchOutlined";
 import { themeTokens } from "@/theme";
 
 type ActivityItem = {
@@ -34,9 +43,12 @@ function formatRelativeTime(dateStr: string): string {
 
 export default function DashboardPage() {
   const { user } = useAuth();
+  const router = useRouter();
   const [datasets, setDatasets] = useState<Awaited<ReturnType<typeof getCustomDatasets>>>([]);
   const [models, setModels] = useState<Awaited<ReturnType<typeof getModels>>>([]);
   const [loading, setLoading] = useState(true);
+  const [quickStarting, setQuickStarting] = useState(false);
+  const [quickStartError, setQuickStartError] = useState("");
 
   useEffect(() => {
     Promise.all([getCustomDatasets(), getModels()])
@@ -47,6 +59,35 @@ export default function DashboardPage() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  async function handleQuickStart() {
+    setQuickStarting(true);
+    setQuickStartError("");
+    try {
+      let mnistDataset = datasets.find(
+        (d) =>
+          d.name === QUICK_START_DATASET_NAME ||
+          d.name.toLowerCase().includes("mnist")
+      );
+      if (!mnistDataset) {
+        mnistDataset = await api.importDatasetFromHuggingFace(
+          QUICK_START_DATASET_HF_ID,
+          {
+            name: QUICK_START_DATASET_NAME,
+            split: "train",
+          }
+        );
+      }
+      await api.startCustomTraining(mnistDataset.id, QUICK_START_ARCHITECTURE);
+      router.push("/train");
+    } catch (e) {
+      setQuickStartError(
+        e instanceof Error ? e.message : "Quick start failed"
+      );
+    } finally {
+      setQuickStarting(false);
+    }
+  }
 
   const readyDatasets = useMemo(() => datasets.filter((d) => d.status === "ready"), [datasets]);
   const completedModels = useMemo(() => models.filter((m) => m.status === "completed"), [models]);
@@ -83,6 +124,17 @@ export default function DashboardPage() {
         Welcome back, {user?.email}
       </Typography>
 
+      {!loading && datasets.length === 0 && models.length === 0 && (
+        <OnboardingWizard
+          userId={user?.id || "anonymous"}
+          onDatasetImported={(dataset) => {
+            setDatasets((prev) => [dataset, ...prev]);
+          }}
+        />
+      )}
+
+      {(loading || datasets.length > 0 || models.length > 0) && (
+      <>
       {/* Stat cards */}
       <Box
         sx={{
@@ -223,6 +275,42 @@ export default function DashboardPage() {
         Quick Actions
       </Typography>
       <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2 }}>
+        {models.length === 0 && (
+          <Card
+            variant="outlined"
+            sx={{
+              flex: "1 1 240px",
+              maxWidth: 320,
+              borderColor: "primary.main",
+              borderRadius: 1,
+              borderWidth: 2,
+            }}
+          >
+            <CardActionArea
+              onClick={handleQuickStart}
+              disabled={quickStarting}
+              sx={{ display: "block" }}
+            >
+              <CardContent sx={{ py: 2, "&:last-child": { pb: 2 } }}>
+                <RocketLaunchOutlined
+                  sx={{ color: "primary.main", fontSize: 28, mb: 0.5 }}
+                />
+                <Typography
+                  variant="subtitle2"
+                  fontWeight={600}
+                  color="primary.main"
+                >
+                  {quickStarting
+                    ? "Starting..."
+                    : "Train a digit classifier in 60 seconds"}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  One click → MNIST + CNN → live training
+                </Typography>
+              </CardContent>
+            </CardActionArea>
+          </Card>
+        )}
         <Card
           variant="outlined"
           sx={{
@@ -296,6 +384,8 @@ export default function DashboardPage() {
           </CardActionArea>
         </Card>
       </Box>
+      </>
+      )}
     </Box>
   );
 }
