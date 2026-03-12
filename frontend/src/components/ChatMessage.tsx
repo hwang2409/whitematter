@@ -9,6 +9,7 @@ import type { ChatMessage } from "@/api";
 import { themeTokens } from "@/theme";
 import ModelCard from "@/components/ModelCard";
 import TrainingProgress from "@/components/TrainingProgress";
+import CompletedModelCard from "./CompletedModelCard";
 
 interface ChatMessageBubbleProps {
   message: ChatMessage;
@@ -101,30 +102,26 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
     );
   }
 
-  // Training complete placeholder
+  // Training complete: render CompletedModelCard
   if (message.type === "training_complete") {
+    const meta = message.metadata || {};
     return (
       <Box sx={{ display: "flex", justifyContent: "flex-start", width: "100%" }}>
-        <Box
-          sx={{
-            bgcolor: "background.paper",
-            border: "1px solid",
-            borderColor: "divider",
-            borderRadius: 2,
-            px: 2,
-            py: 1.5,
-            maxWidth: "85%",
-          }}
-        >
-          <Typography variant="body2" color="text.secondary">
-            Training complete placeholder
-          </Typography>
+        <Box sx={{ maxWidth: "85%" }}>
+          <CompletedModelCard
+            modelId={meta.model_id as string}
+            accuracy={meta.accuracy as number}
+            params={meta.params as string}
+            trainingTime={meta.training_time as string}
+            architecture={meta.architecture as string}
+            datasetName={meta.dataset_name as string}
+          />
         </Box>
       </Box>
     );
   }
 
-  // File upload placeholder
+  // File upload: show message content
   if (message.type === "file_upload") {
     return (
       <Box sx={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start", width: "100%" }}>
@@ -140,7 +137,7 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
           }}
         >
           <Typography variant="body2" color="text.secondary">
-            File upload placeholder
+            {message.content}
           </Typography>
         </Box>
       </Box>
