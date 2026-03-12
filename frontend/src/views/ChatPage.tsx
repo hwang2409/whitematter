@@ -15,6 +15,7 @@ import {
   sendChatMessage,
 } from "@/api";
 import type { ChatMessage, ConversationPhase } from "@/api";
+import { parseTrainingError } from "@/lib/trainingErrors";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 const UPLOAD_LIMITS: Record<string, number> = { free: 200, pro: 1000, scale: 5000 };
@@ -286,6 +287,26 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
     [handleSend],
   );
 
+  const handleTrainingComplete = useCallback(
+    (status: any) => {
+      if (status.status === "failed") {
+        const parsed = parseTrainingError(status.message || "Unknown error");
+        const errorMsg: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          type: "training_error",
+          content: parsed.friendly,
+          metadata: { friendlyMessage: parsed.friendly },
+          createdAt: new Date().toISOString(),
+        };
+        setMessages((prev) => [...prev, errorMsg]);
+        // Trigger AI recovery suggestion
+        handleSend(`Training failed with error: ${parsed.friendly}. Can you suggest a fix?`);
+      }
+    },
+    [handleSend],
+  );
+
   // Drag-and-drop handlers
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -416,7 +437,7 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
 
         <Box sx={{ maxWidth: 780, width: "100%", mx: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
           {messages.map((msg) => (
-            <ChatMessageBubble key={msg.id} message={msg} />
+            <ChatMessageBubble key={msg.id} message={msg} onTrainingComplete={handleTrainingComplete} />
           ))}
 
           {streaming && (

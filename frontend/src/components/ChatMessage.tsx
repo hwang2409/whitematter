@@ -13,9 +13,10 @@ import TrainingProgress from "@/components/TrainingProgress";
 interface ChatMessageBubbleProps {
   message: ChatMessage;
   onRetry?: () => void;
+  onTrainingComplete?: (status: any) => void;
 }
 
-export default function ChatMessageBubble({ message, onRetry }: ChatMessageBubbleProps) {
+export default function ChatMessageBubble({ message, onRetry, onTrainingComplete }: ChatMessageBubbleProps) {
   const isUser = message.role === "user";
 
   // Architecture type: render ModelCard
@@ -44,7 +45,7 @@ export default function ChatMessageBubble({ message, onRetry }: ChatMessageBubbl
       return (
         <Box sx={{ display: "flex", justifyContent: "flex-start", width: "100%" }}>
           <Box sx={{ maxWidth: "85%" }}>
-            <TrainingProgress conversationId={convId} jobId={jobId} />
+            <TrainingProgress conversationId={convId} jobId={jobId} onComplete={onTrainingComplete} />
           </Box>
         </Box>
       );
@@ -65,6 +66,36 @@ export default function ChatMessageBubble({ message, onRetry }: ChatMessageBubbl
           <Typography variant="body2" color="text.secondary">
             {message.content}
           </Typography>
+        </Box>
+      </Box>
+    );
+  }
+
+  // Training error: render error with friendly message
+  if (message.type === "training_error") {
+    const errorMsg = (message.metadata?.friendlyMessage as string) || message.content;
+    const suggestion = message.metadata?.suggestion as string | undefined;
+    return (
+      <Box sx={{ display: "flex", justifyContent: "flex-start", width: "100%" }}>
+        <Box
+          sx={{
+            bgcolor: "error.main",
+            color: "white",
+            borderRadius: 2,
+            px: 2,
+            py: 1.5,
+            maxWidth: "85%",
+          }}
+        >
+          <Typography variant="subtitle2">Training Failed</Typography>
+          <Typography variant="body2" sx={{ mt: 0.5 }}>
+            {errorMsg}
+          </Typography>
+          {suggestion && (
+            <Typography variant="body2" sx={{ mt: 1, fontStyle: "italic" }}>
+              {suggestion}
+            </Typography>
+          )}
         </Box>
       </Box>
     );
