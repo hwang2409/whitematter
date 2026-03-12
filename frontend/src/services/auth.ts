@@ -10,6 +10,7 @@ interface UserResponse {
   id: string;
   email: string;
   oauth_provider: string | null;
+  plan?: string;
   created_at: string;
 }
 

@@ -17,6 +17,7 @@ import {
 import type { ChatMessage, ConversationPhase } from "@/api";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+const UPLOAD_LIMITS: Record<string, number> = { free: 200, pro: 1000, scale: 5000 };
 
 // ---------------------------------------------------------------------------
 // Component
@@ -39,7 +40,6 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<{ abort: () => void } | null>(null);
 
-  const UPLOAD_LIMITS: Record<string, number> = { free: 200, pro: 1000, scale: 5000 };
   const uploadLimitMB = UPLOAD_LIMITS[user?.plan ?? "free"] ?? 200;
 
   // Scroll to bottom whenever messages change
