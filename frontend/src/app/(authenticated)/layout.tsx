@@ -17,15 +17,17 @@ import DatasetOutlined from "@mui/icons-material/DatasetOutlined";
 import PlayArrowOutlined from "@mui/icons-material/PlayArrowOutlined";
 import CategoryOutlined from "@mui/icons-material/CategoryOutlined";
 import AutoAwesomeOutlined from "@mui/icons-material/AutoAwesomeOutlined";
+import BatchPredictionOutlined from "@mui/icons-material/BatchPredictionOutlined";
 import SettingsOutlined from "@mui/icons-material/SettingsOutlined";
 import { themeTokens } from "@/theme";
 
 const NAV: { href: string; label: string; icon: React.ReactNode }[] = [
   { href: "/dashboard", label: "Dashboard", icon: <DashboardOutlined fontSize="small" /> },
   { href: "/data", label: "Data", icon: <DatasetOutlined fontSize="small" /> },
+  { href: "/architect", label: "Design", icon: <AutoAwesomeOutlined fontSize="small" /> },
   { href: "/train", label: "Train", icon: <PlayArrowOutlined fontSize="small" /> },
   { href: "/models", label: "Models", icon: <CategoryOutlined fontSize="small" /> },
-  { href: "/predict", label: "Predict", icon: <AutoAwesomeOutlined fontSize="small" /> },
+  { href: "/predict", label: "Predict", icon: <BatchPredictionOutlined fontSize="small" /> },
   { href: "/settings", label: "Settings", icon: <SettingsOutlined fontSize="small" /> },
 ];
 
@@ -75,6 +77,40 @@ export default function AuthenticatedLayout({
 
   return (
     <ErrorBoundary>
+      <Box
+        component="a"
+        href="#main-content"
+        sx={{
+          position: "absolute",
+          left: "-9999px",
+          top: "auto",
+          width: "1px",
+          height: "1px",
+          overflow: "hidden",
+          "&:focus": {
+            position: "fixed",
+            top: 8,
+            left: 8,
+            width: "auto",
+            height: "auto",
+            overflow: "visible",
+            zIndex: 9999,
+            bgcolor: "primary.main",
+            color: "primary.contrastText",
+            px: 2,
+            py: 1,
+            borderRadius: 1,
+            fontSize: "0.875rem",
+            fontWeight: 600,
+            textDecoration: "none",
+            outline: "2px solid",
+            outlineColor: "primary.main",
+            outlineOffset: 2,
+          },
+        }}
+      >
+        Skip to main content
+      </Box>
       <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "background.default" }}>
         {/* Vertical sidebar */}
         <Box
@@ -113,6 +149,7 @@ export default function AuthenticatedLayout({
                 <Box
                   component={Link}
                   href={href}
+                  aria-label={label}
                   sx={{
                     width: 40,
                     height: 40,
@@ -189,6 +226,7 @@ export default function AuthenticatedLayout({
 
           <Box
             component="main"
+            id="main-content"
             sx={{
               flex: 1,
               maxWidth: 1100,
