@@ -95,7 +95,94 @@ class DesignHelpRequest(BaseModel):
 
 
 class GenerateRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=10_000)
+    max_tokens: int = Field(100, ge=1, le=10_000)
+    temperature: float = Field(0.8, ge=0.0, le=2.0)
+
+
+# ---------------------------------------------------------------------------
+# Response models
+# ---------------------------------------------------------------------------
+
+class DetailResponse(BaseModel):
+    detail: str
+
+
+class TrainingJobResponse(BaseModel):
+    job_id: str
+    model_id: str
+    status: str
+    epoch: int
+    total_epochs: int
+    loss: float
+    accuracy: float
+    message: str
+    config: Optional[Dict[str, Any]] = None
+    architecture: Optional[Dict[str, Any]] = None
+
+
+class ResumeTrainingResponse(BaseModel):
+    job_id: str
+    model_id: str
+    detail: str
+    start_epoch: int
+    total_epochs: int
+
+
+class ArchitectureSuggestionResponse(BaseModel):
+    architecture: Dict[str, Any]
+    explanation: str
+    validation: Dict[str, Any]
+
+
+class ValidationResponse(BaseModel):
+    valid: bool
+    errors: List[str] = []
+    warnings: List[str] = []
+
+
+class PreviewCodeResponse(BaseModel):
+    train_cpp: str
+    infer_cpp: str
+
+
+class DesignHelpResponse(BaseModel):
+    response: str
+
+
+class PredictionResponse(BaseModel):
+    model_id: str
+    model_name: str
+    predicted_class: int
+    class_name: str
+    confidence: float
+    probabilities: Dict[str, float]
+
+
+class GenerateTextResponse(BaseModel):
+    model_id: str
     prompt: str
-    max_tokens: int = 100
-    temperature: float = 0.8
+    generated_text: str
+    max_tokens: int
+    temperature: float
+
+
+class ModelInfoResponse(BaseModel):
+    model_id: str
+    name: str
+    dataset: str
+    architecture: str
+    status: TrainStatus
+    accuracy: float
+    epochs_trained: int
+    classes: Optional[List[str]] = None
+    input_shape: Optional[List[int]] = None
+
+
+class ModelListResponse(BaseModel):
+    models: List[Dict[str, Any]]
+
+
+class DatasetListResponse(BaseModel):
+    datasets: List[Dict[str, Any]]
 

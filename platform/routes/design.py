@@ -9,25 +9,27 @@ import tempfile
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
-from schemas import DesignRequest, RefineRequest, DesignHelpRequest, PreviewCodeRequest
-from dependencies import dataset_manager, dataset_service, code_generator, llm_service
+from schemas import (
+    DesignRequest, RefineRequest, DesignHelpRequest, PreviewCodeRequest,
+    ArchitectureSuggestionResponse, ValidationResponse,
+    PreviewCodeResponse, DesignHelpResponse,
+)
+from dependencies import dataset_service, code_generator, llm_service
+from auth.dependencies import get_current_user
+from db.auth_models import User
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-@router.post("/design/suggest")
-async def suggest_architecture(request: DesignRequest):
+@router.post("/design/suggest", response_model=ArchitectureSuggestionResponse)
+async def suggest_architecture(request: DesignRequest, user: User = Depends(get_current_user)):
     """Get LLM-suggested architecture for a dataset."""
-    metadata = dataset_manager.get_metadata(request.dataset_id)
-    if metadata:
-        dataset_info = metadata.to_dict()
-    else:
-        dataset_info = dataset_service.get_dataset(request.dataset_id)
-        if not dataset_info:
+    dataset_info = dataset_service.get_dataset(request.dataset_id)
+    if not dataset_info:
             raise HTTPException(status_code=404, detail="Dataset not found")
 
     if dataset_info.get('data_type') == 'text':
@@ -60,15 +62,15 @@ async def suggest_architecture(request: DesignRequest):
         raise HTTPException(status_code=500, detail=f"LLM error: {str(e)}") from e
 
 
-@router.post("/design/validate")
-async def validate_architecture(architecture: Dict[str, Any]):
+@router.post("/design/validate", response_model=ValidationResponse)
+async def validate_architecture(architecture: Dict[str, Any], user: User = Depends(get_current_user)):
     """Validate an architecture specification."""
     validation = code_generator.validate_architecture(architecture)
     return validation
 
 
-@router.post("/design/refine")
-async def refine_architecture(request: RefineRequest):
+@router.post("/design/refine", response_model=ArchitectureSuggestionResponse)
+async def refine_architecture(request: RefineRequest, user: User = Depends(get_current_user)):
     """Refine an architecture based on feedback."""
     try:
         result = llm_service.refine_architecture(
@@ -94,17 +96,6 @@ def _resolve_dataset_config_for_preview(dataset_id: str, architecture: Dict[str,
     from db import get_blob_store
     blob_store = get_blob_store()
 
-    # Try processed dir on disk (local dev)
-    processed_dir = dataset_manager.uploads_dir / dataset_id / "processed"
-    config_path = processed_dir / "config.json"
-    if config_path.exists():
-        with open(config_path) as f:
-            config = json.load(f)
-        if architecture.get("data_type"):
-            config["data_type"] = architecture["data_type"]
-        return config
-
-    # Try blob storage (processed_blob_prefix)
     db_dataset = dataset_service.get_dataset(dataset_id)
     if not db_dataset:
         raise ValueError("Dataset not found")
@@ -132,8 +123,8 @@ def _resolve_dataset_config_for_preview(dataset_id: str, architecture: Dict[str,
     return config
 
 
-@router.post("/design/preview-code")
-async def preview_code(request: PreviewCodeRequest):
+@router.post("/design/preview-code", response_model=PreviewCodeResponse)
+async def preview_code(request: PreviewCodeRequest, user: User = Depends(get_current_user)):
     """Generate train.cpp and infer.cpp for preview (no job, no compilation)."""
     try:
         dataset_config = _resolve_dataset_config_for_preview(
@@ -160,8 +151,8 @@ async def preview_code(request: PreviewCodeRequest):
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-@router.post("/design/help")
-async def design_help(request: DesignHelpRequest):
+@router.post("/design/help", response_model=DesignHelpResponse)
+async def design_help(request: DesignHelpRequest, user: User = Depends(get_current_user)):
     """LLM-powered design assistant for neural network architecture questions."""
     message = request.message.lower()
     context = request.context or {}

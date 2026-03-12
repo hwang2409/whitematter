@@ -4,54 +4,56 @@ Model management endpoints (list, get, delete, resume).
 
 import json
 import logging
-import shutil
 import threading
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from auth.dependencies import get_current_user
+from db.auth_models import User
 
 from config import GENERATED_DIR
-from schemas import ModelMetadata, TrainStatus
+from schemas import ModelMetadata, TrainStatus, ModelListResponse, DetailResponse, ResumeTrainingResponse
 from dependencies import (
     loaded_models, training_jobs,
-    dataset_manager, dataset_service, code_generator,
+    dataset_service, code_generator,
     load_model_metadata, save_model_metadata, list_all_models,
     get_model_path, get_metadata_path,
     notify_training_subscribers,
 )
 from codegen import compile_training_code
 from codegen.compiler import run_training as run_custom_training_process
+from routes.training import _monitor_process, _finalize_process, _fail_job
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-@router.get("/models")
-async def list_models():
+@router.get("/models", response_model=ModelListResponse)
+async def list_models(user: User = Depends(get_current_user)):
     return {"models": [m.model_dump() for m in list_all_models()]}
 
 
-@router.get("/models/{model_id}")
-async def get_model(model_id: str):
+@router.get("/models/{model_id}", response_model=ModelMetadata)
+async def get_model(model_id: str, user: User = Depends(get_current_user)):
     if not (m := load_model_metadata(model_id)):
         raise HTTPException(status_code=404, detail="Model not found")
     return m.model_dump()
 
 
-@router.delete("/models/{model_id}")
-async def delete_model(model_id: str):
+@router.delete("/models/{model_id}", response_model=DetailResponse)
+async def delete_model(model_id: str, user: User = Depends(get_current_user)):
     if not load_model_metadata(model_id):
         raise HTTPException(status_code=404, detail="Model not found")
     loaded_models.pop(model_id, None)
     for p in [get_model_path(model_id), get_metadata_path(model_id)]:
         p.unlink(missing_ok=True)
-    return {"message": f"Model {model_id} deleted"}
+    return {"detail": f"Model {model_id} deleted"}
 
 
-@router.post("/models/{model_id}/resume")
-async def resume_training(model_id: str):
+@router.post("/models/{model_id}/resume", response_model=ResumeTrainingResponse)
+async def resume_training(model_id: str, user: User = Depends(get_current_user)):
     """Resume training a failed or cancelled model from its last checkpoint."""
     metadata = load_model_metadata(model_id)
     if not metadata:
@@ -116,7 +118,7 @@ async def resume_training(model_id: str):
     return {
         "job_id": job_id,
         "model_id": model_id,
-        "message": f"Resuming training from epoch {start_epoch}",
+        "detail": f"Resuming training from epoch {start_epoch}",
         "start_epoch": start_epoch,
         "total_epochs": total_epochs
     }
@@ -133,23 +135,14 @@ def run_resume_training(job_id: str, request, metadata: ModelMetadata, weights_p
         metadata.status = TrainStatus.RUNNING
         save_model_metadata(metadata)
 
-        dataset_meta = dataset_manager.get_metadata(request.dataset_id)
-        processed_dir = dataset_manager.uploads_dir / request.dataset_id / "processed"
-        config_path = processed_dir / "config.json"
+        db_dataset = dataset_service.get_dataset(request.dataset_id)
+        if not db_dataset or not db_dataset.get('processed_blob_prefix'):
+            raise FileNotFoundError("Dataset not processed")
 
         dataset_config = None
-        data_from_blobs = False
-
-        if config_path.exists():
-            with open(config_path) as f:
-                dataset_config = json.load(f)
-        else:
-            db_dataset = dataset_service.get_dataset(request.dataset_id)
-            if db_dataset and db_dataset.get('processed_blob_prefix'):
-                config_blob = blob_store.get(f"{db_dataset['processed_blob_prefix']}/config.json")
-                if config_blob:
-                    dataset_config = json.loads(config_blob.decode())
-                    data_from_blobs = True
+        config_blob = blob_store.get(f"{db_dataset['processed_blob_prefix']}/config.json")
+        if config_blob:
+            dataset_config = json.loads(config_blob.decode())
 
         if not dataset_config:
             raise FileNotFoundError("Dataset not processed")
@@ -176,30 +169,24 @@ def run_resume_training(job_id: str, request, metadata: ModelMetadata, weights_p
         notify_training_subscribers(job_id)
         output_model = job_dir / "model.bin"
 
-        actual_data_dir = processed_dir
-        temp_data_dir = None
-        if data_from_blobs:
-            db_dataset = dataset_service.get_dataset(request.dataset_id)
-            if db_dataset and db_dataset.get('processed_blob_prefix'):
-                temp_data_dir = job_dir / "data"
-                temp_data_dir.mkdir(exist_ok=True)
-                blob_prefix = db_dataset['processed_blob_prefix']
+        # Extract processed data from blob storage to temp dir
+        actual_data_dir = job_dir / "data"
+        actual_data_dir.mkdir(exist_ok=True)
+        blob_prefix = db_dataset['processed_blob_prefix']
 
-                data_type = dataset_config.get('data_type', 'image')
-                if data_type == 'text':
-                    files = ['train_inputs.bin', 'train_targets.bin',
-                             'test_inputs.bin', 'test_targets.bin',
-                             'config.json', 'vocabulary.json']
-                else:
-                    files = ['train_images.bin', 'train_labels.bin',
-                             'test_images.bin', 'test_labels.bin', 'config.json']
+        data_type = dataset_config.get('data_type', 'image')
+        if data_type == 'text':
+            blob_files = ['train_inputs.bin', 'train_targets.bin',
+                         'test_inputs.bin', 'test_targets.bin',
+                         'config.json', 'vocabulary.json']
+        else:
+            blob_files = ['train_images.bin', 'train_labels.bin',
+                         'test_images.bin', 'test_labels.bin', 'config.json']
 
-                for filename in files:
-                    data = blob_store.get(f"{blob_prefix}/{filename}")
-                    if data:
-                        (temp_data_dir / filename).write_bytes(data)
-
-                actual_data_dir = temp_data_dir
+        for filename in blob_files:
+            data = blob_store.get(f"{blob_prefix}/{filename}")
+            if data:
+                (actual_data_dir / filename).write_bytes(data)
 
         process = run_custom_training_process(
             generated_dir=job_dir,
@@ -208,66 +195,8 @@ def run_resume_training(job_id: str, request, metadata: ModelMetadata, weights_p
             resume_weights=weights_path,
             start_epoch=start_epoch
         )
-        training_jobs[job_id]["process"] = process
-
-        for line in process.stdout:
-            line = line.strip()
-            training_jobs[job_id]["output"].append(line)
-
-            if "Epoch" in line and "Loss:" in line:
-                try:
-                    parts = line.split("|")
-                    epoch = int(parts[0].split()[1])
-                    loss = float(parts[1].split(":")[1].strip())
-                    acc = 0.0
-                    for p in parts[2:]:
-                        if "Test Acc:" in p or "Acc:" in p:
-                            acc = float(p.split(":")[1].strip().rstrip('%'))
-                            break
-
-                    training_jobs[job_id].update({
-                        "epoch": epoch,
-                        "loss": loss,
-                        "accuracy": acc,
-                        "message": f"Epoch {epoch}: {acc:.2f}%"
-                    })
-                    notify_training_subscribers(job_id)
-                    metadata.epochs_trained = epoch
-                    metadata.best_accuracy = max(metadata.best_accuracy, acc)
-                    metadata.training_history.append({"epoch": epoch, "loss": loss, "accuracy": acc})
-                    save_model_metadata(metadata)
-                except (ValueError, IndexError, KeyError) as e:
-                    logger.debug("Failed to parse resume training output: %s", e)
-
-            if training_jobs[job_id].get("cancelled"):
-                process.terminate()
-                break
-
-        process.wait()
-
-        if training_jobs[job_id].get("cancelled"):
-            training_jobs[job_id]["status"] = "cancelled"
-            metadata.status = TrainStatus.CANCELLED
-            notify_training_subscribers(job_id)
-        elif process.returncode == 0 and output_model.exists():
-            shutil.copy(output_model, get_model_path(metadata.id))
-            training_jobs[job_id]["status"] = "completed"
-            metadata.status = TrainStatus.COMPLETED
-            training_jobs[job_id]["message"] = f"Complete! Best: {metadata.best_accuracy:.2f}%"
-            notify_training_subscribers(job_id)
-        else:
-            training_jobs[job_id]["status"] = "failed"
-            metadata.status = TrainStatus.FAILED
-            output_lines = training_jobs[job_id].get("output", [])
-            error_msg = "\n".join(output_lines[-5:]) if output_lines else f"Training failed (exit code {process.returncode})"
-            training_jobs[job_id]["message"] = error_msg
-            notify_training_subscribers(job_id)
-
-        save_model_metadata(metadata)
+        _monitor_process(job_id, process, metadata)
+        _finalize_process(job_id, process, metadata, output_model)
 
     except Exception as e:
-        training_jobs[job_id]["status"] = "failed"
-        metadata.status = TrainStatus.FAILED
-        training_jobs[job_id]["message"] = str(e)
-        notify_training_subscribers(job_id)
-        save_model_metadata(metadata)
+        _fail_job(job_id, metadata, e)
