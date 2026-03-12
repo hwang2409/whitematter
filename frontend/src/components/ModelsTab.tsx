@@ -6,6 +6,7 @@ import { useAuth } from "@/context/AuthContext";
 import * as deployService from "@/services/deploy";
 import ConfirmDialog from "./ConfirmDialog";
 import Toast, { useToast } from "./Toast";
+import ShareCard from "./ShareCard";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
@@ -563,6 +564,7 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
                     <Button variant="outlined" component={Link} href="/predict" sx={{ textDecoration: "none" }}>
                       Predict
                     </Button>
+                    <ShareCard model={selectedModel} />
                     <Button variant="outlined" disabled sx={{ color: "text.secondary" }}>
                       Export ONNX
                     </Button>
