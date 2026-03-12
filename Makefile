@@ -285,7 +285,7 @@ dev:
 	cd frontend && npm run dev; \
 	kill $$PID 2>/dev/null
 
-build:
+docker-build:
 	docker compose build
 
 lint:
