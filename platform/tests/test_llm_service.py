@@ -128,8 +128,7 @@ class TestGetLLMService:
             env.pop("ANTHROPIC_API_KEY", None)
             with patch.dict(os.environ, env, clear=True):
                 svc = get_llm_service(api_key=None)
-        # If no key was set, should be Mock
-        assert isinstance(svc, (MockLLMService, LLMService))
+        assert isinstance(svc, MockLLMService)
 
     def test_returns_llm_service_with_api_key(self):
         """get_llm_service returns LLMService when API key is provided."""

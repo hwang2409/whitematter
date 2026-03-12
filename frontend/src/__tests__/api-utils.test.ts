@@ -21,7 +21,7 @@ vi.mock("@/lib/safeJson", () => ({
 }));
 
 const mockFetch = vi.fn();
-global.fetch = mockFetch;
+vi.stubGlobal('fetch', mockFetch);
 
 beforeEach(() => {
   mockFetch.mockReset();
@@ -120,11 +120,6 @@ describe("getDatasets", () => {
     );
 
     await expect(getDatasets()).rejects.toThrow(ApiError);
-    try {
-      await getDatasets();
-    } catch (err) {
-      // Already threw above, just verifying the first assertion
-    }
   });
 });
 
