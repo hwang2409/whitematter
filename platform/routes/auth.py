@@ -11,7 +11,10 @@ from schemas.auth_schemas import (
     GoogleAuthRequest,
 )
 from auth.dependencies import get_current_user
-from dependencies import limiter
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+
+limiter = Limiter(key_func=get_remote_address)
 
 logger = logging.getLogger(__name__)
 
@@ -105,8 +108,10 @@ def google_auth(request: Request, req: GoogleAuthRequest, db: Session = Depends(
         # Check if email already exists (link accounts)
         user = db.query(User).filter(User.email == email).first()
         if user:
+            # Link Google ID to existing account
             user.google_id = google_id
-            user.avatar_url = avatar_url
+            if avatar_url:
+                user.avatar_url = avatar_url
             user.oauth_provider = "google"
             user.oauth_id = google_id
         else:
