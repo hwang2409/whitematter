@@ -251,6 +251,33 @@ class ChatService:
         if status in ("completed", "failed", "cancelled"):
             if status == "completed":
                 conv.phase = ConversationPhase.COMPLETED.value
+                conv.model_id = job.get("model_id", conv.model_id)
+
+                # Persist a training_complete message if one doesn't exist yet
+                existing = (
+                    db.query(ConversationMessage)
+                    .filter(
+                        ConversationMessage.conversation_id == conv.id,
+                        ConversationMessage.message_type == "training_complete",
+                    )
+                    .first()
+                )
+                if not existing:
+                    complete_msg = ConversationMessage(
+                        conversation_id=conv.id,
+                        role="assistant",
+                        content="Training complete!",
+                        message_type="training_complete",
+                        metadata_={
+                            "model_id": job.get("model_id", ""),
+                            "accuracy": job.get("accuracy", 0),
+                            "params": job.get("params", "unknown"),
+                            "training_time": f"{job.get('elapsed_seconds', 0):.0f}s",
+                            "architecture": job.get("architecture", ""),
+                            "dataset_name": job.get("dataset_name", ""),
+                        },
+                    )
+                    db.add(complete_msg)
             db.commit()
 
         return result
