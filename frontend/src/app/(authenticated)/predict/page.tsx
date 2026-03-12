@@ -1,24 +1,6 @@
 "use client";
-import { useState, useEffect } from "react";
-import PredictTab from "@/components/PredictTab";
-import { getModels } from "@/api";
-import type { Model } from "@/api";
+import PredictPage from "@/views/PredictPage";
 
 export default function PredictRoute() {
-  const [models, setModels] = useState<Model[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string | null>(null);
-
-  useEffect(() => {
-    getModels()
-      .then((data) => setModels(data.filter((m) => m.status === "completed")))
-      .catch(() => {});
-  }, []);
-
-  return (
-    <PredictTab
-      models={models}
-      selectedModel={selectedModel}
-      onModelChange={setSelectedModel}
-    />
-  );
+  return <PredictPage />;
 }
