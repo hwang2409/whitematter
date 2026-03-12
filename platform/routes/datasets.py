@@ -26,6 +26,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
 
+UPLOAD_LIMITS = {
+    "free": 200 * 1024 * 1024,   # 200 MB
+    "pro": 1000 * 1024 * 1024,   # 1 GB
+    "scale": 5000 * 1024 * 1024, # 5 GB
+}
+
 
 @router.post("/datasets/upload")
 @limiter.limit("10/hour")
@@ -39,12 +45,26 @@ async def upload_dataset(
     if not file.filename.endswith('.zip'):
         raise HTTPException(status_code=400, detail="File must be a ZIP archive")
 
+    # Plan-based file size validation
+    max_size = UPLOAD_LIMITS.get(getattr(user, "plan", "free"), UPLOAD_LIMITS["free"])
+
     dataset_name = name or file.filename.replace('.zip', '')
     dataset_info = dataset_service.create_dataset(dataset_name)
     dataset_id = dataset_info['id']
 
+    total_size = 0
     with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp:
         while chunk := await file.read(1024 * 1024):  # 1 MB chunks
+            total_size += len(chunk)
+            if total_size > max_size:
+                tmp_path = Path(tmp.name)
+                tmp_path.unlink(missing_ok=True)
+                dataset_service.delete_dataset(dataset_id)
+                max_mb = max_size // (1024 * 1024)
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"File too large. Your plan allows up to {max_mb} MB. Upgrade for more storage.",
+                )
             tmp.write(chunk)
         tmp_path = Path(tmp.name)
 
