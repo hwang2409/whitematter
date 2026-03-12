@@ -3,6 +3,8 @@ import { useState, useEffect } from "react";
 import * as api from "@/api";
 import TrainingChart from "./TrainingChart";
 import ArchitectureGraph from "./ArchitectureGraph";
+import ParamTooltip from "./ParamTooltip";
+import { parseTrainingError } from "@/lib/trainingErrors";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
@@ -521,7 +523,38 @@ export default function TrainTab({
             fontSize: "0.875rem",
           }}
         >
-          {error}
+          {(() => {
+            const parsed = parseTrainingError(error);
+            return (
+              <Box>
+                <Typography color="error.main" variant="body2">
+                  {parsed.friendly}
+                </Typography>
+                {parsed.friendly !== parsed.raw && (
+                  <details style={{ marginTop: 8 }}>
+                    <summary style={{ cursor: "pointer", fontSize: "0.75rem", color: "inherit", opacity: 0.6 }}>
+                      Show raw output
+                    </summary>
+                    <Box
+                      component="pre"
+                      sx={{
+                        fontFamily: '"JetBrains Mono", monospace',
+                        fontSize: "0.75rem",
+                        p: 1,
+                        mt: 0.5,
+                        bgcolor: "action.hover",
+                        borderRadius: 1,
+                        overflow: "auto",
+                        whiteSpace: "pre-wrap",
+                      }}
+                    >
+                      {parsed.raw}
+                    </Box>
+                  </details>
+                )}
+              </Box>
+            );
+          })()}
         </Box>
       )}
 
@@ -576,7 +609,10 @@ export default function TrainTab({
               sx={{ flex: 1 }}
             />
             <FormControl sx={{ flex: 1 }}>
-              <InputLabel id="train-batch-label">Batch Size</InputLabel>
+              <Box sx={{ display: "flex", alignItems: "center" }}>
+                <InputLabel id="train-batch-label">Batch Size</InputLabel>
+                <ParamTooltip paramKey="batch_size" />
+              </Box>
               <Select
                 labelId="train-batch-label"
                 value={batchSize}
@@ -613,9 +649,12 @@ export default function TrainTab({
 
           {showAdvanced && (
             <Paper variant="outlined" sx={{ p: 2, mb: 1.5, borderColor: "divider" }}>
-              <Typography variant="overline" sx={{ color: "text.secondary", display: "block", mb: 1 }}>
-                Optimizer
-              </Typography>
+              <Box sx={{ display: "flex", alignItems: "center" }}>
+                <Typography variant="overline" sx={{ color: "text.secondary", display: "block", mb: 1 }}>
+                  Optimizer
+                </Typography>
+                <ParamTooltip paramKey="optimizer" />
+              </Box>
               <Box sx={{ display: "flex", gap: 2, mb: 1.5 }}>
                 <FormControl size="small" sx={{ flex: 1 }}>
                   <InputLabel>Type</InputLabel>
@@ -632,16 +671,19 @@ export default function TrainTab({
                     ))}
                   </Select>
                 </FormControl>
-                <TextField
-                  type="number"
-                  size="small"
-                  label="Learning Rate"
-                  value={learningRate}
-                  onChange={(e) => setLearningRate(parseFloat(e.target.value) || 0.01)}
-                  inputProps={{ step: 0.001, min: 0.0001, max: 1 }}
-                  disabled={training}
-                  sx={{ flex: 1 }}
-                />
+                <Box sx={{ display: "flex", alignItems: "center", flex: 1 }}>
+                  <TextField
+                    type="number"
+                    size="small"
+                    label="Learning Rate"
+                    value={learningRate}
+                    onChange={(e) => setLearningRate(parseFloat(e.target.value) || 0.01)}
+                    inputProps={{ step: 0.001, min: 0.0001, max: 1 }}
+                    disabled={training}
+                    sx={{ flex: 1 }}
+                  />
+                  <ParamTooltip paramKey="learning_rate" />
+                </Box>
               </Box>
               {selectedOptimizer === "sgd" && (
                 <Box sx={{ display: "flex", gap: 2, mb: 1.5 }}>
@@ -668,9 +710,12 @@ export default function TrainTab({
                 </Box>
               )}
 
-              <Typography variant="overline" sx={{ color: "text.secondary", display: "block", mb: 1 }}>
-                Learning Rate Scheduler
-              </Typography>
+              <Box sx={{ display: "flex", alignItems: "center" }}>
+                <Typography variant="overline" sx={{ color: "text.secondary", display: "block", mb: 1 }}>
+                  Learning Rate Scheduler
+                </Typography>
+                <ParamTooltip paramKey="scheduler" />
+              </Box>
               <FormControl size="small" fullWidth sx={{ mb: 1.5 }}>
                 <InputLabel>Type</InputLabel>
                 <Select
@@ -724,9 +769,12 @@ export default function TrainTab({
                 />
               )}
 
-              <Typography variant="overline" sx={{ color: "text.secondary", display: "block", mb: 1 }}>
-                Data Augmentation
-              </Typography>
+              <Box sx={{ display: "flex", alignItems: "center" }}>
+                <Typography variant="overline" sx={{ color: "text.secondary", display: "block", mb: 1 }}>
+                  Data Augmentation
+                </Typography>
+                <ParamTooltip paramKey="augmentations" />
+              </Box>
               <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 0.5 }}>
                 {augmentations.map((a) => (
                   <FormControlLabel
@@ -1110,55 +1158,57 @@ export default function TrainTab({
           <Typography variant="h3" sx={{ mb: 1.5 }}>
             Training Progress
           </Typography>
-          <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 1, mb: 1.25 }}>
-            <Box sx={{ textAlign: "center", p: 1, bgcolor: "background.default", borderRadius: 1 }}>
-              <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", display: "block", mb: 0.5 }}>
-                Status
-              </Typography>
-              <Typography variant="body1" fontWeight={600} sx={{ fontFamily: '"JetBrains Mono", monospace' }}>
-                {trainingJob.status}
-              </Typography>
-            </Box>
-            <Box sx={{ textAlign: "center", p: 1, bgcolor: "background.default", borderRadius: 1 }}>
-              <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", display: "block", mb: 0.5 }}>
-                Epoch
-              </Typography>
-              <Typography variant="body1" fontWeight={600} sx={{ fontFamily: '"JetBrains Mono", monospace' }}>
-                {currentEpoch} / {totalEpochs}
-              </Typography>
-            </Box>
-            {"loss" in trainingJob && (
+          <Box aria-live="polite" role="status">
+            <Box sx={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 1, mb: 1.25 }}>
               <Box sx={{ textAlign: "center", p: 1, bgcolor: "background.default", borderRadius: 1 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", display: "block", mb: 0.5 }}>
-                  Loss
+                  Status
                 </Typography>
                 <Typography variant="body1" fontWeight={600} sx={{ fontFamily: '"JetBrains Mono", monospace' }}>
-                  {(trainingJob.loss || 0).toFixed(4)}
+                  {trainingJob.status}
                 </Typography>
               </Box>
-            )}
-            {"accuracy" in trainingJob && (
               <Box sx={{ textAlign: "center", p: 1, bgcolor: "background.default", borderRadius: 1 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", display: "block", mb: 0.5 }}>
-                  Accuracy
+                  Epoch
                 </Typography>
                 <Typography variant="body1" fontWeight={600} sx={{ fontFamily: '"JetBrains Mono", monospace' }}>
-                  {(trainingJob.accuracy || 0).toFixed(2)}%
+                  {currentEpoch} / {totalEpochs}
                 </Typography>
               </Box>
+              {"loss" in trainingJob && (
+                <Box sx={{ textAlign: "center", p: 1, bgcolor: "background.default", borderRadius: 1 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", display: "block", mb: 0.5 }}>
+                    Loss
+                  </Typography>
+                  <Typography variant="body1" fontWeight={600} sx={{ fontFamily: '"JetBrains Mono", monospace' }}>
+                    {(trainingJob.loss || 0).toFixed(4)}
+                  </Typography>
+                </Box>
+              )}
+              {"accuracy" in trainingJob && (
+                <Box sx={{ textAlign: "center", p: 1, bgcolor: "background.default", borderRadius: 1 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ textTransform: "uppercase", display: "block", mb: 0.5 }}>
+                    Accuracy
+                  </Typography>
+                  <Typography variant="body1" fontWeight={600} sx={{ fontFamily: '"JetBrains Mono", monospace' }}>
+                    {(trainingJob.accuracy || 0).toFixed(2)}%
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+              {trainingJob.message}
+            </Typography>
+            {["training", "running"].includes(trainingJob.status) && currentEpoch > 0 && (
+              <LinearProgress
+                variant="determinate"
+                value={(currentEpoch / totalEpochs) * 100}
+                sx={{ mt: 1, height: 3, borderRadius: 1, "& .MuiLinearProgress-bar": { borderRadius: 1 } }}
+              />
             )}
+            {trainingHistory.length > 0 && <TrainingChart data={trainingHistory} />}
           </Box>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-            {trainingJob.message}
-          </Typography>
-          {["training", "running"].includes(trainingJob.status) && currentEpoch > 0 && (
-            <LinearProgress
-              variant="determinate"
-              value={(currentEpoch / totalEpochs) * 100}
-              sx={{ mt: 1, height: 3, borderRadius: 1, "& .MuiLinearProgress-bar": { borderRadius: 1 } }}
-            />
-          )}
-          {trainingHistory.length > 0 && <TrainingChart data={trainingHistory} />}
           {trainingJob.status === "completed" && (
             <Box
               sx={{
