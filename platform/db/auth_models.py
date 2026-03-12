@@ -20,6 +20,10 @@ class User(Base):
     password_hash = Column(String(255), nullable=True)
     oauth_provider = Column(String(50), nullable=True)
     oauth_id = Column(String(255), nullable=True)
+    google_id = Column(String(255), nullable=True, unique=True, index=True)
+    avatar_url = Column(String(512), nullable=True)
+    stripe_customer_id = Column(String(255), nullable=True, unique=True)
+    plan = Column(String(20), default="free")  # "free", "pro", "scale"
     created_at = Column(DateTime, default=datetime.utcnow)
 
     aws_credentials = relationship("AWSCredential", back_populates="user", uselist=False)

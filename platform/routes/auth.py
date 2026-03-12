@@ -1,19 +1,22 @@
 """Authentication routes."""
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from db.database import get_db
 from db.auth_models import User
 from services.auth_service import AuthService
 from schemas.auth_schemas import (
-    RegisterRequest, LoginRequest, TokenResponse, RefreshRequest, UserResponse
+    RegisterRequest, LoginRequest, TokenResponse, RefreshRequest, UserResponse,
+    GoogleAuthRequest,
 )
 from auth.dependencies import get_current_user
+from dependencies import limiter
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 auth_service = AuthService()
-limiter = Limiter(key_func=get_remote_address)
 
 
 @router.post("/register", response_model=TokenResponse, status_code=201)
@@ -72,11 +75,70 @@ def refresh(req: RefreshRequest, db: Session = Depends(get_db)):
     )
 
 
+@router.post("/google", response_model=TokenResponse)
+@limiter.limit("10/minute")
+def google_auth(request: Request, req: GoogleAuthRequest, db: Session = Depends(get_db)):
+    """Authenticate with Google OAuth. Creates account if new user."""
+    import httpx
+
+    try:
+        resp = httpx.get(
+            "https://www.googleapis.com/oauth2/v3/userinfo",
+            headers={"Authorization": f"Bearer {req.access_token}"},
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        google_info = resp.json()
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid Google token")
+
+    google_id = google_info.get("sub")
+    email = google_info.get("email")
+    avatar_url = google_info.get("picture")
+
+    if not google_id or not email:
+        raise HTTPException(status_code=401, detail="Could not get Google profile")
+
+    # Find or create user
+    user = db.query(User).filter(User.google_id == google_id).first()
+    if not user:
+        # Check if email already exists (link accounts)
+        user = db.query(User).filter(User.email == email).first()
+        if user:
+            user.google_id = google_id
+            user.avatar_url = avatar_url
+            user.oauth_provider = "google"
+            user.oauth_id = google_id
+        else:
+            user = User(
+                email=email,
+                google_id=google_id,
+                avatar_url=avatar_url,
+                oauth_provider="google",
+                oauth_id=google_id,
+            )
+            db.add(user)
+    else:
+        # Update avatar on subsequent logins
+        if avatar_url:
+            user.avatar_url = avatar_url
+
+    db.commit()
+    db.refresh(user)
+
+    return TokenResponse(
+        access_token=auth_service.create_access_token(user.id, user.email),
+        refresh_token=auth_service.create_refresh_token(user.id),
+    )
+
+
 @router.get("/me", response_model=UserResponse)
 def get_me(user: User = Depends(get_current_user)):
     return UserResponse(
         id=user.id,
         email=user.email,
         oauth_provider=user.oauth_provider,
+        avatar_url=user.avatar_url,
+        plan=getattr(user, "plan", "free"),
         created_at=user.created_at.isoformat(),
     )

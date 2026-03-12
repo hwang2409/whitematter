@@ -1,5 +1,6 @@
 """Auth request/response schemas."""
 import re
+from typing import Optional
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
@@ -32,8 +33,14 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
+class GoogleAuthRequest(BaseModel):
+    access_token: str
+
+
 class UserResponse(BaseModel):
     id: str
     email: str
-    oauth_provider: str | None = None
+    oauth_provider: Optional[str] = None
+    avatar_url: Optional[str] = None
+    plan: str = "free"
     created_at: str

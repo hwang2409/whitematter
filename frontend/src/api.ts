@@ -719,3 +719,172 @@ export async function getDesignHelp(request: DesignHelpRequest): Promise<{ respo
   }
   return res.json();
 }
+
+// ---------------------------------------------------------------------------
+// Chat API
+// ---------------------------------------------------------------------------
+
+import { getStoredToken } from "@/services/auth";
+
+export type ConversationPhase =
+  | "greeting"
+  | "exploring"
+  | "architecture"
+  | "data_needed"
+  | "ready"
+  | "training"
+  | "completed"
+  | "predicting";
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  type:
+    | "text"
+    | "architecture"
+    | "training_progress"
+    | "training_complete"
+    | "file_upload"
+    | "quick_start_chips"
+    | "prediction";
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface Conversation {
+  id: string;
+  title: string | null;
+  phase: ConversationPhase;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function createConversation(): Promise<Conversation> {
+  const token = getStoredToken();
+  const res = await fetchWithTimeout(`${API_BASE}/chat/conversations`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  return res.json();
+}
+
+export async function getConversations(): Promise<Conversation[]> {
+  const token = getStoredToken();
+  const res = await fetchWithTimeout(`${API_BASE}/chat/conversations`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  const data = await res.json();
+  return data.conversations;
+}
+
+export async function getConversation(
+  id: string,
+): Promise<{ conversation: Conversation; messages: ChatMessage[] }> {
+  const token = getStoredToken();
+  const res = await fetchWithTimeout(`${API_BASE}/chat/conversations/${id}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  return res.json();
+}
+
+export function sendChatMessage(
+  conversationId: string,
+  content: string,
+  onChunk: (text: string) => void,
+  onDone: (message: ChatMessage) => void,
+  onError: (error: Error) => void,
+): { abort: () => void } {
+  const controller = new AbortController();
+  const token = getStoredToken();
+
+  (async () => {
+    try {
+      const res = await fetch(
+        `${API_BASE}/chat/conversations/${conversationId}/messages`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ content }),
+          signal: controller.signal,
+        },
+      );
+
+      if (!res.ok) {
+        throw new Error(`Chat error: ${res.status}`);
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response body");
+
+      const decoder = new TextDecoder();
+      let fullText = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split("\n");
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6);
+            if (data === "[DONE]") {
+              onDone({
+                id: crypto.randomUUID(),
+                role: "assistant",
+                content: fullText,
+                type: "text",
+                createdAt: new Date().toISOString(),
+              });
+              return;
+            }
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.type === "chunk") {
+                fullText += parsed.content;
+                onChunk(parsed.content);
+              } else if (parsed.type === "message") {
+                onDone(parsed.message);
+                return;
+              }
+            } catch {
+              /* ignore parse errors for partial lines */
+            }
+          }
+        }
+      }
+    } catch (err) {
+      if ((err as Error).name !== "AbortError") {
+        onError(err as Error);
+      }
+    }
+  })();
+
+  return { abort: () => controller.abort() };
+}
+
+export interface TrainingStatus {
+  job_id: string;
+  status: string;
+  epoch: number;
+  total_epochs: number;
+  loss: number;
+  accuracy: number;
+  message: string;
+}
+
+export async function getChatTrainingStatus(conversationId: string): Promise<TrainingStatus> {
+  const token = getStoredToken();
+  const res = await fetchWithTimeout(`${API_BASE}/chat/conversations/${conversationId}/training`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  return res.json();
+}
