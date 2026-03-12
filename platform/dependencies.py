@@ -2,11 +2,9 @@
 Shared FastAPI dependencies and application state.
 """
 
-import asyncio
 import json
 import logging
 import shutil
-import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -45,22 +43,11 @@ logger = logging.getLogger(__name__)
 loaded_models: dict = {}
 training_jobs: TrainingJobStore = TrainingJobStore()
 
-# WebSocket subscriber registry for real-time training updates
-_ws_subscribers: Dict[str, list] = {}  # job_id -> list of asyncio.Queue
-_ws_lock = threading.Lock()
-_event_loop: Optional[asyncio.AbstractEventLoop] = None
-
 # Service instances
 dataset_manager = DatasetManager(uploads_dir=UPLOADS_DIR)
 dataset_service = DatasetService()
 code_generator = CodeGenerator()
 llm_service = get_llm_service()
-
-
-def capture_event_loop():
-    """Capture the running event loop for cross-thread WebSocket notifications."""
-    global _event_loop
-    _event_loop = asyncio.get_running_loop()
 
 
 def ensure_dirs():
@@ -173,20 +160,6 @@ def _get_job_snapshot(job_id: str) -> Optional[Dict[str, Any]]:
         "accuracy": j.get("accuracy", 0.0),
         "message": j.get("message", ""),
     }
-
-
-def notify_training_subscribers(job_id: str):
-    """Push latest job snapshot to all WebSocket subscribers. Safe to call from background threads."""
-    snapshot = _get_job_snapshot(job_id)
-    if snapshot is None or _event_loop is None:
-        return
-    with _ws_lock:
-        queues = list(_ws_subscribers.get(job_id, []))
-    for q in queues:
-        try:
-            asyncio.run_coroutine_threadsafe(q.put(snapshot), _event_loop)
-        except RuntimeError:
-            pass  # event loop closed
 
 
 def process_mnist_idx(raw_dir: Path, output_dir: Path, metadata) -> dict:

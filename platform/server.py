@@ -28,7 +28,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from db import init_db, get_data_dir
-from dependencies import capture_event_loop, ensure_dirs
+from dependencies import ensure_dirs
 from services.job_store import TrainingJobStore
 from config import MODELS_DIR
 from services.auth_service import AuthService
@@ -101,11 +101,6 @@ async def _global_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={"detail": "Internal server error"},
     )
-
-
-@app.on_event("startup")
-async def _capture_event_loop():
-    capture_event_loop()
 
 
 def main():

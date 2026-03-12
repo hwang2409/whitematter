@@ -51,16 +51,20 @@ export default function TrainingProgress({ conversationId, jobId, onComplete }: 
           const lines = text.split("\n");
           for (const line of lines) {
             if (line.startsWith("data: ")) {
-              const data: TrainingStatus = JSON.parse(line.slice(6));
-              setStatus(data);
-              setHistory((prev) => [...prev, {
-                epoch: data.epoch,
-                loss: data.loss,
-                accuracy: data.accuracy,
-              }]);
-              if (["completed", "failed", "cancelled"].includes(data.status)) {
-                onComplete?.(data);
-                return;
+              try {
+                const data: TrainingStatus = JSON.parse(line.slice(6));
+                setStatus(data);
+                setHistory((prev) => [...prev, {
+                  epoch: data.epoch,
+                  loss: data.loss,
+                  accuracy: data.accuracy,
+                }]);
+                if (["completed", "failed", "cancelled"].includes(data.status)) {
+                  onComplete?.(data);
+                  return;
+                }
+              } catch {
+                // Skip partial SSE chunks
               }
             }
           }

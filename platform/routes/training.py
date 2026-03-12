@@ -25,7 +25,6 @@ from dependencies import (
     training_jobs,
     dataset_service, code_generator,
     save_model_metadata, get_model_path,
-    notify_training_subscribers,
 )
 from codegen import compile_training_code
 from codegen.compiler import run_training as run_custom_training_process
@@ -58,7 +57,7 @@ def _monitor_process(job_id: str, process, metadata: ModelMetadata):
                     "epoch": epoch, "loss": loss, "accuracy": acc,
                     "message": f"Epoch {epoch}: {acc:.2f}%",
                 })
-                notify_training_subscribers(job_id)
+
                 metadata.epochs_trained = epoch
                 metadata.best_accuracy = max(metadata.best_accuracy, acc)
                 metadata.training_history.append({"epoch": epoch, "loss": loss, "accuracy": acc})
@@ -89,7 +88,7 @@ def _finalize_process(job_id: str, process, metadata: ModelMetadata, model_src: 
         output_lines = training_jobs[job_id].get("output", [])
         if output_lines:
             training_jobs[job_id]["message"] = "\n".join(output_lines[-5:])
-    notify_training_subscribers(job_id)
+
     save_model_metadata(metadata)
     training_jobs.sync_to_db(job_id)
 
@@ -100,7 +99,7 @@ def _fail_job(job_id: str, metadata: ModelMetadata, error: Exception):
     training_jobs[job_id]["status"] = "failed"
     metadata.status = TrainStatus.FAILED
     training_jobs[job_id]["message"] = str(error)
-    notify_training_subscribers(job_id)
+
     save_model_metadata(metadata)
     training_jobs.sync_to_db(job_id)
 
@@ -109,7 +108,7 @@ def run_training(job_id: str, request: TrainRequest, metadata: ModelMetadata):
     import subprocess
     try:
         training_jobs[job_id]["status"] = "running"
-        notify_training_subscribers(job_id)
+    
         metadata.status = TrainStatus.RUNNING
         save_model_metadata(metadata)
 
@@ -135,7 +134,7 @@ def run_custom_training(job_id: str, request: CustomTrainRequest, metadata: Mode
 
     try:
         training_jobs[job_id]["status"] = "running"
-        notify_training_subscribers(job_id)
+    
         metadata.status = TrainStatus.RUNNING
         save_model_metadata(metadata)
 
@@ -163,14 +162,14 @@ def run_custom_training(job_id: str, request: CustomTrainRequest, metadata: Mode
 
         training_jobs[job_id]["status"] = "compiling"
         training_jobs[job_id]["message"] = "Compiling..."
-        notify_training_subscribers(job_id)
+    
         success, msg = compile_training_code(job_dir)
         if not success:
             raise RuntimeError(f"Compilation failed: {msg}")
 
         training_jobs[job_id]["status"] = "training"
         training_jobs[job_id]["message"] = "Training..."
-        notify_training_subscribers(job_id)
+    
         output_model = job_dir / "model.bin"
 
         # Extract processed data from blob storage to temp dir

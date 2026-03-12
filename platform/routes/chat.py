@@ -168,11 +168,20 @@ async def stream_training_progress(
         raise HTTPException(status_code=404, detail="Conversation not found")
 
     async def event_stream():
+        null_polls = 0
         while True:
+            if await request.is_disconnected():
+                break
             status = chat_service.get_training_status(db, conv)
             if status:
+                null_polls = 0
                 yield f"data: {json.dumps(status)}\n\n"
                 if status.get("status") in ("completed", "failed", "cancelled"):
+                    break
+            else:
+                null_polls += 1
+                if null_polls > 60:  # 60s with no training job found
+                    yield f"data: {json.dumps({'status': 'not_found', 'message': 'No active training job'})}\n\n"
                     break
             await asyncio.sleep(1)
 
