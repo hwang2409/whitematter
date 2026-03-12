@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
+import Chip from "@mui/material/Chip";
 import Divider from "@mui/material/Divider";
 import { themeTokens } from "@/theme";
 
@@ -13,7 +15,8 @@ interface ModelCardProps {
   layers: string;
   /** Human-readable training config summary */
   trainingConfig: string;
-  onApprove: () => void;
+  userPlan?: string;
+  onApprove: (compute?: "cpu" | "gpu") => void;
   onRequestChanges: () => void;
 }
 
@@ -22,9 +25,11 @@ export default function ModelCard({
   description,
   layers,
   trainingConfig,
+  userPlan,
   onApprove,
   onRequestChanges,
 }: ModelCardProps) {
+  const [compute, setCompute] = useState<"cpu" | "gpu">("gpu");
   return (
     <Box
       sx={{
@@ -107,12 +112,32 @@ export default function ModelCard({
           {trainingConfig}
         </Typography>
 
+        {/* CPU/GPU selector (Scale users only) */}
+        {userPlan === "scale" && (
+          <Box sx={{ display: "flex", gap: 1, mb: 1.5 }}>
+            <Chip
+              label="CPU (instant)"
+              onClick={() => setCompute("cpu")}
+              color={compute === "cpu" ? "primary" : "default"}
+              variant={compute === "cpu" ? "filled" : "outlined"}
+              size="small"
+            />
+            <Chip
+              label="GPU (faster, ~60s startup)"
+              onClick={() => setCompute("gpu")}
+              color={compute === "gpu" ? "primary" : "default"}
+              variant={compute === "gpu" ? "filled" : "outlined"}
+              size="small"
+            />
+          </Box>
+        )}
+
         {/* Actions */}
         <Box sx={{ display: "flex", gap: 1 }}>
           <Button
             variant="contained"
             size="small"
-            onClick={onApprove}
+            onClick={() => onApprove(userPlan === "scale" ? compute : "cpu")}
             sx={{
               bgcolor: themeTokens.accent,
               color: "#0a0a0a",
