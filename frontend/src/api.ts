@@ -760,15 +760,15 @@ export interface Conversation {
   updatedAt: string;
 }
 
-export async function createConversation(): Promise<Conversation> {
-  const token = getStoredToken();
-  const res = await fetchWithTimeout(`${API_BASE}/chat/conversations`, {
+export async function createConversation(token: string): Promise<Conversation> {
+  const res = await fetch(`/chat/conversations`, {
     method: "POST",
     headers: {
+      Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   });
+  if (!res.ok) throw new Error("Failed to create conversation");
   return res.json();
 }
 
@@ -782,12 +782,13 @@ export async function getConversations(): Promise<Conversation[]> {
 }
 
 export async function getConversation(
+  token: string,
   id: string,
-): Promise<{ conversation: Conversation; messages: ChatMessage[] }> {
-  const token = getStoredToken();
-  const res = await fetchWithTimeout(`${API_BASE}/chat/conversations/${id}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+): Promise<{ conversation: any; messages: any[] }> {
+  const res = await fetch(`/chat/conversations/${id}`, {
+    headers: { Authorization: `Bearer ${token}` },
   });
+  if (!res.ok) throw new Error("Failed to load conversation");
   return res.json();
 }
 
@@ -797,9 +798,10 @@ export function sendChatMessage(
   onChunk: (text: string) => void,
   onDone: (message: ChatMessage) => void,
   onError: (error: Error) => void,
+  token?: string,
 ): { abort: () => void } {
   const controller = new AbortController();
-  const token = getStoredToken();
+  token = token ?? getStoredToken() ?? undefined;
 
   (async () => {
     try {
