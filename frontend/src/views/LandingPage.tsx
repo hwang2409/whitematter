@@ -7,6 +7,7 @@ import Container from "@mui/material/Container";
 import AutoAwesomeOutlined from "@mui/icons-material/AutoAwesomeOutlined";
 import ShowChartOutlined from "@mui/icons-material/ShowChartOutlined";
 import RocketLaunchOutlined from "@mui/icons-material/RocketLaunchOutlined";
+import GoogleSignInButton from "@/components/GoogleSignInButton";
 
 const FEATURES = [
   {
@@ -86,15 +87,18 @@ export default function LandingPage() {
             mb: 3,
           }}
         >
-          <Button
-            variant="contained"
-            size="large"
-            component={NextLink}
-            href="/register"
-            sx={{ px: 4, py: 1.5, fontSize: "1rem" }}
-          >
-            Get Started
-          </Button>
+          <Box sx={{ display: "flex", gap: 2, flexDirection: { xs: "column", sm: "row" }, alignItems: "center" }}>
+            <Button
+              variant="contained"
+              size="large"
+              component={NextLink}
+              href="/register"
+              sx={{ px: 4, py: 1.5, fontSize: "1rem" }}
+            >
+              Get Started
+            </Button>
+            <GoogleSignInButton label="Sign in with Google" fullWidth={false} />
+          </Box>
           <Button
             variant="outlined"
             size="large"
