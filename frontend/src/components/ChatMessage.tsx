@@ -1,6 +1,7 @@
 "use client";
 
 import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -11,9 +12,10 @@ import TrainingProgress from "@/components/TrainingProgress";
 
 interface ChatMessageBubbleProps {
   message: ChatMessage;
+  onRetry?: () => void;
 }
 
-export default function ChatMessageBubble({ message }: ChatMessageBubbleProps) {
+export default function ChatMessageBubble({ message, onRetry }: ChatMessageBubbleProps) {
   const isUser = message.role === "user";
 
   // Architecture type: render ModelCard
@@ -189,6 +191,11 @@ export default function ChatMessageBubble({ message }: ChatMessageBubbleProps) {
         }}
       >
         <Markdown remarkPlugins={[remarkGfm]}>{message.content}</Markdown>
+        {message.metadata?.error && onRetry && (
+          <Button size="small" onClick={onRetry} sx={{ mt: 1 }}>
+            Try again
+          </Button>
+        )}
       </Box>
     </Box>
   );

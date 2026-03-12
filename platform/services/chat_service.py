@@ -24,15 +24,10 @@ class ConversationPhase(str, Enum):
     PREDICTING = "predicting"
 
 
-GREETING_MESSAGE = """Welcome to WhiteMatter! I'm your AI assistant for building and training neural networks.
-
-Tell me what you'd like to build — describe your problem, and I'll help you design the perfect model. You can also:
-
-- Upload a dataset (drag & drop or click attach)
-- Try a quick start template below
-- Ask me anything about ML architecture design
-
-What would you like to create today?"""
+GREETING_MESSAGE = (
+    "Hey! I help you build and train neural networks. "
+    "Try a demo or describe what you want to build."
+)
 
 
 CHAT_SYSTEM_PROMPT_TEMPLATE = """You are an expert ML assistant for the WhiteMatter neural network framework.

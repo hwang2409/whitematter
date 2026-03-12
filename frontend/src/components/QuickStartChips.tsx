@@ -5,10 +5,14 @@ import Chip from "@mui/material/Chip";
 import Typography from "@mui/material/Typography";
 
 const QUICK_STARTS = [
-  { label: "Classify images (CIFAR-10)", message: "I want to classify images using the CIFAR-10 dataset" },
-  { label: "Generate text (Shakespeare)", message: "I want to generate text in the style of Shakespeare" },
-  { label: "Detect sentiment", message: "I want to build a sentiment detection model" },
-  { label: "Custom dataset", message: "I have my own dataset I'd like to use" },
+  {
+    label: "Quick Start (MNIST)",
+    message: "I want to try the Quick Start with MNIST",
+  },
+  {
+    label: "I want to build something",
+    message: "I want to build a custom neural network",
+  },
 ];
 
 interface QuickStartChipsProps {
