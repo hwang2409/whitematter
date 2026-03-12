@@ -1,6 +1,9 @@
 """Chat conversation routes with SSE streaming."""
+import asyncio
+import json
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -141,3 +144,44 @@ def get_training_status(
         raise HTTPException(status_code=404, detail="No active training job")
 
     return status
+
+
+@router.get("/conversations/{conversation_id}/training/stream")
+async def stream_training_progress(
+    conversation_id: str,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Stream training progress as SSE events."""
+    from db.chat_models import Conversation
+
+    conv = (
+        db.query(Conversation)
+        .filter(
+            Conversation.id == conversation_id,
+            Conversation.user_id == user.id,
+        )
+        .first()
+    )
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    async def event_stream():
+        while True:
+            status = chat_service.get_training_status(db, conv)
+            if status:
+                yield f"data: {json.dumps(status)}\n\n"
+                if status.get("status") in ("completed", "failed", "cancelled"):
+                    break
+            await asyncio.sleep(1)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
