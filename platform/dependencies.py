@@ -43,6 +43,12 @@ logger = logging.getLogger(__name__)
 loaded_models: dict = {}
 training_jobs: TrainingJobStore = TrainingJobStore()
 
+
+def notify_training_subscribers(job_id: str):
+    """No-op: SSE clients poll training_jobs directly."""
+    pass
+
+
 # Service instances
 dataset_manager = DatasetManager(uploads_dir=UPLOADS_DIR)
 dataset_service = DatasetService()

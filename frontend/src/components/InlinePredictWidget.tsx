@@ -84,12 +84,18 @@ export default function InlinePredictWidget({ modelId }: InlinePredictWidgetProp
         sx={{
           border: "2px dashed",
           borderColor: dragOver ? "primary.main" : "divider",
-          borderRadius: 1,
-          p: 2,
+          borderRadius: "12px",
+          p: 2.5,
           textAlign: "center",
           cursor: "pointer",
-          bgcolor: dragOver ? "action.hover" : "transparent",
-          transition: "all 0.2s",
+          bgcolor: dragOver ? "rgba(108,92,231,0.04)" : "transparent",
+          transition: "all 0.15s ease-out",
+          "&:hover": {
+            borderColor: (theme) =>
+              theme.palette.mode === "dark"
+                ? "rgba(255,255,255,0.14)"
+                : "rgba(0,0,0,0.12)",
+          },
         }}
       >
         <Typography variant="body2" color="text.secondary">
@@ -99,21 +105,21 @@ export default function InlinePredictWidget({ modelId }: InlinePredictWidgetProp
 
       {/* Preview + Results */}
       {(previewUrl || loading || predictions || error) && (
-        <Box sx={{ mt: 1.5, display: "flex", gap: 2, alignItems: "flex-start" }}>
+        <Box sx={{ mt: 2, display: "flex", gap: 2, alignItems: "flex-start" }}>
           {previewUrl && (
             <Box
               component="img"
               src={previewUrl}
-              sx={{ width: 80, height: 80, objectFit: "cover", borderRadius: 1 }}
+              sx={{ width: 80, height: 80, objectFit: "cover", borderRadius: "10px" }}
             />
           )}
           <Box sx={{ flex: 1 }}>
-            {loading && <CircularProgress size={20} />}
+            {loading && <CircularProgress size={20} sx={{ color: "primary.main" }} />}
             {error && <Typography color="error" variant="body2">{error}</Typography>}
             {predictions && predictions.map((p, i) => (
               <Box key={i} sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-                <Typography variant="body2">{p.label}</Typography>
-                <Typography variant="body2" fontWeight="bold">
+                <Typography variant="body2" color="text.secondary">{p.label}</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 600, color: "text.primary" }}>
                   {(p.confidence * 100).toFixed(1)}%
                 </Typography>
               </Box>

@@ -12,7 +12,7 @@ interface GoogleSignInButtonProps {
   fullWidth?: boolean;
 }
 
-export default function GoogleSignInButton({
+function GoogleSignInButtonInner({
   label = "Continue with Google",
   fullWidth = true,
 }: GoogleSignInButtonProps) {
@@ -47,8 +47,6 @@ export default function GoogleSignInButton({
     onError: () => setError("Google sign-in was cancelled"),
   });
 
-  if (!process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID) return null;
-
   return (
     <>
       <Button
@@ -73,4 +71,9 @@ export default function GoogleSignInButton({
       )}
     </>
   );
+}
+
+export default function GoogleSignInButton(props: GoogleSignInButtonProps) {
+  if (!process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID) return null;
+  return <GoogleSignInButtonInner {...props} />;
 }

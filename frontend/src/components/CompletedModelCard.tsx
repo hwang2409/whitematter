@@ -3,8 +3,6 @@ import { useState } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
-import Chip from "@mui/material/Chip";
-import Divider from "@mui/material/Divider";
 import InlinePredictWidget from "./InlinePredictWidget";
 
 interface CompletedModelCardProps {
@@ -63,51 +61,183 @@ export default function CompletedModelCard({
     <Box
       id={`model-card-${modelId}`}
       sx={{
-        border: 1,
-        borderColor: "divider",
-        borderRadius: 2,
-        p: 2,
-        my: 1,
         bgcolor: "background.paper",
+        border: "1px solid",
+        borderColor: "divider",
+        borderRadius: "16px",
+        p: 3.5,
+        mt: 1,
+        textAlign: "center",
+        position: "relative",
+        overflow: "hidden",
       }}
     >
-      <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-        Training Complete
+      {/* Accent top bar */}
+      <Box
+        sx={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 3,
+          background: "linear-gradient(90deg, #6C5CE7, #a78bfa)",
+          borderRadius: "16px 16px 0 0",
+        }}
+      />
+
+      {/* Status */}
+      <Typography
+        sx={{
+          fontSize: "0.8125rem",
+          fontWeight: 500,
+          color: "success.main",
+          mb: 2,
+        }}
+      >
+        Training complete
       </Typography>
 
-      <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap", mb: 1.5 }}>
-        <Chip label={`${accuracyPct}% accuracy`} color="success" size="small" />
-        <Chip label={params} size="small" variant="outlined" />
-        <Chip label={trainingTime} size="small" variant="outlined" />
+      {/* Big accuracy number */}
+      <Typography
+        sx={{
+          fontFamily: "'DM Serif Display', Georgia, serif",
+          fontSize: "3.25rem",
+          color: "text.primary",
+          letterSpacing: "-0.03em",
+          lineHeight: 1,
+        }}
+      >
+        {accuracyPct}%
+      </Typography>
+      <Typography
+        sx={{
+          fontSize: "0.875rem",
+          color: "text.disabled",
+          mt: 0.5,
+          mb: 2.5,
+        }}
+      >
+        Accuracy
+      </Typography>
+
+      {/* Stats row */}
+      <Box
+        sx={{
+          display: "flex",
+          justifyContent: "center",
+          gap: 4,
+          pb: 2.5,
+          borderBottom: "1px solid",
+          borderColor: "divider",
+          mb: 2.5,
+        }}
+      >
+        <Box>
+          <Typography sx={{ fontSize: "1.25rem", fontWeight: 600, color: "text.primary", letterSpacing: "-0.02em" }}>
+            {params}
+          </Typography>
+          <Typography sx={{ fontSize: "0.75rem", color: "text.disabled", mt: 0.25 }}>
+            Parameters
+          </Typography>
+        </Box>
+        <Box>
+          <Typography sx={{ fontSize: "1.25rem", fontWeight: 600, color: "text.primary", letterSpacing: "-0.02em" }}>
+            {trainingTime}
+          </Typography>
+          <Typography sx={{ fontSize: "0.75rem", color: "text.disabled", mt: 0.25 }}>
+            Training time
+          </Typography>
+        </Box>
       </Box>
 
-      <Typography variant="body2" color="text.secondary" gutterBottom>
+      {/* Architecture info */}
+      <Typography
+        sx={{
+          fontSize: "0.8125rem",
+          color: "text.secondary",
+          mb: 2.5,
+        }}
+      >
         {architecture} on {datasetName}
       </Typography>
 
-      <Divider sx={{ my: 1.5 }} />
-
-      <Box sx={{ display: "flex", gap: 1, flexWrap: "wrap" }}>
+      {/* Actions */}
+      <Box sx={{ display: "flex", gap: 1, justifyContent: "center", flexWrap: "wrap" }}>
         <Button
           size="small"
-          variant="contained"
           onClick={() => setShowPredict(!showPredict)}
+          sx={{
+            px: 3,
+            py: 1.25,
+            borderRadius: "10px",
+            fontSize: "0.875rem",
+            fontWeight: 500,
+            bgcolor: "text.primary",
+            color: (theme) => (theme.palette.mode === "dark" ? "#141311" : "#FFFFFF"),
+            "&:hover": {
+              bgcolor: (theme) => (theme.palette.mode === "dark" ? "#d4d3d0" : "#333"),
+            },
+          }}
         >
           {showPredict ? "Close" : "Try it"}
         </Button>
-        <Button size="small" variant="outlined" disabled>
-          Deploy as API (coming soon)
+        <Button
+          size="small"
+          variant="outlined"
+          disabled
+          sx={{
+            px: 3,
+            py: 1.25,
+            borderRadius: "10px",
+            fontSize: "0.875rem",
+            fontWeight: 500,
+            color: "text.secondary",
+            borderColor: "divider",
+          }}
+        >
+          Deploy API (coming soon)
         </Button>
-        <Button size="small" variant="outlined" onClick={handleShare}>
+        <Button
+          size="small"
+          variant="outlined"
+          onClick={handleShare}
+          sx={{
+            px: 2,
+            py: 1.25,
+            borderRadius: "10px",
+            fontSize: "0.875rem",
+            color: "text.secondary",
+            borderColor: "divider",
+            "&:hover": {
+              borderColor: (theme) =>
+                theme.palette.mode === "dark"
+                  ? "rgba(255,255,255,0.14)"
+                  : "rgba(0,0,0,0.12)",
+              color: "text.primary",
+            },
+          }}
+        >
           Share
         </Button>
-        <Button size="small" variant="text" onClick={handleSaveImage}>
+        <Button
+          size="small"
+          onClick={handleSaveImage}
+          sx={{
+            px: 2,
+            py: 1.25,
+            borderRadius: "10px",
+            fontSize: "0.875rem",
+            color: "text.secondary",
+            "&:hover": { color: "text.primary" },
+          }}
+        >
           Save image
         </Button>
       </Box>
 
+      {/* Inline prediction widget */}
       {showPredict && (
-        <Box sx={{ mt: 2 }}>
+        <Box sx={{ mt: 2.5, textAlign: "left" }}>
           <InlinePredictWidget modelId={modelId} />
         </Box>
       )}

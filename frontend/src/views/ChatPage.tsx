@@ -57,7 +57,6 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
     async function init() {
       try {
         if (conversationId) {
-          // Load existing conversation
           const data = await getConversation(token!, conversationId);
           if (cancelled) return;
           setCurrentConversationId(conversationId);
@@ -73,7 +72,6 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
             })),
           );
         } else {
-          // Create a new conversation, then fetch it to get the greeting
           const conv = await createConversation(token!);
           if (cancelled) return;
           setCurrentConversationId(conv.id);
@@ -128,7 +126,6 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
     (text: string) => {
       if (!text.trim() || streaming || !currentConversationId) return;
 
-      // Add user message immediately
       const userMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: "user",
@@ -137,7 +134,6 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
         createdAt: new Date().toISOString(),
       };
 
-      // Add empty assistant placeholder for streaming
       const assistantPlaceholderId = crypto.randomUUID();
       const assistantPlaceholder: ChatMessage = {
         id: assistantPlaceholderId,
@@ -153,7 +149,6 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
       const handle = sendChatMessage(
         currentConversationId,
         text,
-        // onChunk: append chunk text to last (assistant) message
         (chunkText: string) => {
           setMessages((prev) => {
             const updated = [...prev];
@@ -165,7 +160,6 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
             return updated;
           });
         },
-        // onDone: replace last message with full response
         (doneMessage: ChatMessage) => {
           setMessages((prev) => {
             const updated = [...prev];
@@ -178,7 +172,6 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
             return updated;
           });
 
-          // Update phase if the response carries metadata.phase
           const newPhase =
             (doneMessage.metadata?.phase as ConversationPhase | undefined) ??
             undefined;
@@ -189,7 +182,6 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
           setStreaming(false);
           abortRef.current = null;
         },
-        // onError
         (error: Error) => {
           console.error("Chat SSE error:", error);
           setMessages((prev) => {
@@ -250,7 +242,6 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
 
         const data = await res.json();
 
-        // Update the upload message to show success
         setMessages((prev) =>
           prev.map((m) =>
             m.id === uploadMsgId
@@ -259,7 +250,6 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
           ),
         );
 
-        // Notify the chat about the uploaded dataset
         handleSend(
           `I uploaded a dataset: ${file.name} (id: ${data.id ?? data.dataset_id ?? "unknown"})`,
         );
@@ -300,7 +290,6 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
           createdAt: new Date().toISOString(),
         };
         setMessages((prev) => [...prev, errorMsg]);
-        // Trigger AI recovery suggestion
         handleSend(`Training failed with error: ${parsed.friendly}. Can you suggest a fix?`);
       }
     },
@@ -329,7 +318,6 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
       const file = e.dataTransfer.files?.[0];
       if (!file) return;
 
-      // Only accept .zip files
       if (!file.name.endsWith(".zip")) {
         alert("Only .zip files are accepted.");
         return;
@@ -350,7 +338,7 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
     switch (p) {
       case "greeting":
       case "exploring":
-        return "Describe the model you want to build...";
+        return "Describe what you want to build...";
       case "architecture":
         return "Ask questions or request changes...";
       case "data_needed":
@@ -378,12 +366,12 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
           justifyContent: "center",
         }}
       >
-        <CircularProgress size={32} sx={{ color: "primary.main" }} />
+        <CircularProgress size={28} sx={{ color: "primary.main" }} />
       </Box>
     );
   }
 
-  const showQuickStart = phase === "greeting" && messages.length <= 1;
+  const showEmptyState = phase === "greeting" && messages.length <= 1;
 
   return (
     <Box
@@ -404,11 +392,8 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
         sx={{
           flex: 1,
           overflowY: "auto",
-          px: { xs: 2, sm: 4 },
-          py: 3,
           display: "flex",
           flexDirection: "column",
-          gap: 2,
           position: "relative",
         }}
       >
@@ -422,59 +407,121 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              bgcolor: "rgba(0, 0, 0, 0.5)",
+              bgcolor: (theme) =>
+                theme.palette.mode === "dark"
+                  ? "rgba(0, 0, 0, 0.6)"
+                  : "rgba(255, 255, 255, 0.85)",
               borderRadius: 2,
               border: "2px dashed",
               borderColor: "primary.main",
               pointerEvents: "none",
             }}
           >
-            <Typography variant="h6" sx={{ color: "common.white" }}>
+            <Typography
+              variant="h3"
+              sx={{ color: "primary.main", fontWeight: 500 }}
+            >
               Drop your dataset here (max {uploadLimitMB} MB)
             </Typography>
           </Box>
         )}
 
-        <Box sx={{ maxWidth: 780, width: "100%", mx: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
-          {messages.map((msg) => (
-            <ChatMessageBubble key={msg.id} message={msg} onTrainingComplete={handleTrainingComplete} />
-          ))}
+        {showEmptyState ? (
+          /* Empty state */
+          <Box
+            sx={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              px: 4,
+              pb: 10,
+            }}
+          >
+            <Typography
+              variant="h1"
+              sx={{
+                mb: 1,
+                textAlign: "center",
+                "& em": { fontStyle: "italic" },
+              }}
+            >
+              What will you <em>build?</em>
+            </Typography>
+            <Typography
+              sx={{
+                fontSize: "1rem",
+                color: "text.disabled",
+                mb: 4,
+                textAlign: "center",
+              }}
+            >
+              Describe a problem and I&apos;ll design a neural network for it.
+            </Typography>
+            <QuickStartChips onSelect={handleQuickStart} />
+          </Box>
+        ) : (
+          /* Messages */
+          <Box
+            sx={{
+              maxWidth: 720,
+              width: "100%",
+              mx: "auto",
+              py: 3,
+              display: "flex",
+              flexDirection: "column",
+              gap: 0,
+              flex: 1,
+            }}
+          >
+            {messages.map((msg) => (
+              <ChatMessageBubble key={msg.id} message={msg} onTrainingComplete={handleTrainingComplete} />
+            ))}
 
-          {streaming && (
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1, pl: 1 }}>
-              <CircularProgress size={16} sx={{ color: "primary.main" }} />
-              <Typography variant="body2" color="text.secondary">
-                Thinking...
-              </Typography>
-            </Box>
-          )}
+            {streaming && (
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, px: 4, py: 1 }}>
+                <Box
+                  sx={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: "50%",
+                    bgcolor: "rgba(108,92,231,0.08)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <CircularProgress size={14} sx={{ color: "primary.main" }} />
+                </Box>
+                <Typography variant="body2" color="text.secondary">
+                  Thinking...
+                </Typography>
+              </Box>
+            )}
 
-          {showQuickStart && (
-            <Box sx={{ mt: 2 }}>
-              <QuickStartChips onSelect={handleQuickStart} />
-            </Box>
-          )}
-
-          <div ref={bottomRef} />
-        </Box>
+            <div ref={bottomRef} />
+          </Box>
+        )}
       </Box>
 
       {/* Input bar */}
       <Box
         sx={{
-          borderTop: "1px solid",
-          borderColor: "divider",
-          bgcolor: "background.paper",
-          px: { xs: 2, sm: 4 },
-          py: 1.5,
+          px: 3,
+          pb: 3,
+          pt: 2,
+          display: "flex",
+          justifyContent: "center",
+          flexShrink: 0,
         }}
       >
-        <Box sx={{ maxWidth: 780, mx: "auto" }}>
+        <Box sx={{ maxWidth: 660, width: "100%" }}>
           <ChatInput
             onSend={handleSend}
             onFileUpload={handleFileUpload}
             maxUploadMB={uploadLimitMB}
-            disabled={streaming}
+            disabled={streaming || phase === "training"}
             placeholder={placeholderForPhase(phase)}
           />
         </Box>

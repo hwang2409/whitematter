@@ -1,16 +1,27 @@
 "use client";
 
 import Box from "@mui/material/Box";
-import Chip from "@mui/material/Chip";
 import Typography from "@mui/material/Typography";
 
-const QUICK_STARTS = [
+const SUGGESTIONS = [
   {
-    label: "Quick Start (MNIST)",
+    title: "Quick Start",
+    desc: "Train MNIST in 18 seconds",
     message: "I want to try the Quick Start with MNIST",
   },
   {
-    label: "I want to build something",
+    title: "Image classifier",
+    desc: "Sort photos into categories",
+    message: "I want to build an image classifier",
+  },
+  {
+    title: "Text generator",
+    desc: "Generate text like Shakespeare",
+    message: "I want to build a text generation model",
+  },
+  {
+    title: "Help me decide",
+    desc: "Not sure what I need",
     message: "I want to build a custom neural network",
   },
 ];
@@ -21,36 +32,59 @@ interface QuickStartChipsProps {
 
 export default function QuickStartChips({ onSelect }: QuickStartChipsProps) {
   return (
-    <Box>
-      <Typography
-        variant="body2"
-        color="text.secondary"
-        sx={{ mb: 1.5, fontSize: "0.8125rem" }}
-      >
-        Quick start
-      </Typography>
-      <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
-        {QUICK_STARTS.map(({ label, message }) => (
-          <Chip
-            key={label}
-            label={label}
-            variant="outlined"
-            onClick={() => onSelect(message)}
+    <Box
+      sx={{
+        display: "grid",
+        gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" },
+        gap: 1.25,
+        maxWidth: 420,
+        width: "100%",
+      }}
+    >
+      {SUGGESTIONS.map(({ title, desc, message }) => (
+        <Box
+          key={title}
+          onClick={() => onSelect(message)}
+          sx={{
+            px: 2.25,
+            py: 1.75,
+            borderRadius: "12px",
+            bgcolor: "background.paper",
+            border: "1px solid",
+            borderColor: "divider",
+            cursor: "pointer",
+            textAlign: "left",
+            transition: "all 0.15s ease-out",
+            "&:hover": {
+              borderColor: (theme) =>
+                theme.palette.mode === "dark"
+                  ? "rgba(255,255,255,0.14)"
+                  : "rgba(0,0,0,0.12)",
+              boxShadow: "0 2px 12px rgba(0,0,0,0.03)",
+            },
+          }}
+        >
+          <Typography
             sx={{
-              cursor: "pointer",
-              fontSize: "0.8125rem",
-              fontFamily: "inherit",
-              py: 0.5,
-              "&:hover": {
-                bgcolor: "rgba(126,184,255,0.1)",
-                borderColor: "primary.main",
-                color: "primary.main",
-              },
-              transition: "all 0.2s ease-out",
+              fontSize: "0.875rem",
+              fontWeight: 500,
+              color: "text.primary",
+              mb: 0.25,
             }}
-          />
-        ))}
-      </Box>
+          >
+            {title}
+          </Typography>
+          <Typography
+            sx={{
+              fontSize: "0.75rem",
+              color: "text.disabled",
+              lineHeight: 1.4,
+            }}
+          >
+            {desc}
+          </Typography>
+        </Box>
+      ))}
     </Box>
   );
 }

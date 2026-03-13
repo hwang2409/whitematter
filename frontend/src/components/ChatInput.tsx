@@ -2,11 +2,9 @@
 
 import { useState, useCallback, useRef, type KeyboardEvent, type ChangeEvent } from "react";
 import Box from "@mui/material/Box";
-import TextField from "@mui/material/TextField";
 import IconButton from "@mui/material/IconButton";
-import SendOutlined from "@mui/icons-material/SendOutlined";
 import AttachFileOutlined from "@mui/icons-material/AttachFileOutlined";
-import { themeTokens } from "@/theme";
+import ArrowUpwardRounded from "@mui/icons-material/ArrowUpwardRounded";
 
 interface ChatInputProps {
   onSend: (text: string) => void;
@@ -32,12 +30,11 @@ export default function ChatInput({
     if (!text || disabled) return;
     onSend(text);
     setValue("");
-    // Re-focus input after sending
     setTimeout(() => inputRef.current?.focus(), 0);
   }, [value, disabled, onSend]);
 
   const handleKeyDown = useCallback(
-    (e: KeyboardEvent<HTMLDivElement>) => {
+    (e: KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         handleSend();
@@ -54,8 +51,6 @@ export default function ChatInput({
     (e: ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
-
-      // Reset input so the same file can be re-selected
       e.target.value = "";
 
       const maxBytes = maxUploadMB * 1024 * 1024;
@@ -69,27 +64,63 @@ export default function ChatInput({
     [onFileUpload, maxUploadMB],
   );
 
+  const hasText = value.trim().length > 0;
+
   return (
     <Box
       sx={{
         display: "flex",
-        alignItems: "flex-end",
-        gap: 1,
+        alignItems: "center",
+        gap: 0.75,
+        bgcolor: "background.paper",
+        border: "1px solid",
+        borderColor: "divider",
+        borderRadius: "14px",
+        px: 0.75,
+        pl: 2.5,
+        py: 0.75,
+        transition: "all 0.2s ease-out",
+        boxShadow: "0 2px 12px rgba(0,0,0,0.02)",
+        "&:focus-within": {
+          borderColor: (theme) =>
+            theme.palette.mode === "dark"
+              ? "rgba(255,255,255,0.14)"
+              : "rgba(0,0,0,0.12)",
+          boxShadow: "0 2px 20px rgba(0,0,0,0.04)",
+        },
       }}
     >
-      <IconButton
-        size="small"
+      <Box
+        component="textarea"
+        ref={inputRef}
+        value={value}
+        onChange={(e: any) => setValue(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder={placeholder ?? "Type a message..."}
         disabled={disabled}
-        onClick={handleAttachClick}
+        rows={1}
         sx={{
-          color: "text.secondary",
-          mb: 0.5,
-          "&:hover": { color: "primary.main" },
+          flex: 1,
+          background: "none",
+          border: "none",
+          outline: "none",
+          color: "text.primary",
+          fontSize: "0.9375rem",
+          fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
+          py: 1.25,
+          px: 0,
+          resize: "none",
+          maxHeight: "120px",
+          overflow: "auto",
+          lineHeight: 1.5,
+          "&::placeholder": {
+            color: "text.disabled",
+          },
+          "&:disabled": {
+            opacity: 0.5,
+          },
         }}
-        aria-label="Attach file"
-      >
-        <AttachFileOutlined fontSize="small" />
-      </IconButton>
+      />
 
       <input
         ref={fileInputRef}
@@ -99,52 +130,51 @@ export default function ChatInput({
         onChange={handleFileChange}
       />
 
-      <TextField
-        inputRef={inputRef}
-        multiline
-        maxRows={6}
-        fullWidth
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={handleKeyDown}
-        placeholder={placeholder ?? "Type a message..."}
+      <IconButton
+        size="small"
         disabled={disabled}
-        slotProps={{
-          input: {
-            sx: {
-              py: 1,
-              px: 1.5,
-              fontSize: "0.9375rem",
-              lineHeight: 1.5,
-            },
-          },
-        }}
+        onClick={handleAttachClick}
         sx={{
-          "& .MuiOutlinedInput-root": {
-            borderRadius: 2,
+          width: 36,
+          height: 36,
+          borderRadius: "10px",
+          color: "text.disabled",
+          "&:hover": {
+            color: "text.secondary",
+            bgcolor: "background.default",
           },
         }}
-      />
+        aria-label="Attach file"
+      >
+        <AttachFileOutlined sx={{ fontSize: 18 }} />
+      </IconButton>
 
       <IconButton
         size="small"
         onClick={handleSend}
-        disabled={disabled || !value.trim()}
+        disabled={disabled || !hasText}
         sx={{
-          mb: 0.5,
-          color: value.trim() ? themeTokens.accent : "text.disabled",
-          bgcolor: value.trim() ? "rgba(126,184,255,0.12)" : "transparent",
+          width: 36,
+          height: 36,
+          borderRadius: "10px",
+          bgcolor: hasText ? "text.primary" : "transparent",
+          color: hasText
+            ? (theme) => (theme.palette.mode === "dark" ? "#141311" : "#FFFFFF")
+            : "text.disabled",
           "&:hover": {
-            bgcolor: "rgba(126,184,255,0.2)",
+            bgcolor: hasText
+              ? (theme) => (theme.palette.mode === "dark" ? "#d4d3d0" : "#333")
+              : "transparent",
           },
           "&.Mui-disabled": {
             color: "text.disabled",
+            bgcolor: "transparent",
           },
-          transition: "all 0.2s ease-out",
+          transition: "all 0.15s ease-out",
         }}
         aria-label="Send message"
       >
-        <SendOutlined fontSize="small" />
+        <ArrowUpwardRounded sx={{ fontSize: 18 }} />
       </IconButton>
     </Box>
   );

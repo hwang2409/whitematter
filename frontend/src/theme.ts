@@ -2,30 +2,34 @@
 
 import { createTheme } from "@mui/material/styles";
 
-const ACCENT = "#7EB8FF";
-const ACCENT_LIGHT = "rgba(126, 184, 255, 0.15)";
-const ACCENT_MUTED = "rgba(126, 184, 255, 0.5)";
+const ACCENT = "#6C5CE7";
+const ACCENT_LIGHT = "rgba(108, 92, 231, 0.08)";
+const ACCENT_MUTED = "rgba(108, 92, 231, 0.35)";
 
 const dark = {
-  bg: "#0a0a0a",
-  surface: "#1a1a1a",
-  border: "rgba(255,255,255,0.08)",
-  textPrimary: "#ffffff",
-  textSecondary: "#a3a3a3",
-  secondary: "rgba(255,255,255,0.6)",
+  bg: "#141311",
+  surface: "#1E1D1B",
+  card: "#1A1917",
+  border: "rgba(255,255,255,0.07)",
+  borderHover: "rgba(255,255,255,0.14)",
+  textPrimary: "#F2F1EE",
+  textSecondary: "#9C9A95",
+  textMuted: "#6B6963",
   inputBg: "rgba(255,255,255,0.04)",
-  chipBg: "rgba(255,255,255,0.04)",
+  chipBg: "rgba(255,255,255,0.05)",
 };
 
 const light = {
-  bg: "#fafafa",
-  surface: "#ffffff",
-  border: "rgba(0,0,0,0.12)",
-  textPrimary: "rgba(0,0,0,0.87)",
-  textSecondary: "rgba(0,0,0,0.6)",
-  secondary: "rgba(0,0,0,0.6)",
-  inputBg: "rgba(0,0,0,0.04)",
-  chipBg: "rgba(0,0,0,0.06)",
+  bg: "#F9F8F6",
+  surface: "#FFFFFF",
+  card: "#F2F1EE",
+  border: "rgba(0,0,0,0.06)",
+  borderHover: "rgba(0,0,0,0.12)",
+  textPrimary: "#1A1A1A",
+  textSecondary: "#888580",
+  textMuted: "#B5B3AF",
+  inputBg: "rgba(0,0,0,0.02)",
+  chipBg: "rgba(0,0,0,0.03)",
 };
 
 export type ThemeMode = "light" | "dark";
@@ -37,12 +41,12 @@ export function getTheme(mode: ThemeMode) {
       mode,
       primary: {
         main: ACCENT,
-        light: "#9ecaff",
-        dark: "#5a9ae8",
-        contrastText: "#0a0a0a",
+        light: "#8B7CF0",
+        dark: "#5A4BD4",
+        contrastText: "#FFFFFF",
       },
       secondary: {
-        main: colors.secondary,
+        main: colors.textSecondary,
         light: mode === "dark" ? "rgba(255,255,255,0.8)" : "rgba(0,0,0,0.8)",
         dark: mode === "dark" ? "rgba(255,255,255,0.4)" : "rgba(0,0,0,0.4)",
       },
@@ -53,26 +57,30 @@ export function getTheme(mode: ThemeMode) {
       text: {
         primary: colors.textPrimary,
         secondary: colors.textSecondary,
-        disabled: mode === "dark" ? "#525252" : "rgba(0,0,0,0.38)",
+        disabled: colors.textMuted,
       },
       divider: colors.border,
       error: { main: "#ef4444" },
       success: { main: "#22c55e" },
       warning: { main: "#eab308" },
     },
-    shape: { borderRadius: 8 },
+    shape: { borderRadius: 10 },
     typography: {
-      fontFamily: [
-        "-apple-system",
-        "BlinkMacSystemFont",
-        '"Segoe UI"',
-        "Roboto",
-        "sans-serif",
-      ].join(","),
-      h1: { fontSize: "1.5rem", fontWeight: 600, letterSpacing: "-0.02em" },
-      h2: { fontSize: "1.25rem", fontWeight: 600, letterSpacing: "-0.02em" },
+      fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
+      h1: {
+        fontFamily: "'DM Serif Display', Georgia, serif",
+        fontSize: "2.25rem",
+        fontWeight: 400,
+        letterSpacing: "-0.02em",
+      },
+      h2: {
+        fontFamily: "'DM Serif Display', Georgia, serif",
+        fontSize: "1.5rem",
+        fontWeight: 400,
+        letterSpacing: "-0.02em",
+      },
       h3: { fontSize: "1rem", fontWeight: 600 },
-      body1: { fontSize: "0.9375rem", lineHeight: 1.5 },
+      body1: { fontSize: "0.9375rem", lineHeight: 1.6 },
       body2: { fontSize: "0.875rem", lineHeight: 1.5 },
       button: { textTransform: "none", fontWeight: 500 },
     },
@@ -88,16 +96,19 @@ export function getTheme(mode: ThemeMode) {
       MuiButton: {
         styleOverrides: {
           root: {
-            borderRadius: 8,
-            padding: "10px 20px",
-            fontSize: "0.9375rem",
-            transition: "all 0.2s ease-out",
+            borderRadius: 10,
+            padding: "10px 24px",
+            fontSize: "0.875rem",
+            transition: "all 0.15s ease-out",
           },
-          contained: { boxShadow: "none", "&:hover": { boxShadow: "none" } },
+          contained: {
+            boxShadow: "none",
+            "&:hover": { boxShadow: "none" },
+          },
           outlined: {
             borderColor: colors.border,
             "&:hover": {
-              borderColor: ACCENT_MUTED,
+              borderColor: colors.borderHover,
               backgroundColor: ACCENT_LIGHT,
             },
           },
@@ -108,16 +119,16 @@ export function getTheme(mode: ThemeMode) {
         styleOverrides: {
           root: {
             "& .MuiOutlinedInput-root": {
-              borderRadius: 8,
+              borderRadius: 10,
               backgroundColor: colors.inputBg,
               "&:hover .MuiOutlinedInput-notchedOutline": {
-                borderColor: mode === "dark" ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.23)",
+                borderColor: colors.borderHover,
               },
               "&.Mui-focused .MuiOutlinedInput-notchedOutline": {
                 borderColor: ACCENT,
                 borderWidth: 1,
               },
-              "&.Mui-focused": { backgroundColor: "rgba(126,184,255,0.06)" },
+              "&.Mui-focused": { backgroundColor: ACCENT_LIGHT },
               "& fieldset": { borderColor: colors.border },
             },
           },
@@ -127,7 +138,7 @@ export function getTheme(mode: ThemeMode) {
         styleOverrides: {
           root: {
             backgroundImage: "none",
-            borderRadius: 8,
+            borderRadius: 16,
             border: `1px solid ${colors.border}`,
             backgroundColor: colors.surface,
           },
@@ -136,11 +147,11 @@ export function getTheme(mode: ThemeMode) {
       MuiCard: {
         styleOverrides: {
           root: {
-            borderRadius: 8,
+            borderRadius: 16,
             border: `1px solid ${colors.border}`,
             backgroundColor: colors.surface,
-            transition: "border-color 0.2s ease-out, box-shadow 0.2s ease-out",
-            "&:hover": { borderColor: ACCENT_MUTED },
+            transition: "border-color 0.15s ease-out",
+            "&:hover": { borderColor: colors.borderHover },
           },
         },
       },
@@ -150,7 +161,7 @@ export function getTheme(mode: ThemeMode) {
             borderRadius: 6,
             border: `1px solid ${colors.border}`,
             backgroundColor: colors.chipBg,
-            fontFamily: '"JetBrains Mono", monospace',
+            fontFamily: "'DM Mono', monospace",
             fontSize: "0.75rem",
             "&.MuiChip-filled": {
               backgroundColor: ACCENT_LIGHT,
@@ -172,7 +183,7 @@ export function getTheme(mode: ThemeMode) {
             },
             "& .MuiTableCell-body": {
               borderBottom: `1px solid ${colors.border}`,
-              fontFamily: '"JetBrains Mono", monospace',
+              fontFamily: "'DM Mono', monospace",
               fontSize: "0.8125rem",
             },
           },
@@ -200,20 +211,21 @@ export function getTheme(mode: ThemeMode) {
           },
         },
       },
-      MuiAlert: { styleOverrides: { root: { borderRadius: 8 } } },
+      MuiAlert: { styleOverrides: { root: { borderRadius: 10 } } },
     },
   });
 }
 
-// Backwards compatibility: default export dark theme (will be overridden by ThemeProvider with context)
 export const theme = getTheme("dark");
 
 export const themeTokens = {
   accent: ACCENT,
   accentLight: ACCENT_LIGHT,
   accentMuted: ACCENT_MUTED,
-  // Mode-agnostic; for mode-specific use theme.palette in sx
   bg: dark.bg,
   surface: dark.surface,
+  card: dark.card,
   border: dark.border,
+  borderHover: dark.borderHover,
+  textMuted: dark.textMuted,
 };

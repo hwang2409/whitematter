@@ -2,9 +2,6 @@
 import { useState, useEffect } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
-import LinearProgress from "@mui/material/LinearProgress";
-import Chip from "@mui/material/Chip";
-import { themeTokens } from "@/theme";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -82,72 +79,86 @@ export default function TrainingProgress({ conversationId, jobId, onComplete }: 
     ? (status.epoch / status.total_epochs) * 100
     : 0;
 
-  const statusColor = status?.status === "completed"
-    ? "success.main"
-    : status?.status === "failed"
-    ? "error.main"
-    : "primary.main";
-
   return (
     <Box
       sx={{
         bgcolor: "background.paper",
         border: "1px solid",
         borderColor: "divider",
-        borderRadius: 2,
-        p: 2,
-        maxWidth: 480,
+        borderRadius: "16px",
+        p: 3,
+        mt: 1,
       }}
     >
-      <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5 }}>
-        <Typography variant="body2" fontWeight={600}>
-          Training
+      {/* Header */}
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.5 }}>
+        <Typography sx={{ fontSize: "0.9375rem", fontWeight: 600, color: "text.primary" }}>
+          Training {status?.status === "completed" ? "Complete" : "in Progress"}
         </Typography>
-        <Chip
-          size="small"
-          label={status?.status || "pending"}
+        <Typography sx={{ fontSize: "0.875rem", color: "text.secondary" }}>
+          {Math.round(progress)}%
+        </Typography>
+      </Box>
+
+      {/* Progress bar */}
+      <Box
+        sx={{
+          height: 6,
+          bgcolor: "background.default",
+          borderRadius: "3px",
+          overflow: "hidden",
+          mb: 2,
+        }}
+      >
+        <Box
           sx={{
-            fontFamily: '"JetBrains Mono", monospace',
-            fontSize: "0.6875rem",
-            bgcolor: themeTokens.accentLight,
-            color: statusColor,
+            height: "100%",
+            width: `${progress}%`,
+            bgcolor: "primary.main",
+            borderRadius: "3px",
+            transition: "width 0.3s ease-out",
           }}
         />
       </Box>
 
-      <LinearProgress
-        variant="determinate"
-        value={progress}
-        sx={{
-          height: 6,
-          borderRadius: 3,
-          mb: 1.5,
-          bgcolor: "action.hover",
-          "& .MuiLinearProgress-bar": { borderRadius: 3 },
-        }}
-      />
+      {/* Epoch list */}
+      {history.length > 0 && (
+        <Box sx={{ display: "flex", flexDirection: "column" }}>
+          {history.map((entry, i) => {
+            const isCurrent = i === history.length - 1 && status?.status !== "completed";
+            return (
+              <Box
+                key={i}
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  py: 1,
+                  borderBottom: i < history.length - 1 ? "1px solid" : "none",
+                  borderColor: "divider",
+                  fontSize: "0.8125rem",
+                  color: isCurrent ? "text.primary" : "text.secondary",
+                  fontWeight: isCurrent ? 500 : 400,
+                }}
+              >
+                <span>Epoch {entry.epoch}/{status?.total_epochs || "?"}</span>
+                <span>
+                  Loss: {entry.loss.toFixed(3)} · Acc: {entry.accuracy.toFixed(1)}%
+                </span>
+              </Box>
+            );
+          })}
+        </Box>
+      )}
 
-      <Box sx={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem" }}>
-        <Typography variant="caption" color="text.secondary">
-          Epoch {status?.epoch || 0}/{status?.total_epochs || "?"}
-        </Typography>
-        {status && status.accuracy > 0 && (
-          <Typography variant="caption" sx={{ color: themeTokens.accent, fontWeight: 600 }}>
-            {status.accuracy.toFixed(1)}%
-          </Typography>
-        )}
-        {status && status.loss > 0 && (
-          <Typography variant="caption" color="text.secondary">
-            Loss: {status.loss.toFixed(4)}
-          </Typography>
-        )}
-      </Box>
-
+      {/* Status message */}
       {status?.message && (
         <Typography
-          variant="caption"
-          color="text.secondary"
-          sx={{ mt: 1, display: "block", fontFamily: '"JetBrains Mono", monospace', fontSize: "0.6875rem" }}
+          sx={{
+            mt: 1.5,
+            fontSize: "0.75rem",
+            color: "text.disabled",
+            fontFamily: "'DM Mono', monospace",
+          }}
         >
           {status.message}
         </Typography>
