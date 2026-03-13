@@ -18,26 +18,22 @@ import MenuItem from "@mui/material/MenuItem";
 import InputAdornment from "@mui/material/InputAdornment";
 import ListItemIcon from "@mui/material/ListItemIcon";
 import ListItemText from "@mui/material/ListItemText";
-import ChatOutlined from "@mui/icons-material/ChatOutlined";
-import CategoryOutlined from "@mui/icons-material/CategoryOutlined";
-import SettingsOutlined from "@mui/icons-material/SettingsOutlined";
 import AddOutlined from "@mui/icons-material/AddOutlined";
-import ChevronLeft from "@mui/icons-material/ChevronLeft";
-import ChevronRight from "@mui/icons-material/ChevronRight";
+import ViewSidebarOutlined from "@mui/icons-material/ViewSidebarOutlined";
 import SearchOutlined from "@mui/icons-material/SearchOutlined";
 import MoreHoriz from "@mui/icons-material/MoreHoriz";
 import StarOutlined from "@mui/icons-material/StarOutlined";
 import StarBorderOutlined from "@mui/icons-material/StarBorderOutlined";
 import EditOutlined from "@mui/icons-material/EditOutlined";
 import DeleteOutlined from "@mui/icons-material/DeleteOutlined";
+import LoginOutlined from "@mui/icons-material/LoginOutlined";
+import CategoryOutlined from "@mui/icons-material/CategoryOutlined";
+import SettingsOutlined from "@mui/icons-material/SettingsOutlined";
+import MilitaryTechOutlined from "@mui/icons-material/MilitaryTechOutlined";
+import LogoutOutlined from "@mui/icons-material/LogoutOutlined";
+import Divider from "@mui/material/Divider";
 import { getConversations, updateConversation, deleteConversation } from "@/api";
 import type { Conversation } from "@/api";
-
-const NAV: { href: string; label: string; icon: React.ReactNode }[] = [
-  { href: "/chat", label: "Chat", icon: <ChatOutlined fontSize="small" /> },
-  { href: "/models", label: "Models", icon: <CategoryOutlined fontSize="small" /> },
-  { href: "/settings", label: "Settings", icon: <SettingsOutlined fontSize="small" /> },
-];
 
 const SIDEBAR_WIDTH_EXPANDED = 260;
 const SIDEBAR_WIDTH_COLLAPSED = 60;
@@ -71,16 +67,13 @@ export default function AuthenticatedLayout({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [profileAnchorEl, setProfileAnchorEl] = useState<HTMLElement | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
   const sidebarWidth = collapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH_EXPANDED;
 
   useEffect(() => {
     if (loading) return;
-    if (!user) {
-      router.replace("/login");
-      return;
-    }
     if (
       pathname === "/dashboard" ||
       pathname === "/data" ||
@@ -108,7 +101,7 @@ export default function AuthenticatedLayout({
     }
   }, [renamingId]);
 
-  if (loading || !user) {
+  if (loading) {
     return (
       <Box
         sx={{
@@ -149,8 +142,6 @@ export default function AuthenticatedLayout({
     });
     grouped.push({ label, items });
   }
-
-  const userInitial = user.email?.[0]?.toUpperCase() ?? "U";
 
   // Handlers
   function handleMenuOpen(e: React.MouseEvent<HTMLElement>, convId: string) {
@@ -261,8 +252,8 @@ export default function AuthenticatedLayout({
             transition: "width 0.2s ease",
           }}
         >
-          {/* Logo */}
-          <Box sx={{ px: collapsed ? 0 : 2.5, pt: 2, pb: 1.5, display: "flex", justifyContent: collapsed ? "center" : "flex-start" }}>
+          {/* Logo + collapse toggle */}
+          <Box sx={{ px: collapsed ? 0 : 1.5, pt: 1.5, pb: 1, display: "flex", alignItems: "center", justifyContent: collapsed ? "center" : "space-between" }}>
             {!collapsed && (
               <Typography
                 sx={{
@@ -271,11 +262,29 @@ export default function AuthenticatedLayout({
                   fontWeight: 600,
                   letterSpacing: "-0.02em",
                   color: "text.primary",
+                  pl: 1,
                 }}
               >
                 whitematter
               </Typography>
             )}
+            <Tooltip title={collapsed ? "Expand sidebar" : "Collapse sidebar"} placement="right" arrow>
+              <IconButton
+                onClick={toggleSidebar}
+                size="small"
+                sx={{
+                  width: 28,
+                  height: 28,
+                  color: "text.disabled",
+                  "&:hover": {
+                    color: "text.secondary",
+                    bgcolor: "action.hover",
+                  },
+                }}
+              >
+                <ViewSidebarOutlined fontSize="small" sx={{ transform: "scaleX(-1)" }} />
+              </IconButton>
+            </Tooltip>
           </Box>
 
           {/* New chat button */}
@@ -331,8 +340,56 @@ export default function AuthenticatedLayout({
             )}
           </Box>
 
+          {/* Models button */}
+          <Box sx={{ px: collapsed ? 0 : 1.5, mb: 1, display: "flex", justifyContent: "center" }}>
+            {collapsed ? (
+              <Tooltip title="Models" placement="right" arrow>
+                <IconButton
+                  component={Link}
+                  href="/models"
+                  sx={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: "10px",
+                    color: pathname === "/models" ? "text.primary" : "text.secondary",
+                    bgcolor: pathname === "/models" ? "background.default" : "transparent",
+                    "&:hover": {
+                      bgcolor: "background.default",
+                      color: "text.primary",
+                    },
+                  }}
+                >
+                  <CategoryOutlined sx={{ fontSize: 18 }} />
+                </IconButton>
+              </Tooltip>
+            ) : (
+              <Button
+                component={Link}
+                href="/models"
+                fullWidth
+                sx={{
+                  justifyContent: "flex-start",
+                  px: 1.5,
+                  py: 0.875,
+                  borderRadius: "10px",
+                  color: pathname === "/models" ? "text.primary" : "text.secondary",
+                  bgcolor: pathname === "/models" ? "background.default" : "transparent",
+                  fontSize: "0.875rem",
+                  fontWeight: pathname === "/models" ? 500 : 400,
+                  textTransform: "none",
+                  "&:hover": {
+                    bgcolor: "background.default",
+                    color: "text.primary",
+                  },
+                }}
+              >
+                Models
+              </Button>
+            )}
+          </Box>
+
           {/* Search bar */}
-          {!collapsed && isOnChat && (
+          {!collapsed && (
             <Box sx={{ px: 1.5, mb: 1 }}>
               <TextField
                 size="small"
@@ -359,54 +416,26 @@ export default function AuthenticatedLayout({
             </Box>
           )}
 
-          {/* Nav icons */}
-          <Box
-            sx={{
-              display: "flex",
-              flexDirection: collapsed ? "column" : "row",
-              alignItems: "center",
-              gap: 0.5,
-              px: collapsed ? 0 : 1.5,
-              mb: 2,
-              justifyContent: collapsed ? "center" : "flex-start",
-            }}
-          >
-            {NAV.map(({ href, label, icon }) => {
-              const isActive =
-                pathname === href ||
-                (href !== "/chat" && pathname?.startsWith(href)) ||
-                (href === "/chat" && pathname?.startsWith("/chat"));
-              return (
-                <Tooltip key={href} title={label} placement={collapsed ? "right" : "bottom"} arrow>
-                  <Box
-                    component={Link}
-                    href={href}
-                    sx={{
-                      width: 36,
-                      height: 36,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      borderRadius: "8px",
-                      color: isActive ? "primary.main" : "text.secondary",
-                      bgcolor: isActive ? "rgba(108,92,231,0.08)" : "transparent",
-                      "&:hover": {
-                        color: "primary.main",
-                        bgcolor: "rgba(108,92,231,0.06)",
-                      },
-                      textDecoration: "none",
-                      transition: "all 0.15s ease-out",
-                    }}
-                  >
-                    {icon}
-                  </Box>
-                </Tooltip>
-              );
-            })}
-          </Box>
+          {/* Recents label */}
+          {!collapsed && (
+            <Box sx={{ px: 1.5, mb: 0.5 }}>
+              <Typography
+                sx={{
+                  fontSize: "0.6875rem",
+                  fontWeight: 600,
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                  color: "text.disabled",
+                  px: 1,
+                }}
+              >
+                Recents
+              </Typography>
+            </Box>
+          )}
 
           {/* Conversation list */}
-          {!collapsed && isOnChat && (
+          {!collapsed && (
             <Box sx={{ flex: 1, overflowY: "auto", px: 1.5 }}>
               {grouped.map(({ label, items }) => (
                 <Box key={label} sx={{ mb: 1.5 }}>
@@ -520,106 +549,71 @@ export default function AuthenticatedLayout({
             </Box>
           )}
 
-          <Box sx={{ flex: (!collapsed && isOnChat) ? 0 : 1 }} />
-
-          {/* Collapse toggle */}
-          <Box sx={{ display: "flex", justifyContent: collapsed ? "center" : "flex-end", px: collapsed ? 0 : 1.5, pb: 0.5 }}>
-            <Tooltip title={collapsed ? "Expand sidebar" : "Collapse sidebar"} placement="right" arrow>
-              <IconButton
-                onClick={toggleSidebar}
-                size="small"
-                sx={{
-                  width: 28,
-                  height: 28,
-                  color: "text.disabled",
-                  "&:hover": {
-                    color: "text.secondary",
-                    bgcolor: "action.hover",
-                  },
-                }}
-              >
-                {collapsed ? <ChevronRight fontSize="small" /> : <ChevronLeft fontSize="small" />}
-              </IconButton>
-            </Tooltip>
-          </Box>
-
-          {/* User area */}
-          <Box
-            sx={{
-              px: 1.5,
-              py: 1.5,
-              borderTop: "1px solid",
-              borderColor: "divider",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: collapsed ? "center" : "flex-start",
-              gap: collapsed ? 0 : 1,
-            }}
-          >
-            <Tooltip title={collapsed ? user.email : ""} placement="right" arrow>
-              <Box
-                sx={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: "50%",
-                  bgcolor: "background.default",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: "0.8125rem",
-                  fontWeight: 600,
-                  color: "text.secondary",
-                  flexShrink: 0,
-                }}
-              >
-                {userInitial}
-              </Box>
-            </Tooltip>
-            {!collapsed && (
-              <>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography
-                    sx={{
-                      fontSize: "0.8125rem",
-                      color: "text.secondary",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    {user.email}
-                  </Typography>
-                  <Typography
-                    sx={{
-                      fontSize: "0.6875rem",
-                      color: "primary.main",
-                      fontWeight: 500,
-                    }}
-                  >
-                    {user.plan ? `${user.plan.charAt(0).toUpperCase()}${user.plan.slice(1)} plan` : "Free plan"}
-                  </Typography>
-                </Box>
-                <Button
-                  size="small"
-                  onClick={logout}
-                  sx={{
-                    minWidth: 0,
-                    px: 1,
-                    py: 0.5,
-                    fontSize: "0.75rem",
-                    color: "text.secondary",
-                    "&:hover": { color: "text.primary" },
-                  }}
-                >
-                  Log out
-                </Button>
-              </>
-            )}
-          </Box>
+          <Box sx={{ flex: !collapsed ? 0 : 1 }} />
         </Box>
 
         {/* Main content */}
         <Box sx={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+          {/* Top bar */}
+          <Box
+            sx={{
+              display: "flex",
+              justifyContent: "flex-end",
+              alignItems: "center",
+              px: 2,
+              py: 1,
+              minHeight: 48,
+            }}
+          >
+            {user ? (
+              <Tooltip title="Account" arrow>
+                <IconButton
+                  onClick={(e) => setProfileAnchorEl(e.currentTarget)}
+                  sx={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: "50%",
+                    bgcolor: "background.paper",
+                    border: "1px solid",
+                    borderColor: "divider",
+                    fontSize: "0.8125rem",
+                    fontWeight: 600,
+                    color: "text.secondary",
+                    "&:hover": {
+                      borderColor: "primary.main",
+                      color: "primary.main",
+                    },
+                  }}
+                >
+                  {user.email?.[0]?.toUpperCase() ?? "U"}
+                </IconButton>
+              </Tooltip>
+            ) : (
+              <Button
+                component={Link}
+                href="/login"
+                size="small"
+                startIcon={<LoginOutlined sx={{ fontSize: "16px !important" }} />}
+                sx={{
+                  textTransform: "none",
+                  fontSize: "0.8125rem",
+                  fontWeight: 500,
+                  color: "text.primary",
+                  border: "1px solid",
+                  borderColor: "divider",
+                  borderRadius: "8px",
+                  px: 2,
+                  py: 0.5,
+                  "&:hover": {
+                    borderColor: "primary.main",
+                    bgcolor: "rgba(120,113,108,0.06)",
+                  },
+                }}
+              >
+                Sign in
+              </Button>
+            )}
+          </Box>
           <Box
             component="main"
             sx={{
@@ -675,6 +669,61 @@ export default function AuthenticatedLayout({
             <DeleteOutlined sx={{ fontSize: 18, color: "error.main" }} />
           </ListItemIcon>
           <ListItemText>Delete</ListItemText>
+        </MenuItem>
+      </Menu>
+
+      {/* Profile dropdown menu */}
+      <Menu
+        anchorEl={profileAnchorEl}
+        open={Boolean(profileAnchorEl)}
+        onClose={() => setProfileAnchorEl(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
+        transformOrigin={{ vertical: "top", horizontal: "right" }}
+        slotProps={{
+          paper: {
+            sx: {
+              bgcolor: "background.paper",
+              border: "1px solid",
+              borderColor: "divider",
+              borderRadius: "10px",
+              minWidth: 200,
+              boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
+              mt: 0.5,
+            },
+          },
+        }}
+      >
+        {/* Account header */}
+        <Box sx={{ px: 2, py: 1.5 }}>
+          <Typography sx={{ fontSize: "0.6875rem", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: "text.disabled" }}>
+            Account
+          </Typography>
+          <Typography sx={{ fontSize: "0.8125rem", color: "text.secondary", mt: 0.25 }}>
+            {user?.email}
+          </Typography>
+        </Box>
+        <Divider />
+        <MenuItem
+          onClick={() => { setProfileAnchorEl(null); router.push("/settings"); }}
+          sx={{ fontSize: "0.875rem", py: 1 }}
+        >
+          <ListItemIcon><MilitaryTechOutlined sx={{ fontSize: 18 }} /></ListItemIcon>
+          <ListItemText>Upgrade plan</ListItemText>
+        </MenuItem>
+        <MenuItem
+          onClick={() => { setProfileAnchorEl(null); router.push("/settings"); }}
+          sx={{ fontSize: "0.875rem", py: 1 }}
+        >
+          <ListItemIcon><SettingsOutlined sx={{ fontSize: 18 }} /></ListItemIcon>
+          <ListItemText>Settings</ListItemText>
+        </MenuItem>
+        <Divider />
+        <MenuItem
+          onClick={() => { setProfileAnchorEl(null); logout(); }}
+          sx={{ fontSize: "0.875rem", py: 1, color: "text.secondary" }}
+        >
+          <ListItemIcon><LogoutOutlined sx={{ fontSize: 18, color: "text.secondary" }} /></ListItemIcon>
+          <ListItemText>Sign out</ListItemText>
         </MenuItem>
       </Menu>
 

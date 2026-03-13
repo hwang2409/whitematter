@@ -23,7 +23,7 @@ function AiAvatar() {
         width: 30,
         height: 30,
         borderRadius: "50%",
-        bgcolor: "rgba(108,92,231,0.08)",
+        bgcolor: "rgba(120,113,108,0.08)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -267,8 +267,8 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
               fontSize: "0.8125rem",
               bgcolor: (theme) =>
                 theme.palette.mode === "dark"
-                  ? "rgba(108,92,231,0.1)"
-                  : "rgba(108,92,231,0.06)",
+                  ? "rgba(120,113,108,0.1)"
+                  : "rgba(120,113,108,0.06)",
               px: 0.75,
               py: 0.25,
               borderRadius: 0.75,

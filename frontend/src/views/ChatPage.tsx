@@ -270,13 +270,6 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
     [currentConversationId, token, handleSend],
   );
 
-  const handleQuickStart = useCallback(
-    (text: string) => {
-      handleSend(text);
-    },
-    [handleSend],
-  );
-
   const handleTrainingComplete = useCallback(
     (status: any) => {
       if (status.status === "failed") {
@@ -427,7 +420,7 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
         )}
 
         {showEmptyState ? (
-          /* Empty state */
+          /* Empty state — heading, chips, and input all centered */
           <Box
             sx={{
               flex: 1,
@@ -436,7 +429,6 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
               alignItems: "center",
               justifyContent: "center",
               px: 4,
-              pb: 10,
             }}
           >
             <Typography
@@ -453,13 +445,24 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
               sx={{
                 fontSize: "1rem",
                 color: "text.disabled",
-                mb: 4,
+                mb: 3,
                 textAlign: "center",
               }}
             >
               Describe a problem and I&apos;ll design a neural network for it.
             </Typography>
-            <QuickStartChips onSelect={handleQuickStart} />
+            <Box sx={{ maxWidth: 660, width: "100%", mt: 3 }}>
+              <ChatInput
+                onSend={handleSend}
+                onFileUpload={handleFileUpload}
+                maxUploadMB={uploadLimitMB}
+                disabled={streaming}
+                placeholder={placeholderForPhase(phase)}
+              />
+            </Box>
+            <Box sx={{ maxWidth: 660, width: "100%", mt: 1.5 }}>
+              <QuickStartChips onSelect={handleSend} />
+            </Box>
           </Box>
         ) : (
           /* Messages */
@@ -486,7 +489,7 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
                     width: 30,
                     height: 30,
                     borderRadius: "50%",
-                    bgcolor: "rgba(108,92,231,0.08)",
+                    bgcolor: "rgba(120,113,108,0.08)",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -505,27 +508,29 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
         )}
       </Box>
 
-      {/* Input bar */}
-      <Box
-        sx={{
-          px: 3,
-          pb: 3,
-          pt: 2,
-          display: "flex",
-          justifyContent: "center",
-          flexShrink: 0,
-        }}
-      >
-        <Box sx={{ maxWidth: 660, width: "100%" }}>
-          <ChatInput
-            onSend={handleSend}
-            onFileUpload={handleFileUpload}
-            maxUploadMB={uploadLimitMB}
-            disabled={streaming || phase === "training"}
-            placeholder={placeholderForPhase(phase)}
-          />
+      {/* Input bar — only shown after empty state */}
+      {!showEmptyState && (
+        <Box
+          sx={{
+            px: 3,
+            pb: 3,
+            pt: 2,
+            display: "flex",
+            justifyContent: "center",
+            flexShrink: 0,
+          }}
+        >
+          <Box sx={{ maxWidth: 660, width: "100%" }}>
+            <ChatInput
+              onSend={handleSend}
+              onFileUpload={handleFileUpload}
+              maxUploadMB={uploadLimitMB}
+              disabled={streaming || phase === "training"}
+              placeholder={placeholderForPhase(phase)}
+            />
+          </Box>
         </Box>
-      </Box>
+      )}
     </Box>
   );
 }

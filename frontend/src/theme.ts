@@ -2,9 +2,9 @@
 
 import { createTheme } from "@mui/material/styles";
 
-const ACCENT = "#6C5CE7";
-const ACCENT_LIGHT = "rgba(108, 92, 231, 0.08)";
-const ACCENT_MUTED = "rgba(108, 92, 231, 0.35)";
+const ACCENT = "#78716C";
+const ACCENT_LIGHT = "rgba(120, 113, 108, 0.08)";
+const ACCENT_MUTED = "rgba(120, 113, 108, 0.35)";
 
 const dark = {
   bg: "#141311",
@@ -41,8 +41,8 @@ export function getTheme(mode: ThemeMode) {
       mode,
       primary: {
         main: ACCENT,
-        light: "#8B7CF0",
-        dark: "#5A4BD4",
+        light: "#A8A29E",
+        dark: "#57534E",
         contrastText: "#FFFFFF",
       },
       secondary: {

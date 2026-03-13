@@ -29,6 +29,8 @@ import Chip from "@mui/material/Chip";
 import Slider from "@mui/material/Slider";
 import Collapse from "@mui/material/Collapse";
 import IconButton from "@mui/material/IconButton";
+import InputAdornment from "@mui/material/InputAdornment";
+import SearchOutlined from "@mui/icons-material/SearchOutlined";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
 import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
 
@@ -83,6 +85,7 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
   const [expandedModelId, setExpandedModelId] = useState<string | null>(null);
   const [sortColumn, setSortColumn] = useState<SortColumn>("created");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [modelSearch, setModelSearch] = useState("");
 
   useEffect(() => {
     loadModels();
@@ -188,7 +191,7 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
       setModels(data);
       onUpdate?.();
     } catch {
-      setError("Failed to load models");
+      setModels([]);
     } finally {
       setLoading(false);
     }
@@ -355,7 +358,12 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
     );
   }
 
-  const sortedModels = getSortedModels();
+  const sortedModels = getSortedModels().filter((m) =>
+    modelSearch
+      ? formatModelName(m.name).toLowerCase().includes(modelSearch.toLowerCase()) ||
+        m.architecture.toLowerCase().includes(modelSearch.toLowerCase())
+      : true
+  );
 
   const columns: { id: SortColumn; label: string }[] = [
     { id: "name", label: "Name" },
@@ -367,13 +375,36 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
   ];
 
   return (
-    <Box>
+    <Box sx={{ px: { xs: 2, sm: 3 }, py: 3, maxWidth: 960, mx: "auto", width: "100%" }}>
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-        <Typography variant="h2">Trained Models</Typography>
+        <Typography variant="h2">Your Models</Typography>
         <Button variant="outlined" size="small" onClick={loadModels}>
           Refresh
         </Button>
       </Box>
+
+      <TextField
+        size="small"
+        placeholder="Search models..."
+        value={modelSearch}
+        onChange={(e) => setModelSearch(e.target.value)}
+        fullWidth
+        slotProps={{
+          input: {
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchOutlined sx={{ fontSize: 16, color: "text.disabled" }} />
+              </InputAdornment>
+            ),
+            sx: {
+              fontSize: "0.8125rem",
+              borderRadius: "8px",
+              "& fieldset": { borderColor: "divider" },
+            },
+          },
+        }}
+        sx={{ mb: 2, "& .MuiOutlinedInput-root": { height: 36 } }}
+      />
 
       {error && (
         <Box

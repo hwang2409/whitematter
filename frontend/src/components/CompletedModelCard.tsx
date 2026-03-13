@@ -80,7 +80,7 @@ export default function CompletedModelCard({
           left: 0,
           right: 0,
           height: 3,
-          background: "linear-gradient(90deg, #6C5CE7, #a78bfa)",
+          background: "linear-gradient(90deg, #78716C, #A8A29E)",
           borderRadius: "16px 16px 0 0",
         }}
       />

@@ -64,7 +64,7 @@ export default function ModelCard({
             px: 1.25,
             py: 0.375,
             borderRadius: "99px",
-            bgcolor: "rgba(108,92,231,0.08)",
+            bgcolor: "rgba(120,113,108,0.08)",
             color: "primary.main",
             fontWeight: 500,
           }}
