@@ -669,6 +669,7 @@ export interface Conversation {
   id: string;
   title: string | null;
   phase: ConversationPhase;
+  isStarred: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -703,6 +704,33 @@ export async function getConversation(
   });
   if (!res.ok) throw new Error("Failed to load conversation");
   return res.json();
+}
+
+export async function updateConversation(
+  id: string,
+  data: { title?: string; isStarred?: boolean },
+): Promise<Conversation> {
+  const token = getStoredToken();
+  const body: Record<string, unknown> = {};
+  if (data.title !== undefined) body.title = data.title;
+  if (data.isStarred !== undefined) body.is_starred = data.isStarred;
+  const res = await fetchWithTimeout(`${API_BASE}/chat/conversations/${id}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
+export async function deleteConversation(id: string): Promise<void> {
+  const token = getStoredToken();
+  await fetchWithTimeout(`${API_BASE}/chat/conversations/${id}`, {
+    method: "DELETE",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
 }
 
 export function sendChatMessage(

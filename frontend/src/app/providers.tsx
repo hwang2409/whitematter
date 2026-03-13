@@ -2,6 +2,7 @@
 import { useMemo } from "react";
 import { AuthProvider } from "@/context/AuthContext";
 import { DesignProvider } from "@/context/DesignContext";
+import { SidebarProvider } from "@/context/SidebarContext";
 import { ThemeContextProvider, useThemeMode } from "@/context/ThemeContext";
 import { ThemeProvider } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
@@ -31,7 +32,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <ThemeContextProvider>
         <ThemedApp>
           <AuthProvider>
-            <DesignProvider>{children}</DesignProvider>
+            <DesignProvider><SidebarProvider>{children}</SidebarProvider></DesignProvider>
           </AuthProvider>
         </ThemedApp>
       </ThemeContextProvider>

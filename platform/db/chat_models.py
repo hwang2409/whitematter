@@ -1,7 +1,7 @@
 """Chat conversation and message models."""
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Text, DateTime, ForeignKey, JSON
+from sqlalchemy import Boolean, Column, String, Text, DateTime, ForeignKey, JSON
 from .models import Base
 
 
@@ -19,6 +19,7 @@ class Conversation(Base):
     dataset_id = Column(String(32), ForeignKey("datasets.id"), nullable=True)
     model_id = Column(String(32), ForeignKey("models.id"), nullable=True)
     training_job_id = Column(String(32), nullable=True)
+    is_starred = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

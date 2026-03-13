@@ -13,6 +13,7 @@ from auth.dependencies import get_current_user
 from schemas.chat_schemas import (
     ChatMessageRequest,
     ConversationResponse,
+    ConversationUpdateRequest,
     ConversationListResponse,
     ConversationDetailResponse,
     ChatMessageResponse,
@@ -33,6 +34,7 @@ def _conv_to_response(conv) -> ConversationResponse:
         dataset_id=conv.dataset_id,
         model_id=conv.model_id,
         training_job_id=conv.training_job_id,
+        is_starred=conv.is_starred or False,
         created_at=conv.created_at.isoformat(),
         updated_at=conv.updated_at.isoformat(),
     )
@@ -89,6 +91,58 @@ def get_conversation(
         conversation=_conv_to_response(conv),
         messages=[_msg_to_response(m) for m in messages],
     )
+
+
+@router.patch("/conversations/{conversation_id}", response_model=ConversationResponse)
+def update_conversation(
+    conversation_id: str,
+    body: ConversationUpdateRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update a conversation's title or starred status."""
+    from db.chat_models import Conversation
+
+    conv = (
+        db.query(Conversation)
+        .filter(Conversation.id == conversation_id, Conversation.user_id == user.id)
+        .first()
+    )
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if body.title is not None:
+        conv.title = body.title
+    if body.is_starred is not None:
+        conv.is_starred = body.is_starred
+
+    db.commit()
+    db.refresh(conv)
+    return _conv_to_response(conv)
+
+
+@router.delete("/conversations/{conversation_id}", status_code=204)
+def delete_conversation(
+    conversation_id: str,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete a conversation and all its messages."""
+    from db.chat_models import Conversation, ConversationMessage
+
+    conv = (
+        db.query(Conversation)
+        .filter(Conversation.id == conversation_id, Conversation.user_id == user.id)
+        .first()
+    )
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    db.query(ConversationMessage).filter(
+        ConversationMessage.conversation_id == conversation_id
+    ).delete()
+    db.delete(conv)
+    db.commit()
 
 
 @router.post("/conversations/{conversation_id}/messages")

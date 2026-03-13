@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import * as api from "@/api";
 import { useAuth } from "@/context/AuthContext";
@@ -16,6 +16,7 @@ import TableBody from "@mui/material/TableBody";
 import TableCell from "@mui/material/TableCell";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
+import TableSortLabel from "@mui/material/TableSortLabel";
 import TextField from "@mui/material/TextField";
 import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
@@ -26,6 +27,10 @@ import Select from "@mui/material/Select";
 import MenuItem from "@mui/material/MenuItem";
 import Chip from "@mui/material/Chip";
 import Slider from "@mui/material/Slider";
+import Collapse from "@mui/material/Collapse";
+import IconButton from "@mui/material/IconButton";
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
+import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
 
 interface Props {
   onModelSelect?: (id: string | null) => void;
@@ -33,6 +38,9 @@ interface Props {
 }
 
 const DEPLOY_POLL_INTERVAL_MS = 3000;
+
+type SortColumn = "name" | "architecture" | "status" | "accuracy" | "loss" | "created";
+type SortDirection = "asc" | "desc";
 
 function getStatusColor(status: string): "success" | "error" | "default" | "warning" {
   switch (status) {
@@ -71,6 +79,10 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
   const [deployments, setDeployments] = useState<deployService.Deployment[]>([]);
   const [deployError, setDeployError] = useState("");
   const toast = useToast();
+
+  const [expandedModelId, setExpandedModelId] = useState<string | null>(null);
+  const [sortColumn, setSortColumn] = useState<SortColumn>("created");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
   useEffect(() => {
     loadModels();
@@ -182,16 +194,26 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
     }
   }
 
-  function handleSelectModel(model: api.Model) {
-    setSelectedModel(model);
-    onModelSelect?.(model.id);
+  function handleRowClick(model: api.Model) {
+    if (expandedModelId === model.id) {
+      setExpandedModelId(null);
+      setSelectedModel(null);
+      onModelSelect?.(null);
+    } else {
+      setExpandedModelId(model.id);
+      setSelectedModel(model);
+      onModelSelect?.(model.id);
+    }
   }
 
   async function confirmDelete(id: string) {
     try {
       await api.deleteModel(id);
       setModels(models.filter((m) => m.id !== id));
-      if (selectedModel?.id === id) setSelectedModel(null);
+      if (selectedModel?.id === id) {
+        setSelectedModel(null);
+        setExpandedModelId(null);
+      }
     } catch {
       setError("Failed to delete model");
     } finally {
@@ -279,6 +301,52 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
     }
   }
 
+  function getModelLoss(model: api.Model): number | null {
+    return model.training_history?.[model.training_history.length - 1]?.loss ?? null;
+  }
+
+  function handleSortClick(column: SortColumn) {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+    } else {
+      setSortColumn(column);
+      setSortDirection("asc");
+    }
+  }
+
+  function getSortedModels(): api.Model[] {
+    return [...models].sort((a, b) => {
+      let cmp = 0;
+      switch (sortColumn) {
+        case "name":
+          cmp = formatModelName(a.name).localeCompare(formatModelName(b.name));
+          break;
+        case "architecture":
+          cmp = a.architecture.localeCompare(b.architecture);
+          break;
+        case "status":
+          cmp = a.status.localeCompare(b.status);
+          break;
+        case "accuracy":
+          cmp = a.best_accuracy - b.best_accuracy;
+          break;
+        case "loss": {
+          const aLoss = getModelLoss(a);
+          const bLoss = getModelLoss(b);
+          if (aLoss === null && bLoss === null) cmp = 0;
+          else if (aLoss === null) cmp = 1;
+          else if (bLoss === null) cmp = -1;
+          else cmp = aLoss - bLoss;
+          break;
+        }
+        case "created":
+          cmp = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+          break;
+      }
+      return sortDirection === "asc" ? cmp : -cmp;
+    });
+  }
+
   if (loading) {
     return (
       <Box sx={{ py: 3 }}>
@@ -286,6 +354,17 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
       </Box>
     );
   }
+
+  const sortedModels = getSortedModels();
+
+  const columns: { id: SortColumn; label: string }[] = [
+    { id: "name", label: "Name" },
+    { id: "architecture", label: "Architecture" },
+    { id: "status", label: "Status" },
+    { id: "accuracy", label: "Accuracy" },
+    { id: "loss", label: "Loss" },
+    { id: "created", label: "Created" },
+  ];
 
   return (
     <Box>
@@ -317,273 +396,317 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
           No models yet. Train one in the Train tab!
         </Typography>
       ) : (
-        <Box sx={{ display: "grid", gridTemplateColumns: "minmax(280px, 320px) 1fr", gap: 2, alignItems: "start" }}>
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 1, maxHeight: "min(60vh, 600px)", overflowY: "auto" }}>
-            {models.map((model) => (
-              <Paper
-                key={model.id}
-                variant="outlined"
-                onClick={() => handleSelectModel(model)}
-                sx={{
-                  p: 1.25,
-                  cursor: "pointer",
-                  borderColor: selectedModel?.id === model.id ? "primary.main" : "divider",
-                  "&:hover": { borderColor: "primary.main" },
-                }}
-              >
-                <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 0.5, mb: 0.75 }}>
-                  <Typography variant="subtitle2" sx={{ wordBreak: "break-word" }}>
-                    {formatModelName(model.name)}
-                  </Typography>
-                  <Chip size="small" label={model.status} color={getStatusColor(model.status)} sx={{ textTransform: "uppercase", fontSize: "0.6875rem" }} />
-                </Box>
-                <Typography variant="body2" color="text.secondary" sx={{ fontSize: "0.75rem" }}>
-                  {model.dataset.startsWith("custom:") ? "Custom Dataset" : model.dataset}
-                </Typography>
-                <Box sx={{ display: "flex", gap: 1, mt: 0.75, fontSize: "0.8125rem", color: "text.secondary" }}>
-                  <span>{model.epochs_trained} epochs</span>
-                  <span>{model.best_accuracy.toFixed(2)}% acc</span>
-                </Box>
-              </Paper>
-            ))}
-          </Box>
-
-          {selectedModel && (
-            <Paper
-              variant="outlined"
-              sx={{
-                p: 3,
-                borderColor: "divider",
-                minWidth: 0,
-                borderBottom: "2px solid",
-                borderBottomColor: "primary.main",
-              }}
-            >
-              <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 2, mb: 2 }}>
-                <Typography variant="h2" sx={{ fontSize: "1.5rem", fontWeight: 700 }}>
-                  {formatModelName(selectedModel.name)}
-                </Typography>
-                {selectedModel.status === "completed" && (
-                  <Typography
-                    sx={{
-                      fontFamily: '"JetBrains Mono", monospace',
-                      fontSize: "2.5rem",
-                      fontWeight: 700,
-                      color: "primary.main",
-                      lineHeight: 1,
-                    }}
-                  >
-                    {selectedModel.best_accuracy.toFixed(1)}%
-                  </Typography>
-                )}
-              </Box>
-
-              <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 0.5, mb: 2 }}>
-                {selectedModel.architecture
-                  .replace(/_/g, " ")
-                  .split(/[\s,-]+/)
-                  .filter(Boolean)
-                  .map((part, i) => (
-                    <Box key={i} sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
-                      <Chip
-                        size="small"
-                        label={part}
-                        sx={{
-                          fontFamily: '"JetBrains Mono", monospace',
-                          fontSize: "0.6875rem",
-                          bgcolor: "action.hover",
-                          border: "1px solid",
-                          borderColor: "divider",
-                        }}
-                      />
-                      {i < selectedModel.architecture.replace(/_/g, " ").split(/[\s,-]+/).filter(Boolean).length - 1 && (
-                        <Typography component="span" color="text.secondary" sx={{ fontSize: "0.75rem" }}>
-                          →
+        <Box sx={{ overflowX: "auto" }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell sx={{ width: 48 }} />
+                {columns.map((col) => (
+                  <TableCell key={col.id} sortDirection={sortColumn === col.id ? sortDirection : false}>
+                    <TableSortLabel
+                      active={sortColumn === col.id}
+                      direction={sortColumn === col.id ? sortDirection : "asc"}
+                      onClick={() => handleSortClick(col.id)}
+                    >
+                      {col.label}
+                    </TableSortLabel>
+                  </TableCell>
+                ))}
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {sortedModels.map((model) => {
+                const isExpanded = expandedModelId === model.id;
+                const loss = getModelLoss(model);
+                return (
+                  <React.Fragment key={model.id}>
+                    <TableRow
+                      hover
+                      onClick={() => handleRowClick(model)}
+                      sx={{ cursor: "pointer", "& > *": { borderBottom: isExpanded ? "unset" : undefined } }}
+                    >
+                      <TableCell sx={{ width: 48, p: 0.5 }}>
+                        <IconButton size="small" aria-label="expand row">
+                          {isExpanded ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+                        </IconButton>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight={500}>
+                          {formatModelName(model.name)}
                         </Typography>
-                      )}
-                    </Box>
-                  ))}
-              </Box>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: "0.8125rem" }}>
+                          {model.architecture}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          size="small"
+                          label={model.status}
+                          color={getStatusColor(model.status)}
+                          sx={{ textTransform: "uppercase", fontSize: "0.6875rem" }}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" sx={{ fontFamily: '"JetBrains Mono", monospace' }}>
+                          {model.best_accuracy.toFixed(2)}%
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" sx={{ fontFamily: '"JetBrains Mono", monospace' }}>
+                          {loss != null ? loss.toFixed(4) : "—"}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" color="text.secondary" sx={{ fontSize: "0.8125rem" }}>
+                          {formatDate(model.created_at)}
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                    <TableRow key={`${model.id}-expand`}>
+                      <TableCell sx={{ py: 0, borderBottom: isExpanded ? undefined : "unset" }} colSpan={7}>
+                        <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                          <Box sx={{ py: 2, px: 1 }}>
+                            {/* Header: name + accuracy */}
+                            <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 2, mb: 2 }}>
+                              <Typography variant="h2" sx={{ fontSize: "1.5rem", fontWeight: 700 }}>
+                                {formatModelName(model.name)}
+                              </Typography>
+                              {model.status === "completed" && (
+                                <Typography
+                                  sx={{
+                                    fontFamily: '"JetBrains Mono", monospace',
+                                    fontSize: "2.5rem",
+                                    fontWeight: 700,
+                                    color: "primary.main",
+                                    lineHeight: 1,
+                                  }}
+                                >
+                                  {model.best_accuracy.toFixed(1)}%
+                                </Typography>
+                              )}
+                            </Box>
 
-              <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mb: 2, color: "text.secondary", fontSize: "0.8125rem" }}>
-                <span>{selectedModel.epochs_trained} epochs</span>
-                <span>·</span>
-                <span>{selectedModel.training_history?.[selectedModel.training_history.length - 1]?.loss != null ? `${selectedModel.training_history[selectedModel.training_history.length - 1].loss.toFixed(4)} final loss` : "—"}</span>
-                <span>·</span>
-                <span>{selectedModel.dataset.startsWith("custom:") ? "Custom dataset" : selectedModel.dataset}</span>
-                <span>·</span>
-                <span>{formatDate(selectedModel.created_at)}</span>
-              </Box>
+                            {/* Architecture chips */}
+                            <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 0.5, mb: 2 }}>
+                              {model.architecture
+                                .replace(/_/g, " ")
+                                .split(/[\s,-]+/)
+                                .filter(Boolean)
+                                .map((part, i, arr) => (
+                                  <Box key={i} sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                                    <Chip
+                                      size="small"
+                                      label={part}
+                                      sx={{
+                                        fontFamily: '"JetBrains Mono", monospace',
+                                        fontSize: "0.6875rem",
+                                        bgcolor: "action.hover",
+                                        border: "1px solid",
+                                        borderColor: "divider",
+                                      }}
+                                    />
+                                    {i < arr.length - 1 && (
+                                      <Typography component="span" color="text.secondary" sx={{ fontSize: "0.75rem" }}>
+                                        →
+                                      </Typography>
+                                    )}
+                                  </Box>
+                                ))}
+                            </Box>
 
-              {selectedModel.training_history.length > 0 && (
-                <Box id="training-history-table" sx={{ mb: 1.5 }}>
-                  <Typography variant="overline" sx={{ color: "text.secondary" }}>
-                    Training History
-                  </Typography>
-                  <Table size="small" sx={{ mt: 0.5 }}>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Epoch</TableCell>
-                        <TableCell>Loss</TableCell>
-                        <TableCell>Accuracy</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {selectedModel.training_history.map((h) => (
-                        <TableRow key={h.epoch}>
-                          <TableCell>{h.epoch}</TableCell>
-                          <TableCell sx={{ fontFamily: '"JetBrains Mono", monospace' }}>{h.loss.toFixed(4)}</TableCell>
-                          <TableCell sx={{ fontFamily: '"JetBrains Mono", monospace' }}>{h.accuracy.toFixed(2)}%</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </Box>
-              )}
+                            {/* Stats row */}
+                            <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, mb: 2, color: "text.secondary", fontSize: "0.8125rem" }}>
+                              <span>{model.epochs_trained} epochs</span>
+                              <span>·</span>
+                              <span>{loss != null ? `${loss.toFixed(4)} final loss` : "—"}</span>
+                              <span>·</span>
+                              <span>{model.dataset.startsWith("custom:") ? "Custom dataset" : model.dataset}</span>
+                              <span>·</span>
+                              <span>{formatDate(model.created_at)}</span>
+                            </Box>
 
-              {selectedModel.status === "completed" && isTextModel(selectedModel) && (
-                <Box sx={{ mt: 2, p: 2, bgcolor: "background.default", borderRadius: 1, border: "1px solid", borderColor: "divider" }}>
-                  <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                    Generate Text
-                  </Typography>
-                  <TextField
-                    fullWidth
-                    multiline
-                    rows={3}
-                    placeholder="Enter a starting prompt..."
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    disabled={generating}
-                    sx={{ mb: 1 }}
-                  />
-                  <Box sx={{ display: "flex", gap: 2, alignItems: "center", mb: 1 }}>
-                    <Box sx={{ flex: 1 }}>
-                      <Typography variant="caption">Temperature: {temperature}</Typography>
-                      <Slider
-                        size="small"
-                        min={0.1}
-                        max={1.5}
-                        step={0.1}
-                        value={temperature}
-                        onChange={(_, v) => setTemperature(v as number)}
-                        disabled={generating}
-                        valueLabelDisplay="auto"
-                      />
-                    </Box>
-                    <TextField
-                      type="number"
-                      size="small"
-                      label="Max Tokens"
-                      value={maxTokens}
-                      onChange={(e) => setMaxTokens(parseInt(e.target.value) || 100)}
-                      inputProps={{ min: 10, max: 500 }}
-                      disabled={generating}
-                      sx={{ width: 100 }}
-                    />
-                  </Box>
-                  <Button variant="contained" onClick={handleGenerate} disabled={generating || !prompt.trim()}>
-                    {generating ? "Generating..." : "Generate"}
-                  </Button>
-                  {generatedText && (
-                    <Box sx={{ mt: 1.5, p: 1, bgcolor: "background.paper", borderRadius: 1, border: "1px solid", borderColor: "divider" }}>
-                      <Typography variant="caption" color="text.secondary">
-                        Generated Text
-                      </Typography>
-                      <Box component="pre" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: "0.875rem", whiteSpace: "pre-wrap", mt: 0.5 }}>
-                        {generatedText}
-                      </Box>
-                    </Box>
-                  )}
-                </Box>
-              )}
+                            {/* Training history table */}
+                            {model.training_history.length > 0 && (
+                              <Box id="training-history-table" sx={{ mb: 1.5 }}>
+                                <Typography variant="overline" sx={{ color: "text.secondary" }}>
+                                  Training History
+                                </Typography>
+                                <Table size="small" sx={{ mt: 0.5 }}>
+                                  <TableHead>
+                                    <TableRow>
+                                      <TableCell>Epoch</TableCell>
+                                      <TableCell>Loss</TableCell>
+                                      <TableCell>Accuracy</TableCell>
+                                    </TableRow>
+                                  </TableHead>
+                                  <TableBody>
+                                    {model.training_history.map((h) => (
+                                      <TableRow key={h.epoch}>
+                                        <TableCell>{h.epoch}</TableCell>
+                                        <TableCell sx={{ fontFamily: '"JetBrains Mono", monospace' }}>{h.loss.toFixed(4)}</TableCell>
+                                        <TableCell sx={{ fontFamily: '"JetBrains Mono", monospace' }}>{h.accuracy.toFixed(2)}%</TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              </Box>
+                            )}
 
-              {selectedModel.status === "completed" && !isTextModel(selectedModel) && (
-                <>
-                  <Box sx={{ mt: 1.5, pt: 1.5, borderTop: "1px solid", borderColor: "divider" }}>
-                    <Typography variant="overline" sx={{ color: "text.secondary" }}>
-                      API Endpoint
-                    </Typography>
-                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.5 }}>
-                      <Box
-                        component="code"
-                        sx={{
-                          flex: 1,
-                          fontSize: "0.8125rem",
-                          fontFamily: '"JetBrains Mono", monospace',
-                          p: 0.75,
-                          bgcolor: "action.hover",
-                          borderRadius: 1,
-                        }}
-                      >
-                        POST /api/{selectedModel.id}/predict
-                      </Box>
-                      <Button size="small" variant="outlined" onClick={() => copyEndpoint(selectedModel.id)}>
-                        {copied ? "Copied!" : "Copy URL"}
-                      </Button>
-                    </Box>
-                    <details style={{ marginTop: 8 }}>
-                      <summary style={{ cursor: "pointer", fontSize: "0.75rem", color: "rgba(255,255,255,0.5)" }}>
-                        cURL Example
-                      </summary>
-                      <Box
-                        component="pre"
-                        sx={{
-                          fontFamily: '"JetBrains Mono", monospace',
-                          fontSize: "0.75rem",
-                          p: 1,
-                          bgcolor: "action.hover",
-                          borderRadius: 1,
-                          mt: 0.5,
-                          overflow: "auto",
-                        }}
-                      >
-                        {`curl -X POST -F "file=@image.jpg" \\\n  http://localhost:8080/api/${selectedModel.id}/predict`}
-                      </Box>
-                    </details>
-                  </Box>
-                  <Box sx={{ mt: 1 }}>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                      Run this model on a small EC2 instance with its own URL. Requires AWS credentials in Settings.
-                    </Typography>
-                    <Button variant="contained" onClick={() => setDeployModalOpen(true)}>
-                      Deploy to API
-                    </Button>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
-                      Requires AWS credentials (optional).{" "}
-                      <Link href="/settings" style={{ color: "inherit", textDecoration: "underline" }}>
-                        Settings
-                      </Link>
-                    </Typography>
-                  </Box>
-                </>
-              )}
+                            {/* Text generation UI (text models) */}
+                            {model.status === "completed" && isTextModel(model) && (
+                              <Box sx={{ mt: 2, p: 2, bgcolor: "background.default", borderRadius: 1, border: "1px solid", borderColor: "divider" }}>
+                                <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                                  Generate Text
+                                </Typography>
+                                <TextField
+                                  fullWidth
+                                  multiline
+                                  rows={3}
+                                  placeholder="Enter a starting prompt..."
+                                  value={prompt}
+                                  onChange={(e) => setPrompt(e.target.value)}
+                                  disabled={generating}
+                                  sx={{ mb: 1 }}
+                                />
+                                <Box sx={{ display: "flex", gap: 2, alignItems: "center", mb: 1 }}>
+                                  <Box sx={{ flex: 1 }}>
+                                    <Typography variant="caption">Temperature: {temperature}</Typography>
+                                    <Slider
+                                      size="small"
+                                      min={0.1}
+                                      max={1.5}
+                                      step={0.1}
+                                      value={temperature}
+                                      onChange={(_, v) => setTemperature(v as number)}
+                                      disabled={generating}
+                                      valueLabelDisplay="auto"
+                                    />
+                                  </Box>
+                                  <TextField
+                                    type="number"
+                                    size="small"
+                                    label="Max Tokens"
+                                    value={maxTokens}
+                                    onChange={(e) => setMaxTokens(parseInt(e.target.value) || 100)}
+                                    inputProps={{ min: 10, max: 500 }}
+                                    disabled={generating}
+                                    sx={{ width: 100 }}
+                                  />
+                                </Box>
+                                <Button variant="contained" onClick={handleGenerate} disabled={generating || !prompt.trim()}>
+                                  {generating ? "Generating..." : "Generate"}
+                                </Button>
+                                {generatedText && (
+                                  <Box sx={{ mt: 1.5, p: 1, bgcolor: "background.paper", borderRadius: 1, border: "1px solid", borderColor: "divider" }}>
+                                    <Typography variant="caption" color="text.secondary">
+                                      Generated Text
+                                    </Typography>
+                                    <Box component="pre" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: "0.875rem", whiteSpace: "pre-wrap", mt: 0.5 }}>
+                                      {generatedText}
+                                    </Box>
+                                  </Box>
+                                )}
+                              </Box>
+                            )}
 
-              <Box sx={{ mt: 2, pt: 1.5, borderTop: "1px solid", borderColor: "divider", display: "flex", flexWrap: "wrap", gap: 1 }}>
-                {selectedModel.status === "completed" && (
-                  <>
-                    <Button variant="outlined" component={Link} href="/predict" sx={{ textDecoration: "none" }}>
-                      Predict
-                    </Button>
-                    <ShareCard model={selectedModel} />
-                    <Button variant="outlined" disabled sx={{ color: "text.secondary" }}>
-                      Export ONNX
-                    </Button>
-                    <Button variant="outlined" size="small" onClick={() => document.getElementById("training-history-table")?.scrollIntoView({ behavior: "smooth" })}>
-                      View Training Curves
-                    </Button>
-                  </>
-                )}
-                {(selectedModel.status === "failed" || selectedModel.status === "cancelled") && (
-                  <Button variant="contained" onClick={() => handleResume(selectedModel.id)}>
-                    Resume Training
-                  </Button>
-                )}
-                <Button variant="outlined" color="error" onClick={() => setDeleteConfirm(selectedModel.id)}>
-                  Delete
-                </Button>
-              </Box>
-            </Paper>
-          )}
+                            {/* API endpoint + cURL (non-text models) */}
+                            {model.status === "completed" && !isTextModel(model) && (
+                              <>
+                                <Box sx={{ mt: 1.5, pt: 1.5, borderTop: "1px solid", borderColor: "divider" }}>
+                                  <Typography variant="overline" sx={{ color: "text.secondary" }}>
+                                    API Endpoint
+                                  </Typography>
+                                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, mt: 0.5 }}>
+                                    <Box
+                                      component="code"
+                                      sx={{
+                                        flex: 1,
+                                        fontSize: "0.8125rem",
+                                        fontFamily: '"JetBrains Mono", monospace',
+                                        p: 0.75,
+                                        bgcolor: "action.hover",
+                                        borderRadius: 1,
+                                      }}
+                                    >
+                                      POST /api/{model.id}/predict
+                                    </Box>
+                                    <Button size="small" variant="outlined" onClick={() => copyEndpoint(model.id)}>
+                                      {copied ? "Copied!" : "Copy URL"}
+                                    </Button>
+                                  </Box>
+                                  <details style={{ marginTop: 8 }}>
+                                    <summary style={{ cursor: "pointer", fontSize: "0.75rem", color: "rgba(255,255,255,0.5)" }}>
+                                      cURL Example
+                                    </summary>
+                                    <Box
+                                      component="pre"
+                                      sx={{
+                                        fontFamily: '"JetBrains Mono", monospace',
+                                        fontSize: "0.75rem",
+                                        p: 1,
+                                        bgcolor: "action.hover",
+                                        borderRadius: 1,
+                                        mt: 0.5,
+                                        overflow: "auto",
+                                      }}
+                                    >
+                                      {`curl -X POST -F "file=@image.jpg" \\\n  http://localhost:8080/api/${model.id}/predict`}
+                                    </Box>
+                                  </details>
+                                </Box>
+                                <Box sx={{ mt: 1 }}>
+                                  <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                                    Run this model on a small EC2 instance with its own URL. Requires AWS credentials in Settings.
+                                  </Typography>
+                                  <Button variant="contained" onClick={() => setDeployModalOpen(true)}>
+                                    Deploy to API
+                                  </Button>
+                                  <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 0.5 }}>
+                                    Requires AWS credentials (optional).{" "}
+                                    <Link href="/settings" style={{ color: "inherit", textDecoration: "underline" }}>
+                                      Settings
+                                    </Link>
+                                  </Typography>
+                                </Box>
+                              </>
+                            )}
+
+                            {/* Action buttons */}
+                            <Box sx={{ mt: 2, pt: 1.5, borderTop: "1px solid", borderColor: "divider", display: "flex", flexWrap: "wrap", gap: 1 }}>
+                              {model.status === "completed" && (
+                                <>
+                                  <Button variant="outlined" component={Link} href="/predict" sx={{ textDecoration: "none" }}>
+                                    Predict
+                                  </Button>
+                                  <ShareCard model={model} />
+                                  <Button variant="outlined" disabled sx={{ color: "text.secondary" }}>
+                                    Export ONNX
+                                  </Button>
+                                  <Button variant="outlined" size="small" onClick={() => document.getElementById("training-history-table")?.scrollIntoView({ behavior: "smooth" })}>
+                                    View Training Curves
+                                  </Button>
+                                </>
+                              )}
+                              {(model.status === "failed" || model.status === "cancelled") && (
+                                <Button variant="contained" onClick={() => handleResume(model.id)}>
+                                  Resume Training
+                                </Button>
+                              )}
+                              <Button variant="outlined" color="error" onClick={() => setDeleteConfirm(model.id)}>
+                                Delete
+                              </Button>
+                            </Box>
+                          </Box>
+                        </Collapse>
+                      </TableCell>
+                    </TableRow>
+                  </React.Fragment>
+                );
+              })}
+            </TableBody>
+          </Table>
         </Box>
       )}
 
@@ -709,27 +832,6 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
       />
 
       <Toast toasts={toast.toasts} onDismiss={toast.dismissToast} />
-    </Box>
-  );
-}
-
-function DetailItem({
-  label,
-  value,
-  statusColor,
-}: {
-  label: string;
-  value: string;
-  statusColor?: "success" | "error" | "default" | "warning";
-}) {
-  return (
-    <Box>
-      <Typography variant="caption" sx={{ color: "text.secondary", textTransform: "uppercase", letterSpacing: "0.08em" }}>
-        {label}
-      </Typography>
-      <Typography variant="body2" fontWeight={500} color={statusColor && statusColor !== "default" ? statusColor : "text.primary"}>
-        {value}
-      </Typography>
     </Box>
   );
 }

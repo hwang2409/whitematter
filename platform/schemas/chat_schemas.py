@@ -25,8 +25,14 @@ class ConversationResponse(BaseModel):
     dataset_id: Optional[str] = None
     model_id: Optional[str] = None
     training_job_id: Optional[str] = None
+    is_starred: bool = False
     created_at: str
     updated_at: str
+
+
+class ConversationUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    is_starred: Optional[bool] = None
 
 
 class ConversationListResponse(BaseModel):

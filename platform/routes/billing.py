@@ -135,3 +135,23 @@ def customer_portal(
         raise HTTPException(status_code=503, detail="Could not create portal session")
 
     return {"url": url}
+
+
+@router.get("/usage")
+def billing_usage(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get usage stats for the current user."""
+    from db.models import Model, Dataset
+    from db.chat_models import Conversation
+
+    models_count = db.query(Model).filter(Model.user_id == user.id).count()
+    datasets_count = db.query(Dataset).filter(Dataset.user_id == user.id).count()
+    conversations_count = db.query(Conversation).filter(Conversation.user_id == user.id).count()
+
+    return {
+        "models_count": models_count,
+        "datasets_count": datasets_count,
+        "conversations_count": conversations_count,
+    }
