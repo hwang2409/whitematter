@@ -716,7 +716,7 @@ export default function AuthenticatedLayout({
         </Box>
         <Divider />
         <MenuItem
-          onClick={() => { setProfileAnchorEl(null); router.push("/settings"); }}
+          onClick={() => { setProfileAnchorEl(null); router.push("/pricing"); }}
           sx={{ fontSize: "0.875rem", py: 1 }}
         >
           <ListItemIcon><MilitaryTechOutlined sx={{ fontSize: 18 }} /></ListItemIcon>

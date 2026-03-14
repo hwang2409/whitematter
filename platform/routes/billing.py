@@ -17,12 +17,15 @@ billing_service = BillingService()
 @router.post("/checkout")
 def create_checkout(
     plan: str,
+    interval: str = "month",
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Create a Stripe Checkout session for Pro or Scale plan."""
     if plan not in ("pro", "scale"):
         raise HTTPException(status_code=400, detail="Invalid plan")
+    if interval not in ("month", "year"):
+        raise HTTPException(status_code=400, detail="Invalid interval")
 
     # Ensure user has a Stripe customer ID
     if not user.stripe_customer_id:
@@ -36,8 +39,9 @@ def create_checkout(
     url = billing_service.create_checkout_session(
         customer_id=user.stripe_customer_id,
         plan=plan,
-        success_url=f"{base_url}/settings?billing=success",
-        cancel_url=f"{base_url}/settings?billing=cancelled",
+        success_url=f"{base_url}/pricing?billing=success",
+        cancel_url=f"{base_url}/pricing?billing=cancelled",
+        interval=interval,
     )
     if not url:
         raise HTTPException(status_code=503, detail="Could not create checkout session")
