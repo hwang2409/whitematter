@@ -20,25 +20,30 @@ Redesign the WhiteMatter frontend from a generic chatbot UI into a distinctive, 
 
 ### Signature Colors
 
-Replace the current taupe accent (`#78716C`) with a dual-accent system:
+Replace the current taupe accent (`#78716C`) with a dual-accent system. The `accent` tokens map onto MUI's `primary` palette slot (replacing the existing taupe primary). No custom palette augmentation needed.
+
+| Token | MUI Mapping | Value | Usage |
+|-------|-------------|-------|-------|
+| `accent.main` | `primary.main` | `#8B5CF6` (electric violet) | Active states, CTAs, training card borders, focus rings, AI avatar |
+| `accent.light` | `primary.light` | `#A78BFA` | Hover states, lighter UI accents |
+| `accent.dark` | `primary.dark` | `#7C3AED` | Pressed states |
+
+Training completion uses a custom `completion` token (not the MUI `success` palette, which stays green):
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| `accent.main` | `#8B5CF6` (electric violet) | Active states, CTAs, training card borders, focus rings, AI avatar |
-| `accent.light` | `#A78BFA` | Hover states, lighter UI accents |
-| `accent.dark` | `#7C3AED` | Pressed states |
-| `success` / completion | `#F59E0B` (warm amber) | Completion indicators, success states, progress fills |
-| `success.light` | `#FBBF24` | Hover on success elements |
+| `completion.main` | `#F59E0B` (warm amber) | Training completion indicators, progress fills |
+| `completion.light` | `#FBBF24` | Hover on completion elements |
 
-### Background & Surface (unchanged)
+### Background & Surface
 
-| Token | Value |
-|-------|-------|
-| `bg` | `#141311` |
-| `surface` | `#1E1D1B` |
-| `card` | `#1C1A18` (slight warm tint adjustment) |
-| `border` | `rgba(255,255,255,0.07)` |
-| `borderHover` | `rgba(255,255,255,0.14)` |
+| Token | Value | Notes |
+|-------|-------|-------|
+| `bg` | `#141311` | unchanged |
+| `surface` | `#1E1D1B` | unchanged |
+| `card` | `#1C1A18` | minor adjustment from `#1A1917` for warmer tint |
+| `border` | `rgba(255,255,255,0.07)` | unchanged |
+| `borderHover` | `rgba(255,255,255,0.14)` | unchanged |
 
 ### Text (unchanged)
 
@@ -48,13 +53,53 @@ Replace the current taupe accent (`#78716C`) with a dual-accent system:
 | `text.secondary` | `#9C9A95` |
 | `text.muted` | `#6B6963` |
 
-### System Colors
+### System Colors (unchanged)
 
 | Token | Value |
 |-------|-------|
-| `error` | `#ef4444` (unchanged) |
-| `warning` | `#eab308` (unchanged) |
-| `success` | `#22c55e` → `#F59E0B` (amber replaces green for success/completion) |
+| `error` | `#ef4444` |
+| `warning` | `#eab308` |
+| `success` | `#22c55e` (stays green — not replaced by amber) |
+
+### Light Theme Colors
+
+| Token | Dark Value | Light Value |
+|-------|------------|-------------|
+| `accent.main` | `#8B5CF6` | `#7C3AED` (darker violet for light bg) |
+| `accent.light` | `#A78BFA` | `#8B5CF6` |
+| `accent.dark` | `#7C3AED` | `#6D28D9` |
+| `completion.main` | `#F59E0B` | `#D97706` (darker amber for light bg) |
+| `completion.light` | `#FBBF24` | `#F59E0B` |
+| `bg` | `#141311` | `#F9F8F6` (existing) |
+| `surface` | `#1E1D1B` | `#FFFFFF` |
+| `card` | `#1C1A18` | `#F3F2F0` |
+
+### themeTokens Export
+
+The `themeTokens` object in `theme.ts` updates to:
+
+```typescript
+export const themeTokens = {
+  accent: '#8B5CF6',
+  accentLight: '#A78BFA',
+  accentMuted: 'rgba(139, 92, 246, 0.15)',
+  completion: '#F59E0B',
+  completionLight: '#FBBF24',
+  completionMuted: 'rgba(245, 158, 11, 0.12)',
+  bg: '#141311',
+  surface: '#1E1D1B',
+  card: '#1C1A18',
+  text: '#F2F1EE',
+  textSecondary: '#9C9A95',
+  border: 'rgba(255,255,255,0.07)',
+  error: '#ef4444',
+  fontMono: "'DM Mono', monospace",
+}
+```
+
+### Font Consistency
+
+All references to `JetBrains Mono` (in `TrainingChart.tsx`, `ShareCard.tsx`, and any other components) should be migrated to `DM Mono` as part of Phase 1 to unify the monospace font.
 
 ### Rationale
 
@@ -100,10 +145,20 @@ Training cards are the visual centerpiece. They break out of the chat stream —
 
 Five stages: `Preparing` > `Training` > `Evaluating` > `Complete` > `Ready`
 
-- Each stage is a dot that fills with solid violet as it completes
-- Active stage dot pulses (opacity 0.5 to 1.0, 1.5s cycle)
-- Completed stage dots show a small checkmark icon
-- Stages after completion fill with amber
+Stage dot states at each point in the pipeline:
+
+| Current Stage | Preparing | Training | Evaluating | Complete | Ready |
+|---------------|-----------|----------|------------|----------|-------|
+| Preparing | violet + pulse | empty | empty | empty | empty |
+| Training | violet + check | violet + pulse | empty | empty | empty |
+| Evaluating | violet + check | violet + check | violet + pulse | empty | empty |
+| Complete | violet + check | violet + check | violet + check | amber + check | empty |
+| Ready | violet + check | violet + check | violet + check | amber + check | amber + check |
+
+- **Empty:** Unfilled dot, `text.muted` color
+- **Violet + pulse:** Filled violet, opacity pulses 0.5 to 1.0 on 1.5s cycle
+- **Violet + check:** Filled violet with small checkmark icon, static
+- **Amber + check:** Filled amber with checkmark, static — used only for the final success stages (Complete, Ready)
 
 ### Progress Ring
 
@@ -128,6 +183,23 @@ Clicking "Expand Details" animates the card taller (0.2s ease-out) to reveal:
 - Hyperparameter summary (learning rate, batch size, optimizer)
 - "Try a prediction" inline widget (uses existing InlinePredictWidget)
 
+### Integration with Chat Message Flow
+
+`ChatMessage.tsx` currently renders `TrainingProgress` inside the standard AI message layout. The new TrainingCard replaces this:
+
+- When `message.type === "training_progress"`, `ChatMessage` renders `TrainingCard` instead of `TrainingProgress` — the card replaces the entire avatar+column layout for that message (no AI avatar shown, the card stands alone at 90% width)
+- When `message.type === "training_complete"`, `ChatMessage` renders `TrainingCard` in its completed state (amber border, all stages filled) — this replaces the existing `CompletedModelCard` inline display. The "Try a prediction" widget from `CompletedModelCard` moves into the TrainingCard's expanded state.
+- When `message.type === "training_error"`, `ChatMessage` renders `TrainingCard` in its error state (red border, error message) — replaces the current inline error box
+
+### Multiple Active Training Cards
+
+If multiple training jobs are visible in the chat stream simultaneously:
+
+- Only the most recent active training card shows the pulsing glow animation
+- Older active cards show a static violet border (no pulse) to avoid performance issues
+- Implementation: pass an `isLatestActive` prop to TrainingCard; only the latest one animates
+- The glow pulse uses a `::after` pseudo-element with `opacity` animation (GPU-compositable) rather than animating `box-shadow` directly
+
 ### Error / Cancelled States
 
 - Border shifts to error red (`#ef4444`)
@@ -149,15 +221,15 @@ Clicking "Expand Details" animates the card taller (0.2s ease-out) to reveal:
 ### User Messages
 
 - **Alignment:** Right-aligned
-- **Background:** Warm surface (`#1C1A18`)
-- **Border radius:** 16px top-left, 16px top-right, 4px bottom-right, 16px bottom-left (chat bubble shape)
+- **Background:** `rgba(255,255,255,0.06)` (alpha-based, same as current — adapts to both dark and light themes)
+- **Border radius:** 18px top-left, 18px top-right, 4px bottom-right, 18px bottom-left (matches existing radius)
 - **No avatar** — position communicates ownership
 
 ### AI Messages
 
 - **Alignment:** Left-aligned
 - **Background:** None (sits on page background for breathing room)
-- **Avatar:** Small WhiteMatter "W" monogram in violet, displayed to the left of the message
+- **Avatar:** Small WhiteMatter "W" monogram in violet, rendered as text in DM Serif Display (not an SVG asset — just the letter "W" in a 28px violet circle)
 - **Thinking state:** Avatar gets a subtle violet pulse (opacity 0.5 to 1.0, 1.5s cycle)
 
 ### Typing Indicator
@@ -326,7 +398,7 @@ All animations respect `prefers-reduced-motion` — when enabled, all animations
 - **No gradients:** All color usage is solid. Simplifies implementation and keeps the design clean.
 - **MUI component system:** All new components built within MUI's theming system. No CSS escape hatches unless absolutely necessary.
 - **Mobile:** Training cards need responsive handling — on small screens, they span full width and the sparkline collapses. Progress ring and stats remain visible.
-- **Performance:** Pulsing glow animations use `box-shadow` which can trigger repaints. Limit to one visible training card animating at a time; completed cards use static shadows.
+- **Performance:** Pulsing glow uses a `::after` pseudo-element with `opacity` animation (GPU-compositable). Only the most recent active training card pulses; older active cards show static borders. Completed cards use static shadows.
 - **Light theme:** All new color tokens need light-theme counterparts. Violet works on both; amber needs a darker variant for light backgrounds.
 
 ---
