@@ -26,7 +26,7 @@ platform/alembic_default.db
 .beads/
 mayor/
 deacon/
-settings/
+/settings/
 
 # Pretrained model weights (keep directory with .gitkeep)
 pretrained/*.bin
@@ -102,6 +102,7 @@ node_modules/
 .vscode/
 .idea/
 
+
 # =============================================================================
 # Environment / secrets
 # =============================================================================
@@ -110,3 +111,4 @@ node_modules/
 !frontend/.env.example
 
 frontend/.next/
+presets/

@@ -41,6 +41,8 @@ export default function TrainingChart({ data, singleAccent = true }: TrainingCha
 
   return (
     <Box
+      aria-label="Training progress chart"
+      role="img"
       sx={{
         mt: 2,
         bgcolor: "background.default",

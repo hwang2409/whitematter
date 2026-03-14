@@ -248,94 +248,6 @@ export interface CustomTrainJob {
   accuracy?: number;
 }
 
-// WebSocket for real-time training updates
-
-function getWsBase(): string {
-  const loc = window.location;
-  const protocol = loc.protocol === 'https:' ? 'wss:' : 'ws:';
-  // In dev with Vite proxy, use the same host/port as the page
-  return `${protocol}//${loc.host}`;
-}
-
-export function createTrainingWebSocket(
-  jobId: string,
-  onStatus: (status: CustomTrainJob) => void,
-  onError?: (error: Event) => void,
-  onClose?: () => void,
-): { close: () => void } {
-  let ws: WebSocket | null = null;
-  let reconnectAttempts = 0;
-  const maxReconnects = 5;
-  let closed = false;
-  let pingInterval: ReturnType<typeof setInterval> | null = null;
-
-  function connect() {
-    if (closed) return;
-
-    const url = `${getWsBase()}/ws/train/${jobId}`;
-    ws = new WebSocket(url);
-
-    ws.onopen = () => {
-      reconnectAttempts = 0;
-      // Keepalive ping every 30 seconds
-      pingInterval = setInterval(() => {
-        if (ws?.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'ping' }));
-        }
-      }, 30000);
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'ping') return; // ignore server pings
-        onStatus(data as CustomTrainJob);
-      } catch {
-        // ignore parse errors
-      }
-    };
-
-    ws.onerror = (event) => {
-      onError?.(event);
-    };
-
-    ws.onclose = () => {
-      if (pingInterval) {
-        clearInterval(pingInterval);
-        pingInterval = null;
-      }
-      if (closed) {
-        onClose?.();
-        return;
-      }
-      // Auto-reconnect with exponential backoff
-      if (reconnectAttempts < maxReconnects) {
-        const delay = Math.pow(2, reconnectAttempts) * 1000; // 1s, 2s, 4s, 8s, 16s
-        reconnectAttempts++;
-        setTimeout(connect, delay);
-      } else {
-        onClose?.();
-      }
-    };
-  }
-
-  connect();
-
-  return {
-    close() {
-      closed = true;
-      if (pingInterval) {
-        clearInterval(pingInterval);
-        pingInterval = null;
-      }
-      if (ws) {
-        ws.close();
-        ws = null;
-      }
-    },
-  };
-}
-
 // API calls
 export async function getDatasets(): Promise<Dataset[]> {
   const res = await fetchWithTimeout(`${API_BASE}/config/datasets`);
@@ -717,5 +629,205 @@ export async function getDesignHelp(request: DesignHelpRequest): Promise<{ respo
     const error = await res.json();
     throw new Error(error.detail || 'Failed to get help');
   }
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Chat API
+// ---------------------------------------------------------------------------
+
+import { getStoredToken } from "@/services/auth";
+
+export type ConversationPhase =
+  | "greeting"
+  | "exploring"
+  | "architecture"
+  | "data_needed"
+  | "ready"
+  | "training"
+  | "completed"
+  | "predicting";
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  type:
+    | "text"
+    | "architecture"
+    | "training_progress"
+    | "training_complete"
+    | "training_error"
+    | "file_upload"
+    | "quick_start_chips"
+    | "prediction";
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface Conversation {
+  id: string;
+  title: string | null;
+  phase: ConversationPhase;
+  isStarred: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export async function createConversation(token: string): Promise<Conversation> {
+  const res = await fetch(`/chat/conversations`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+  });
+  if (!res.ok) throw new Error("Failed to create conversation");
+  return res.json();
+}
+
+export async function getConversations(): Promise<Conversation[]> {
+  const token = getStoredToken();
+  const res = await fetchWithTimeout(`${API_BASE}/chat/conversations`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  const data = await res.json();
+  return data.conversations;
+}
+
+export async function getConversation(
+  token: string,
+  id: string,
+): Promise<{ conversation: any; messages: any[] }> {
+  const res = await fetch(`/chat/conversations/${id}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error("Failed to load conversation");
+  return res.json();
+}
+
+export async function updateConversation(
+  id: string,
+  data: { title?: string; isStarred?: boolean },
+): Promise<Conversation> {
+  const token = getStoredToken();
+  const body: Record<string, unknown> = {};
+  if (data.title !== undefined) body.title = data.title;
+  if (data.isStarred !== undefined) body.is_starred = data.isStarred;
+  const res = await fetchWithTimeout(`${API_BASE}/chat/conversations/${id}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
+
+export async function deleteConversation(id: string): Promise<void> {
+  const token = getStoredToken();
+  await fetchWithTimeout(`${API_BASE}/chat/conversations/${id}`, {
+    method: "DELETE",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+}
+
+export function sendChatMessage(
+  conversationId: string,
+  content: string,
+  onChunk: (text: string) => void,
+  onDone: (message: ChatMessage) => void,
+  onError: (error: Error) => void,
+  token?: string,
+): { abort: () => void } {
+  const controller = new AbortController();
+  token = token ?? getStoredToken() ?? undefined;
+
+  (async () => {
+    try {
+      const res = await fetch(
+        `${API_BASE}/chat/conversations/${conversationId}/messages`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ content }),
+          signal: controller.signal,
+        },
+      );
+
+      if (!res.ok) {
+        throw new Error(`Chat error: ${res.status}`);
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response body");
+
+      const decoder = new TextDecoder();
+      let fullText = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split("\n");
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6);
+            if (data === "[DONE]") {
+              onDone({
+                id: crypto.randomUUID(),
+                role: "assistant",
+                content: fullText,
+                type: "text",
+                createdAt: new Date().toISOString(),
+              });
+              return;
+            }
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.type === "chunk") {
+                fullText += parsed.content;
+                onChunk(parsed.content);
+              } else if (parsed.type === "message") {
+                onDone(parsed.message);
+                return;
+              }
+            } catch {
+              /* ignore parse errors for partial lines */
+            }
+          }
+        }
+      }
+    } catch (err) {
+      if ((err as Error).name !== "AbortError") {
+        onError(err as Error);
+      }
+    }
+  })();
+
+  return { abort: () => controller.abort() };
+}
+
+export interface TrainingStatus {
+  job_id: string;
+  status: string;
+  epoch: number;
+  total_epochs: number;
+  loss: number;
+  accuracy: number;
+  message: string;
+}
+
+export async function getChatTrainingStatus(conversationId: string): Promise<TrainingStatus> {
+  const token = getStoredToken();
+  const res = await fetchWithTimeout(`${API_BASE}/chat/conversations/${conversationId}/training`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
   return res.json();
 }

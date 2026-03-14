@@ -61,7 +61,7 @@ describe("AuthProvider", () => {
       expect(result.current.loading).toBe(false);
     });
     expect(mockGetMe).toHaveBeenCalledWith("stored-token");
-    expect(result.current.user).toEqual({ id: "user-1", email: "test@example.com" });
+    expect(result.current.user).toEqual({ id: "user-1", email: "test@example.com", oauth_provider: null, plan: undefined });
     expect(result.current.token).toBe("stored-token");
   });
 

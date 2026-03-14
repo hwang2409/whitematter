@@ -19,6 +19,8 @@ def _make_user(user_id="u1", email="new@test.com", pw_hash="$2b$12$hash"):
     user.email = email
     user.password_hash = pw_hash
     user.oauth_provider = None
+    user.avatar_url = None
+    user.plan = "free"
     user.created_at = datetime(2025, 1, 1)
     return user
 

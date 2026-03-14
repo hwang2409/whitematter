@@ -22,6 +22,7 @@ from .models import (
     JobStatus,
     ModelStatus
 )
+from .chat_models import Conversation, ConversationMessage
 from .blob_store import BlobStore, get_blob_store
 
 __all__ = [
@@ -44,6 +45,9 @@ __all__ = [
     'DataType',
     'JobStatus',
     'ModelStatus',
+    # Chat models
+    'Conversation',
+    'ConversationMessage',
     # Blob storage
     'BlobStore',
     'get_blob_store',

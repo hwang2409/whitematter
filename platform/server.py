@@ -29,7 +29,6 @@ from slowapi.errors import RateLimitExceeded
 from db import init_db, get_data_dir
 from config import ensure_dirs
 from dependencies import limiter
-from services.training_state import capture_event_loop
 from services.job_store import TrainingJobStore
 from config import MODELS_DIR
 from services.auth_service import AuthService
@@ -45,6 +44,8 @@ from routes.design import router as design_router
 from routes.training import router as training_router
 from routes.models import router as models_router
 from routes.predict import router as predict_router
+from routes.chat import router as chat_router
+from routes.billing import router as billing_router
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +89,8 @@ app.include_router(design_router)
 app.include_router(training_router)
 app.include_router(models_router)
 app.include_router(predict_router)
+app.include_router(chat_router)
+app.include_router(billing_router)
 
 
 @app.exception_handler(Exception)
@@ -97,11 +100,6 @@ async def _global_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={"detail": "Internal server error"},
     )
-
-
-@app.on_event("startup")
-async def _capture_event_loop():
-    capture_event_loop()
 
 
 def main():

@@ -1,10 +1,19 @@
 "use client";
 import { useMemo } from "react";
 import { AuthProvider } from "@/context/AuthContext";
+import { DesignProvider } from "@/context/DesignContext";
+import { SidebarProvider } from "@/context/SidebarContext";
 import { ThemeContextProvider, useThemeMode } from "@/context/ThemeContext";
 import { ThemeProvider } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
 import { getTheme } from "@/theme";
+import { GoogleOAuthProvider } from "@react-oauth/google";
+
+function GoogleOAuthWrapper({ children }: { children: React.ReactNode }) {
+  const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+  if (!clientId) return <>{children}</>;
+  return <GoogleOAuthProvider clientId={clientId}>{children}</GoogleOAuthProvider>;
+}
 
 function ThemedApp({ children }: { children: React.ReactNode }) {
   const { mode } = useThemeMode();
@@ -19,10 +28,14 @@ function ThemedApp({ children }: { children: React.ReactNode }) {
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <ThemeContextProvider>
-      <ThemedApp>
-        <AuthProvider>{children}</AuthProvider>
-      </ThemedApp>
-    </ThemeContextProvider>
+    <GoogleOAuthWrapper>
+      <ThemeContextProvider>
+        <ThemedApp>
+          <AuthProvider>
+            <DesignProvider><SidebarProvider>{children}</SidebarProvider></DesignProvider>
+          </AuthProvider>
+        </ThemedApp>
+      </ThemeContextProvider>
+    </GoogleOAuthWrapper>
   );
 }

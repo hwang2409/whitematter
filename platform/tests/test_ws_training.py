@@ -1,4 +1,8 @@
-"""Tests for WebSocket endpoint /ws/train/{job_id}."""
+"""Tests for WebSocket endpoint /ws/train/{job_id}.
+
+NOTE: The WebSocket training endpoint was replaced by SSE in the chat routes.
+These tests are skipped until they are rewritten for the SSE endpoint.
+"""
 
 import asyncio
 from unittest.mock import patch, MagicMock
@@ -8,6 +12,8 @@ from starlette.testclient import WebSocketDisconnect
 
 import dependencies
 from services import training_state
+
+pytestmark = pytest.mark.skip(reason="WebSocket training endpoint replaced by SSE in chat routes")
 
 
 @pytest.fixture(autouse=True)

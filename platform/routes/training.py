@@ -1,8 +1,7 @@
 """
-Training endpoints including start, status, cancel, and WebSocket progress.
+Training endpoints including start, status, and cancel.
 """
 
-import asyncio
 import json
 import logging
 import shutil
@@ -11,7 +10,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Request
 from auth.dependencies import get_current_user
 from db.auth_models import User
 
@@ -22,10 +21,6 @@ from schemas import (
 )
 from dependencies import training_jobs, dataset_service, code_generator, limiter
 from services.model_registry import save_model_metadata, get_model_path
-from services.training_state import (
-    _ws_subscribers, _ws_lock,
-    notify_training_subscribers, _get_job_snapshot,
-)
 from codegen import compile_training_code
 from codegen.compiler import run_training as run_custom_training_process
 
@@ -56,7 +51,7 @@ def _monitor_process(job_id: str, process, metadata: ModelMetadata):
                     "epoch": epoch, "loss": loss, "accuracy": acc,
                     "message": f"Epoch {epoch}: {acc:.2f}%",
                 })
-                notify_training_subscribers(job_id)
+
                 metadata.epochs_trained = epoch
                 metadata.best_accuracy = max(metadata.best_accuracy, acc)
                 metadata.training_history.append({"epoch": epoch, "loss": loss, "accuracy": acc})
@@ -87,7 +82,7 @@ def _finalize_process(job_id: str, process, metadata: ModelMetadata, model_src: 
         output_lines = training_jobs[job_id].get("output", [])
         if output_lines:
             training_jobs[job_id]["message"] = "\n".join(output_lines[-5:])
-    notify_training_subscribers(job_id)
+
     save_model_metadata(metadata)
     training_jobs.sync_to_db(job_id)
 
@@ -98,7 +93,7 @@ def _fail_job(job_id: str, metadata: ModelMetadata, error: Exception):
     training_jobs[job_id]["status"] = "failed"
     metadata.status = TrainStatus.FAILED
     training_jobs[job_id]["message"] = str(error)
-    notify_training_subscribers(job_id)
+
     save_model_metadata(metadata)
     training_jobs.sync_to_db(job_id)
 
@@ -107,7 +102,7 @@ def run_training(job_id: str, request: TrainRequest, metadata: ModelMetadata):
     import subprocess
     try:
         training_jobs[job_id]["status"] = "running"
-        notify_training_subscribers(job_id)
+    
         metadata.status = TrainStatus.RUNNING
         save_model_metadata(metadata)
 
@@ -133,7 +128,7 @@ def run_custom_training(job_id: str, request: CustomTrainRequest, metadata: Mode
 
     try:
         training_jobs[job_id]["status"] = "running"
-        notify_training_subscribers(job_id)
+    
         metadata.status = TrainStatus.RUNNING
         save_model_metadata(metadata)
 
@@ -161,14 +156,14 @@ def run_custom_training(job_id: str, request: CustomTrainRequest, metadata: Mode
 
         training_jobs[job_id]["status"] = "compiling"
         training_jobs[job_id]["message"] = "Compiling..."
-        notify_training_subscribers(job_id)
+    
         success, msg = compile_training_code(job_dir)
         if not success:
             raise RuntimeError(f"Compilation failed: {msg}")
 
         training_jobs[job_id]["status"] = "training"
         training_jobs[job_id]["message"] = "Training..."
-        notify_training_subscribers(job_id)
+    
         output_model = job_dir / "model.bin"
 
         # Extract processed data from blob storage to temp dir
@@ -312,49 +307,6 @@ async def start_training(request: Request, req: TrainRequest, user: User = Depen
         "message": job["message"],
         "config": config
     }
-
-
-@router.websocket("/ws/train/{job_id}")
-async def ws_training_status(websocket: WebSocket, job_id: str):
-    """WebSocket endpoint for real-time training updates."""
-    if job_id not in training_jobs:
-        await websocket.close(code=4004, reason="Training job not found")
-        return
-
-    await websocket.accept()
-
-    queue: asyncio.Queue = asyncio.Queue()
-    with _ws_lock:
-        _ws_subscribers.setdefault(job_id, []).append(queue)
-
-    try:
-        snapshot = _get_job_snapshot(job_id)
-        if snapshot:
-            await websocket.send_json(snapshot)
-
-        while True:
-            try:
-                update = await asyncio.wait_for(queue.get(), timeout=5.0)
-                await websocket.send_json(update)
-                if update.get("status") in ("completed", "failed", "cancelled"):
-                    await websocket.close(code=1000)
-                    break
-            except asyncio.TimeoutError:
-                try:
-                    await websocket.send_json({"type": "ping"})
-                except Exception:
-                    break
-    except WebSocketDisconnect:
-        pass
-    except Exception:
-        pass
-    finally:
-        with _ws_lock:
-            subs = _ws_subscribers.get(job_id, [])
-            if queue in subs:
-                subs.remove(queue)
-            if not subs:
-                _ws_subscribers.pop(job_id, None)
 
 
 @router.get("/train/{job_id}", response_model=TrainingJobResponse)

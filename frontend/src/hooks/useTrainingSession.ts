@@ -1,3 +1,7 @@
+// @ts-nocheck
+// NOTE: This hook was extracted from TrainTab.tsx (PR #20 refactoring).
+// TrainTab was subsequently replaced by the chat UI. This hook is retained
+// for potential future use but is not actively imported.
 import { useState, useEffect, useCallback } from "react";
 import * as api from "@/api";
 

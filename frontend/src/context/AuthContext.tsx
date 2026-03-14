@@ -5,6 +5,8 @@ import { getMe, getStoredToken, storeTokens, clearTokens } from "@/services/auth
 interface User {
   id: string;
   email: string;
+  plan?: string;
+  oauth_provider?: string | null;
 }
 
 interface AuthContextType {
@@ -25,7 +27,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (token) {
       getMe(token)
-        .then((u) => setUser({ id: u.id, email: u.email }))
+        .then((u) => setUser({ id: u.id, email: u.email, plan: u.plan, oauth_provider: u.oauth_provider }))
         .catch(() => {
           clearTokens();
           setToken(null);

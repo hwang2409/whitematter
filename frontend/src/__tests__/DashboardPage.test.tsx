@@ -1,3 +1,6 @@
+// DashboardPage was replaced by ChatPage in the chat-based UI redesign.
+// These tests are skipped until rewritten for ChatPage.
+
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
@@ -18,6 +21,11 @@ vi.mock("@/context/AuthContext", () => ({
 vi.mock("@/api", () => ({
   getCustomDatasets: vi.fn(),
   getModels: vi.fn(),
+}));
+
+// DashboardPage was removed in chat UI redesign
+vi.mock("@/views/DashboardPage", () => ({
+  default: () => null,
 }));
 
 import { useAuth } from "@/context/AuthContext";
@@ -48,7 +56,7 @@ beforeEach(() => {
   mockGetModels.mockReturnValue(new Promise(() => {}));
 });
 
-describe("DashboardPage", () => {
+describe.skip("DashboardPage", () => {
   it("renders without crashing", () => {
     renderWithProviders(<DashboardPage />);
     expect(screen.getByText("Dashboard")).toBeInTheDocument();

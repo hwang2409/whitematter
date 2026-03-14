@@ -14,6 +14,7 @@ import Alert from "@mui/material/Alert";
 import InputAdornment from "@mui/material/InputAdornment";
 import EmailOutlined from "@mui/icons-material/EmailOutlined";
 import LockOutlined from "@mui/icons-material/LockOutlined";
+import GoogleSignInButton from "@/components/GoogleSignInButton";
 
 export default function LoginPage() {
   const { loginWithTokens } = useAuth();
@@ -30,7 +31,7 @@ export default function LoginPage() {
     try {
       const tokens = await login(email, password);
       loginWithTokens(tokens);
-      router.replace("/dashboard");
+      router.replace("/chat");
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Login failed";
       setError(
@@ -75,6 +76,12 @@ export default function LoginPage() {
               {error}
             </Alert>
           )}
+          <GoogleSignInButton />
+          <Box sx={{ display: "flex", alignItems: "center", my: 2 }}>
+            <Box sx={{ flex: 1, borderBottom: 1, borderColor: "divider" }} />
+            <Box sx={{ px: 2, color: "text.secondary", fontSize: "0.85rem" }}>or</Box>
+            <Box sx={{ flex: 1, borderBottom: 1, borderColor: "divider" }} />
+          </Box>
           <TextField
             fullWidth
             type="email"

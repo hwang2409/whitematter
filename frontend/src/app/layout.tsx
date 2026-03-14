@@ -3,13 +3,14 @@ import { Providers } from "./providers";
 import "@/app/globals.css";
 
 export const metadata: Metadata = {
-  title: "whitematter — Train neural networks from your browser",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"),
+  title: "WhiteMatter — Build ML Models Through Conversation",
   description:
-    "Design architectures with AI, train models in real-time, and deploy with one click.",
+    "Describe what you want to build. We design the architecture, train the model, and give you an API. No ML expertise required.",
   openGraph: {
-    title: "whitematter",
+    title: "WhiteMatter — Build ML Models Through Conversation",
     description:
-      "Train neural networks from your browser. Design architectures with AI. Deploy with one click.",
+      "Describe what you want to build. We design the architecture, train the model, and give you an API.",
     images: [{ url: "/og-image.svg", width: 1200, height: 630 }],
     type: "website",
   },
