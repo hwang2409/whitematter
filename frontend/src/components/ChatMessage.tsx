@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
@@ -20,22 +21,27 @@ function AiAvatar() {
   return (
     <Box
       sx={{
-        width: 30,
-        height: 30,
+        width: 28,
+        height: 28,
         borderRadius: "50%",
-        bgcolor: "rgba(120,113,108,0.08)",
+        bgcolor: "primary.main",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        fontSize: "0.6875rem",
-        fontWeight: 700,
-        color: "primary.main",
         flexShrink: 0,
-        mt: 0.25,
-        fontFamily: "'DM Sans', sans-serif",
       }}
     >
-      wm
+      <Typography
+        sx={{
+          fontFamily: "'DM Serif Display', Georgia, serif",
+          fontSize: "0.8rem",
+          fontWeight: 400,
+          color: "#FFFFFF",
+          lineHeight: 1,
+        }}
+      >
+        W
+      </Typography>
     </Box>
   );
 }
@@ -260,6 +266,7 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
           sx={{
             flex: 1,
             minWidth: 0,
+            bgcolor: "transparent",
             "& p": { m: 0 },
             "& p + p": { mt: 1.5 },
             "& code": {
@@ -274,13 +281,15 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
               borderRadius: 0.75,
             },
             "& pre": {
-              bgcolor: (theme) =>
-                theme.palette.mode === "dark"
-                  ? "rgba(0,0,0,0.3)"
-                  : "rgba(0,0,0,0.03)",
-              borderRadius: 1.5,
-              p: 2,
+              backgroundColor: "#161514",
+              border: "1px solid rgba(255,255,255,0.07)",
+              borderLeft: "4px solid",
+              borderLeftColor: "primary.main",
+              borderRadius: "8px",
+              padding: "12px 16px",
               overflow: "auto",
+              fontFamily: "'DM Mono', monospace",
+              fontSize: "0.8125rem",
               my: 1.5,
               "& code": {
                 bgcolor: "transparent",
