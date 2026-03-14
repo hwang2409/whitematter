@@ -14,13 +14,12 @@ from db.auth_models import User
 
 from config import GENERATED_DIR
 from schemas import ModelMetadata, TrainStatus, ModelListResponse, DetailResponse, ResumeTrainingResponse
-from dependencies import (
-    loaded_models, training_jobs,
-    dataset_service, code_generator,
-    load_model_metadata, save_model_metadata, list_all_models,
-    get_model_path, get_metadata_path,
-    notify_training_subscribers,
+from dependencies import training_jobs, dataset_service, code_generator
+from services.model_registry import (
+    loaded_models, load_model_metadata, save_model_metadata,
+    list_all_models, get_model_path, get_metadata_path,
 )
+from services.training_state import notify_training_subscribers
 from codegen import compile_training_code
 from codegen.compiler import run_training as run_custom_training_process
 from routes.training import _monitor_process, _finalize_process, _fail_job

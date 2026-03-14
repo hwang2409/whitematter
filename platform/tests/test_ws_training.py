@@ -7,6 +7,7 @@ import pytest
 from starlette.testclient import WebSocketDisconnect
 
 import dependencies
+from services import training_state
 
 
 @pytest.fixture(autouse=True)
@@ -160,5 +161,5 @@ class TestWSSubscriberCleanup:
             pass  # Expected: server closes after sending completed status
 
         # After disconnect, subscriber should be cleaned up
-        subs = dependencies._ws_subscribers.get(job_id, [])
+        subs = training_state._ws_subscribers.get(job_id, [])
         assert len(subs) == 0

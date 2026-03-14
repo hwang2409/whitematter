@@ -21,8 +21,8 @@ from schemas import (
     ModelMetadata, TrainStatus, GenerateRequest,
     PredictionResponse, GenerateTextResponse, ModelInfoResponse,
 )
-from dependencies import (
-    dataset_service,
+from dependencies import dataset_service
+from services.model_registry import (
     load_model_metadata, get_model_path,
     get_loaded_model, preprocess_image,
 )

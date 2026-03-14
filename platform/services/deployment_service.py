@@ -14,7 +14,7 @@ from db import get_db_session, get_blob_store
 from db.auth_models import Deployment, DeploymentStatus
 from db.models import Model
 from config import GENERATED_DIR
-from dependencies import load_model_metadata, get_model_path
+from services.model_registry import load_model_metadata, get_model_path
 from schemas import TrainStatus
 from deploy.server_py_content import get_server_py_content
 
@@ -29,7 +29,7 @@ class DeploymentService:
 
     def get_config_for_model(self, model_id: str, dataset_id: str) -> Optional[dict]:
         """Get dataset config (target_size, mean, std, channels, class_names) for a custom dataset."""
-        from dependencies import dataset_manager
+        from dependencies import dataset_manager  # noqa: lazy import avoids circular
         from services.dataset_service import DatasetService
         ds = DatasetService()
 
