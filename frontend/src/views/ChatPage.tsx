@@ -420,49 +420,61 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
         )}
 
         {showEmptyState ? (
-          /* Empty state — heading, chips, and input all centered */
+          /* Empty state — shown when phase is greeting and no messages */
           <Box
             sx={{
-              flex: 1,
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
-              px: 4,
+              flex: 1,
+              gap: 3,
+              px: 2,
             }}
           >
+            {/* Watermark logomark */}
+            <Typography
+              sx={{
+                fontFamily: "'DM Serif Display', Georgia, serif",
+                fontSize: "6rem",
+                fontWeight: 400,
+                color: "text.primary",
+                opacity: 0.06,
+                lineHeight: 1,
+                userSelect: "none",
+              }}
+            >
+              W
+            </Typography>
+
+            {/* Heading */}
             <Typography
               variant="h1"
               sx={{
-                mb: 1,
-                textAlign: "center",
-                "& em": { fontStyle: "italic" },
+                fontFamily: "'DM Serif Display', Georgia, serif",
+                fontSize: "1.5rem",
+                fontWeight: 400,
+                color: "text.secondary",
+                letterSpacing: "-0.02em",
+                mt: -2,
               }}
             >
-              What will you <em>build?</em>
+              What would you like to train?
             </Typography>
-            <Typography
-              sx={{
-                fontSize: "1rem",
-                color: "text.disabled",
-                mb: 3,
-                textAlign: "center",
-              }}
-            >
-              Describe a problem and I&apos;ll design a neural network for it.
-            </Typography>
-            <Box sx={{ maxWidth: 660, width: "100%", mt: 3 }}>
+
+            {/* Chat input */}
+            <Box sx={{ width: "100%", maxWidth: 600 }}>
               <ChatInput
                 onSend={handleSend}
                 onFileUpload={handleFileUpload}
                 maxUploadMB={uploadLimitMB}
                 disabled={streaming}
-                placeholder={placeholderForPhase(phase)}
+                placeholder="Describe what you want to build..."
               />
             </Box>
-            <Box sx={{ maxWidth: 660, width: "100%", mt: 1.5 }}>
-              <QuickStartChips onSelect={handleSend} />
-            </Box>
+
+            {/* Quick start chips */}
+            <QuickStartChips onSelect={handleSend} />
           </Box>
         ) : (
           /* Messages */
