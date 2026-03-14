@@ -36,8 +36,8 @@ export default function TrainingChart({ data, singleAccent = true }: TrainingCha
   }
 
   const accent = themeTokens.accent;
-  const accentLight = "rgba(126, 184, 255, 0.1)";
-  const accentLighter = "rgba(126, 184, 255, 0.6)"; // for accuracy line
+  const accentLight = themeTokens.accentMuted;  // violet at 0.15 opacity
+  const accentLighter = themeTokens.completion;  // #F59E0B amber for accuracy line
 
   return (
     <Box
