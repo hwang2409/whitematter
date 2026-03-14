@@ -831,3 +831,88 @@ export async function getChatTrainingStatus(conversationId: string): Promise<Tra
   });
   return res.json();
 }
+
+// ---------------------------------------------------------------------------
+// Billing API
+// ---------------------------------------------------------------------------
+
+export interface BillingStatus {
+  plan: string;
+  plan_details: Record<string, unknown>;
+  subscription: Record<string, unknown> | null;
+}
+
+export interface BillingUsage {
+  models_count: number;
+  datasets_count: number;
+  conversations_count: number;
+}
+
+export async function getBillingStatus(token: string): Promise<BillingStatus> {
+  const res = await fetchWithTimeout(`${API_BASE}/billing/status`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return res.json();
+}
+
+export async function getBillingUsage(token: string): Promise<BillingUsage> {
+  const res = await fetchWithTimeout(`${API_BASE}/billing/usage`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return res.json();
+}
+
+export async function createCheckoutSession(
+  token: string,
+  plan: string
+): Promise<{ url: string }> {
+  const res = await fetchWithTimeout(`${API_BASE}/billing/checkout`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ plan }),
+  });
+  return res.json();
+}
+
+export async function createPortalSession(
+  token: string
+): Promise<{ url: string }> {
+  const res = await fetchWithTimeout(`${API_BASE}/billing/portal`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Auth API (password change & data export)
+// ---------------------------------------------------------------------------
+
+export async function changePassword(
+  token: string,
+  currentPassword: string,
+  newPassword: string
+): Promise<{ message: string }> {
+  const res = await fetchWithTimeout(`${API_BASE}/auth/change-password`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  });
+  return res.json();
+}
+
+export async function exportUserData(token: string): Promise<Blob> {
+  const res = await fetchWithTimeout(`${API_BASE}/auth/export`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return res.blob();
+}

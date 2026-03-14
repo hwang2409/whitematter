@@ -9,7 +9,7 @@ import AccountTab from "@/components/settings/AccountTab";
 import BillingTab from "@/components/settings/BillingTab";
 import ConnectTab from "@/components/settings/ConnectTab";
 
-const TABS = ["General", "Billing", "Connect"] as const;
+const TABS = ["Account", "Billing", "Connect"] as const;
 
 export default function SettingsRoute() {
   const [activeTab, setActiveTab] = useState(0);
