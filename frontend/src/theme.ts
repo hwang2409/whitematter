@@ -212,6 +212,32 @@ export function getTheme(mode: ThemeMode) {
         },
       },
       MuiAlert: { styleOverrides: { root: { borderRadius: 10 } } },
+      MuiButtonBase: {
+        styleOverrides: {
+          root: {
+            '&:focus-visible': {
+              outline: '2px solid #8B5CF6',
+              outlineOffset: '2px',
+            },
+          },
+        },
+      },
+      MuiOutlinedInput: {
+        styleOverrides: {
+          root: {
+            '&.Mui-focused': {
+              '& .MuiOutlinedInput-notchedOutline': {
+                borderColor: '#8B5CF6',
+                borderWidth: '2px',
+              },
+            },
+            '&:focus-visible': {
+              outline: '2px solid #8B5CF6',
+              outlineOffset: '2px',
+            },
+          },
+        },
+      },
     },
   });
 }
