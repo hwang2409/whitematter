@@ -82,11 +82,8 @@ export default function ChatInput({
         transition: "all 0.2s ease-out",
         boxShadow: "0 2px 12px rgba(0,0,0,0.02)",
         "&:focus-within": {
-          borderColor: (theme) =>
-            theme.palette.mode === "dark"
-              ? "rgba(255,255,255,0.14)"
-              : "rgba(0,0,0,0.12)",
-          boxShadow: "0 2px 20px rgba(0,0,0,0.04)",
+          borderColor: "primary.main",
+          boxShadow: "0 0 0 2px rgba(139, 92, 246, 0.15)",
         },
       }}
     >

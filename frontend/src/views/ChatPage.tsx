@@ -420,49 +420,65 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
         )}
 
         {showEmptyState ? (
-          /* Empty state — heading, chips, and input all centered */
+          /* Empty state — shown when phase is greeting and no messages */
           <Box
             sx={{
-              flex: 1,
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
-              px: 4,
+              flex: 1,
+              gap: 3,
+              px: 2,
             }}
           >
+            {/* Watermark logomark */}
+            <Box
+              component="img"
+              src="/logowithout.png"
+              alt=""
+              sx={(theme) => ({
+                width: 120,
+                height: 120,
+                objectFit: "contain",
+                opacity: theme.palette.mode === "dark" ? 0.2 : 0.25,
+                filter:
+                  theme.palette.mode === "dark"
+                    ? "brightness(0) invert(1)"
+                    : "brightness(0)",
+                userSelect: "none",
+                pointerEvents: "none",
+              })}
+            />
+
+            {/* Heading */}
             <Typography
               variant="h1"
               sx={{
-                mb: 1,
-                textAlign: "center",
-                "& em": { fontStyle: "italic" },
+                fontFamily: "'DM Serif Display', Georgia, serif",
+                fontSize: "1.5rem",
+                fontWeight: 400,
+                color: "text.secondary",
+                letterSpacing: "-0.02em",
+                mt: -2,
               }}
             >
-              What will you <em>build?</em>
+              What would you like to train?
             </Typography>
-            <Typography
-              sx={{
-                fontSize: "1rem",
-                color: "text.disabled",
-                mb: 3,
-                textAlign: "center",
-              }}
-            >
-              Describe a problem and I&apos;ll design a neural network for it.
-            </Typography>
-            <Box sx={{ maxWidth: 660, width: "100%", mt: 3 }}>
+
+            {/* Chat input */}
+            <Box sx={{ width: "100%", maxWidth: 600 }}>
               <ChatInput
                 onSend={handleSend}
                 onFileUpload={handleFileUpload}
                 maxUploadMB={uploadLimitMB}
                 disabled={streaming}
-                placeholder={placeholderForPhase(phase)}
+                placeholder="Describe what you want to build..."
               />
             </Box>
-            <Box sx={{ maxWidth: 660, width: "100%", mt: 1.5 }}>
-              <QuickStartChips onSelect={handleSend} />
-            </Box>
+
+            {/* Quick start chips */}
+            <QuickStartChips onSelect={handleSend} />
           </Box>
         ) : (
           /* Messages */
@@ -478,28 +494,79 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
               flex: 1,
             }}
           >
-            {messages.map((msg) => (
-              <ChatMessageBubble key={msg.id} message={msg} onTrainingComplete={handleTrainingComplete} />
-            ))}
+            {(() => {
+              const lastActiveTrainingIdx = messages.reduceRight(
+                (found, msg, idx) =>
+                  found === -1 && msg.type === 'training_progress' ? idx : found,
+                -1
+              );
+              return messages.map((msg, idx) => {
+                const enrichedMsg =
+                  msg.type === 'training_progress'
+                    ? { ...msg, metadata: { ...msg.metadata, isLatestActive: idx === lastActiveTrainingIdx } }
+                    : msg;
+                return (
+                  <ChatMessageBubble key={msg.id} message={enrichedMsg} onTrainingComplete={handleTrainingComplete} />
+                );
+              });
+            })()}
 
             {streaming && (
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, px: 4, py: 1 }}>
+              <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, px: 2, py: 1 }}>
+                {/* AI Avatar */}
                 <Box
                   sx={{
-                    width: 30,
-                    height: 30,
+                    width: 28,
+                    height: 28,
                     borderRadius: "50%",
-                    bgcolor: "rgba(120,113,108,0.08)",
+                    bgcolor: "primary.main",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
+                    flexShrink: 0,
+                    animation: "pulse 1.5s ease-in-out infinite",
+                    "@keyframes pulse": {
+                      "0%, 100%": { opacity: 1 },
+                      "50%": { opacity: 0.5 },
+                    },
+                    "@media (prefers-reduced-motion: reduce)": {
+                      animation: "none",
+                      transition: "none",
+                    },
                   }}
                 >
-                  <CircularProgress size={14} sx={{ color: "primary.main" }} />
+                  <Box
+                    component="img"
+                    src="/logo.png"
+                    alt=""
+                    sx={{
+                      width: 20,
+                      height: 20,
+                      objectFit: "contain",
+                      filter: "brightness(0) invert(1)",
+                    }}
+                  />
                 </Box>
-                <Typography variant="body2" color="text.secondary">
-                  Thinking...
-                </Typography>
+                {/* Sliding bar indicator */}
+                <Box
+                  sx={{
+                    width: 40,
+                    height: 3,
+                    borderRadius: 2,
+                    bgcolor: "primary.main",
+                    mt: "12px",
+                    animation: "slideBar 1.2s ease-in-out infinite",
+                    "@keyframes slideBar": {
+                      "0%": { transform: "translateX(0)", opacity: 0.4 },
+                      "50%": { transform: "translateX(12px)", opacity: 1 },
+                      "100%": { transform: "translateX(0)", opacity: 0.4 },
+                    },
+                    "@media (prefers-reduced-motion: reduce)": {
+                      animation: "none",
+                      transition: "none",
+                    },
+                  }}
+                />
               </Box>
             )}
 

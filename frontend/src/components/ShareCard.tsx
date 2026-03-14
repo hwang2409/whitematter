@@ -81,7 +81,7 @@ export default function ShareCard({ model }: Props) {
         <Box>
           <Typography
             sx={{
-              fontFamily: '"JetBrains Mono", monospace',
+              fontFamily: "'DM Mono', monospace",
               fontSize: "0.875rem",
               color: "#7EB8FF",
               mb: 1,
@@ -101,7 +101,7 @@ export default function ShareCard({ model }: Props) {
           </Typography>
           <Typography
             sx={{
-              fontFamily: '"JetBrains Mono", monospace',
+              fontFamily: "'DM Mono', monospace",
               fontSize: "3rem",
               fontWeight: 700,
               color: "#7EB8FF",
@@ -120,7 +120,7 @@ export default function ShareCard({ model }: Props) {
                 size="small"
                 label={part}
                 sx={{
-                  fontFamily: '"JetBrains Mono", monospace',
+                  fontFamily: "'DM Mono', monospace",
                   fontSize: "0.625rem",
                   bgcolor: "rgba(126,184,255,0.15)",
                   color: "#7EB8FF",
@@ -150,7 +150,7 @@ export default function ShareCard({ model }: Props) {
           sx={{
             fontSize: "0.6875rem",
             color: "rgba(255,255,255,0.3)",
-            fontFamily: '"JetBrains Mono", monospace',
+            fontFamily: "'DM Mono', monospace",
           }}
         >
           Built with whitematter
