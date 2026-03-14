@@ -280,11 +280,10 @@ debug: clean $(ML_TARGET)
 
 dev:
 	@echo "Starting backend and frontend..."
-	@cd platform && python3 server.py & \
-	echo "Waiting for backend..." && \
-	until curl -sf http://localhost:8080/health > /dev/null 2>&1; do sleep 0.5; done && \
-	echo "Backend ready." && \
-	cd frontend && npm run dev
+	@cd platform && python server.py & PID=$$!; \
+	trap "kill $$PID 2>/dev/null; exit" INT TERM EXIT; \
+	cd frontend && npm run dev; \
+	kill $$PID 2>/dev/null
 
 docker-build:
 	docker compose build

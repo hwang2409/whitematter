@@ -11,11 +11,9 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, File, UploadFile, HTTPException, Form, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 
 from schemas import DatasetListResponse, DetailResponse
-from dependencies import dataset_service
+from dependencies import dataset_service, limiter
 from services.url_fetcher import fetch_for_import, URLFetchError
 from schemas.import_schemas import ImportFromUrlRequest, ImportFromHuggingFaceRequest
 from auth.dependencies import get_current_user
@@ -24,7 +22,6 @@ from db.auth_models import User
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
 
 UPLOAD_LIMITS = {
     "free": 200 * 1024 * 1024,   # 200 MB

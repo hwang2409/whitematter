@@ -11,8 +11,6 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from auth.dependencies import get_current_user
 from db.auth_models import User
 
@@ -21,18 +19,14 @@ from schemas import (
     TrainRequest, CustomTrainRequest, ModelMetadata, TrainStatus,
     TrainingJobResponse, DetailResponse,
 )
-from dependencies import (
-    training_jobs,
-    dataset_service, code_generator,
-    save_model_metadata, get_model_path,
-)
+from dependencies import training_jobs, dataset_service, code_generator, limiter
+from services.model_registry import save_model_metadata, get_model_path
 from codegen import compile_training_code
 from codegen.compiler import run_training as run_custom_training_process
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-limiter = Limiter(key_func=get_remote_address)
 
 
 def _monitor_process(job_id: str, process, metadata: ModelMetadata):

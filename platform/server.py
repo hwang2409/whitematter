@@ -23,12 +23,12 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from db import init_db, get_data_dir
-from dependencies import ensure_dirs
+from config import ensure_dirs
+from dependencies import limiter
 from services.job_store import TrainingJobStore
 from config import MODELS_DIR
 from services.auth_service import AuthService
@@ -60,14 +60,13 @@ try:
 except RuntimeError as e:
     raise SystemExit(f"FATAL: {e}") from e
 
-limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(title="Whitematter Model Server", version="0.5.0")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 _allowed_origins = [
     o.strip()
-    for o in os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+    for o in os.environ.get("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000").split(",")
     if o.strip()
 ]
 app.add_middleware(

@@ -1,10 +1,22 @@
 """Build the whitematter C++ extension from repo root. Use from root: pip install ."""
 from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
+import re
 import sys
 import os
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
+
+
+def _read_version():
+    """Read version from pyproject.toml to avoid duplication."""
+    pyproject = os.path.join(ROOT, "pyproject.toml")
+    with open(pyproject, encoding="utf-8") as f:
+        for line in f:
+            m = re.match(r'^version\s*=\s*"([^"]+)"', line.strip())
+            if m:
+                return m.group(1)
+    raise RuntimeError("Unable to find version in pyproject.toml")
 
 extra_compile_args = ["-std=c++17", "-O3", "-ffast-math"]
 extra_link_args = []
@@ -64,7 +76,7 @@ def _read_readme():
 
 setup(
     name="whitematter",
-    version="0.1.0",
+    version=_read_version(),
     author="Whitematter Contributors",
     description="Lightweight neural network framework with GPU support",
     long_description=_read_readme(),

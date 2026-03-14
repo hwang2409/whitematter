@@ -55,6 +55,13 @@ SCHEDULERS = {
     "exponential": {"name": "ExponentialLR", "params": {"gamma": 0.95}}
 }
 
+def ensure_dirs():
+    """Create required directories if they don't exist."""
+    MODELS_DIR.mkdir(exist_ok=True)
+    UPLOADS_DIR.mkdir(exist_ok=True)
+    GENERATED_DIR.mkdir(exist_ok=True)
+
+
 AUGMENTATIONS = {
     "horizontal_flip": {"name": "Horizontal Flip", "params": {"p": 0.5}},
     "random_crop": {"name": "Random Crop", "params": {"padding": 4}},

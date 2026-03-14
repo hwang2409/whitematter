@@ -12,10 +12,7 @@ from schemas.auth_schemas import (
 )
 from auth.dependencies import get_current_user
 from fastapi.responses import JSONResponse
-from slowapi import Limiter
-from slowapi.util import get_remote_address
-
-limiter = Limiter(key_func=get_remote_address)
+from dependencies import limiter
 
 logger = logging.getLogger(__name__)
 
