@@ -18,6 +18,7 @@ def _read_version():
                 return m.group(1)
     raise RuntimeError("Unable to find version in pyproject.toml")
 
+
 extra_compile_args = ["-std=c++17", "-O3", "-ffast-math"]
 extra_link_args = []
 
@@ -46,18 +47,18 @@ ext_modules = [
     Extension(
         "whitematter",
         sources=[
-            os.path.join(ROOT, "bindings", "whitematter_py.cpp"),
-            os.path.join(ROOT, "core", "tensor.cpp"),
-            os.path.join(ROOT, "core", "layer.cpp"),
-            os.path.join(ROOT, "core", "loss.cpp"),
-            os.path.join(ROOT, "core", "optimizer.cpp"),
-            os.path.join(ROOT, "core", "serialize.cpp"),
-            os.path.join(ROOT, "core", "memory_pool.cpp"),
+            os.path.join("bindings", "whitematter_py.cpp"),
+            os.path.join("core", "tensor.cpp"),
+            os.path.join("core", "layer.cpp"),
+            os.path.join("core", "loss.cpp"),
+            os.path.join("core", "optimizer.cpp"),
+            os.path.join("core", "serialize.cpp"),
+            os.path.join("core", "memory_pool.cpp"),
         ],
         include_dirs=[
-            ROOT,
-            os.path.join(ROOT, "core"),
-            os.path.join(ROOT, "bindings"),
+            ".",
+            os.path.join("core"),
+            os.path.join("bindings"),
         ],
         language="c++",
         extra_compile_args=extra_compile_args,
@@ -67,7 +68,7 @@ ext_modules = [
 
 
 def _read_readme():
-    readme = os.path.join(ROOT, "README.md")
+    readme = os.path.join(os.path.dirname(os.path.abspath(__file__)), "README.md")
     if os.path.isfile(readme):
         with open(readme, encoding="utf-8") as f:
             return f.read()
