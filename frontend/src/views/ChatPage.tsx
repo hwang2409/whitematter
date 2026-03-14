@@ -435,16 +435,20 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
             {/* Watermark logomark */}
             <Box
               component="img"
-              src="/logo.png"
+              src="/logowithout.png"
               alt=""
-              sx={{
+              sx={(theme) => ({
                 width: 120,
                 height: 120,
                 objectFit: "contain",
-                opacity: 0.06,
+                opacity: theme.palette.mode === "dark" ? 0.2 : 0.25,
+                filter:
+                  theme.palette.mode === "dark"
+                    ? "brightness(0) invert(1)"
+                    : "brightness(0)",
                 userSelect: "none",
                 pointerEvents: "none",
-              }}
+              })}
             />
 
             {/* Heading */}

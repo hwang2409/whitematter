@@ -101,7 +101,13 @@ export default function AuthenticatedLayout({
     }
   }, [renamingId]);
 
-  if (loading) {
+  useEffect(() => {
+    if (!loading && !user) {
+      router.replace("/login");
+    }
+  }, [loading, user, router]);
+
+  if (loading || !user) {
     return (
       <Box
         sx={{
@@ -254,16 +260,26 @@ export default function AuthenticatedLayout({
         >
           {/* Logo + collapse toggle */}
           <Box sx={{ px: collapsed ? 0 : 1.5, pt: 1.5, pb: 1, display: "flex", alignItems: "center", justifyContent: collapsed ? "center" : "space-between" }}>
-            <Box
-              component="img"
-              src="/logo.png"
-              alt="WhiteMatter"
-              sx={{
-                height: collapsed ? 24 : 28,
-                objectFit: "contain",
-                pl: collapsed ? 0 : 1,
-              }}
-            />
+            {!collapsed && (
+              <Link href="/chat" style={{ display: "flex", alignItems: "center" }}>
+                <Box
+                  component="img"
+                  src="/logo copy-1.png"
+                  alt="WhiteMatter"
+                  sx={(theme) => ({
+                    height: 48,
+                    objectFit: "contain",
+                    pl: 1,
+                    opacity: theme.palette.mode === "dark" ? 0.85 : 0.55,
+                    filter:
+                      theme.palette.mode === "dark"
+                        ? "brightness(0) invert(1)"
+                        : "brightness(0)",
+                    cursor: "pointer",
+                  })}
+                />
+              </Link>
+            )}
             <Tooltip title={collapsed ? "Expand sidebar" : "Collapse sidebar"} placement="right" arrow>
               <IconButton
                 onClick={toggleSidebar}
