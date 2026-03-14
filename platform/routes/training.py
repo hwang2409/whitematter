@@ -20,10 +20,10 @@ from schemas import (
     TrainRequest, CustomTrainRequest, ModelMetadata, TrainStatus,
     TrainingJobResponse, DetailResponse,
 )
-from dependencies import (
-    training_jobs, _ws_subscribers, _ws_lock,
-    dataset_service, code_generator, limiter,
-    save_model_metadata, get_model_path,
+from dependencies import training_jobs, dataset_service, code_generator, limiter
+from services.model_registry import save_model_metadata, get_model_path
+from services.training_state import (
+    _ws_subscribers, _ws_lock,
     notify_training_subscribers, _get_job_snapshot,
 )
 from codegen import compile_training_code

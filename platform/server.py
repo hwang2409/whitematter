@@ -27,7 +27,9 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from db import init_db, get_data_dir
-from dependencies import capture_event_loop, ensure_dirs, limiter
+from config import ensure_dirs
+from dependencies import limiter
+from services.training_state import capture_event_loop
 from services.job_store import TrainingJobStore
 from config import MODELS_DIR
 from services.auth_service import AuthService
