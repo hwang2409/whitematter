@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import * as api from "@/api";
+import { themeTokens } from "../theme";
 import { useAuth } from "@/context/AuthContext";
 import * as deployService from "@/services/deploy";
 import ConfirmDialog from "./ConfirmDialog";
@@ -423,9 +424,46 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
       )}
 
       {models.length === 0 ? (
-        <Typography color="text.secondary" sx={{ py: 4, textAlign: "center" }}>
-          No models yet. Train one in the Train tab!
-        </Typography>
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            py: 8,
+            gap: 2,
+          }}
+        >
+          <Typography
+            sx={{
+              fontFamily: "'DM Serif Display', Georgia, serif",
+              fontSize: '4rem',
+              color: 'text.primary',
+              opacity: 0.06,
+              lineHeight: 1,
+              userSelect: 'none',
+            }}
+          >
+            W
+          </Typography>
+          <Typography
+            sx={{
+              fontFamily: "'DM Serif Display', Georgia, serif",
+              fontSize: '1.25rem',
+              color: 'text.secondary',
+            }}
+          >
+            No models yet
+          </Typography>
+          <Typography
+            sx={{
+              fontSize: '0.875rem',
+              color: themeTokens.textMuted,
+            }}
+          >
+            Start a conversation to train your first model.
+          </Typography>
+        </Box>
       ) : (
         <Box sx={{ overflowX: "auto" }}>
           <Table size="small">
