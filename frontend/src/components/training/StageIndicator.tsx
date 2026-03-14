@@ -68,6 +68,10 @@ export default function StageIndicator({ currentStage }: StageIndicatorProps) {
                     '0%, 100%': { opacity: 1 },
                     '50%': { opacity: 0.5 },
                   },
+                  '@media (prefers-reduced-motion: reduce)': {
+                    animation: 'none',
+                    transition: 'none',
+                  },
                 }),
               }}
             >

@@ -525,6 +525,10 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
                       "0%, 100%": { opacity: 1 },
                       "50%": { opacity: 0.5 },
                     },
+                    "@media (prefers-reduced-motion: reduce)": {
+                      animation: "none",
+                      transition: "none",
+                    },
                   }}
                 >
                   <Typography
@@ -551,6 +555,10 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
                       "0%": { transform: "translateX(0)", opacity: 0.4 },
                       "50%": { transform: "translateX(12px)", opacity: 1 },
                       "100%": { transform: "translateX(0)", opacity: 0.4 },
+                    },
+                    "@media (prefers-reduced-motion: reduce)": {
+                      animation: "none",
+                      transition: "none",
                     },
                   }}
                 />

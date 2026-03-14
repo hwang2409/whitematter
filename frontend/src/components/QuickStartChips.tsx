@@ -58,6 +58,10 @@ export default function QuickStartChips({ onSelect }: QuickStartChipsProps) {
                 boxShadow: "0 0 12px rgba(139, 92, 246, 0.1)",
                 color: "text.primary",
               },
+              "@media (prefers-reduced-motion: reduce)": {
+                animation: "none",
+                transition: "none",
+              },
               ...(isSelected && {
                 bgcolor: "rgba(139, 92, 246, 0.08)",
                 borderColor: "primary.main",

@@ -91,7 +91,14 @@ export default function TrainingCard({
               '50%': { opacity: 0.3 },
             },
           },
+          '@media (prefers-reduced-motion: reduce)': {
+            '&::after': { animation: 'none' },
+          },
         }),
+        transition: 'border-color 0.15s ease-out, box-shadow 0.15s ease-out',
+        '@media (prefers-reduced-motion: reduce)': {
+          transition: 'none',
+        },
       }}
     >
       {/* Header */}

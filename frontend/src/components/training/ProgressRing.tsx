@@ -36,6 +36,14 @@ export default function ProgressRing({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        '& circle.progress-circle': {
+          transition: 'stroke-dashoffset 0.5s ease-out, stroke 0.5s ease-out',
+        },
+        '@media (prefers-reduced-motion: reduce)': {
+          '& circle.progress-circle': {
+            transition: 'none',
+          },
+        },
       }}
     >
       <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
@@ -48,6 +56,7 @@ export default function ProgressRing({
           strokeWidth={strokeWidth}
         />
         <circle
+          className="progress-circle"
           cx={size / 2}
           cy={size / 2}
           r={radius}
@@ -57,7 +66,6 @@ export default function ProgressRing({
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={offset}
-          style={{ transition: 'stroke-dashoffset 0.5s ease-out, stroke 0.5s ease-out' }}
         />
       </svg>
       <Typography
