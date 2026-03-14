@@ -254,20 +254,16 @@ export default function AuthenticatedLayout({
         >
           {/* Logo + collapse toggle */}
           <Box sx={{ px: collapsed ? 0 : 1.5, pt: 1.5, pb: 1, display: "flex", alignItems: "center", justifyContent: collapsed ? "center" : "space-between" }}>
-            {!collapsed && (
-              <Typography
-                sx={{
-                  fontFamily: "'DM Sans', sans-serif",
-                  fontSize: "1rem",
-                  fontWeight: 600,
-                  letterSpacing: "-0.02em",
-                  color: "text.primary",
-                  pl: 1,
-                }}
-              >
-                whitematter
-              </Typography>
-            )}
+            <Box
+              component="img"
+              src="/logo.png"
+              alt="WhiteMatter"
+              sx={{
+                height: collapsed ? 24 : 28,
+                objectFit: "contain",
+                pl: collapsed ? 0 : 1,
+              }}
+            />
             <Tooltip title={collapsed ? "Expand sidebar" : "Collapse sidebar"} placement="right" arrow>
               <IconButton
                 onClick={toggleSidebar}

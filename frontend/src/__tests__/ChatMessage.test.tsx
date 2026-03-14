@@ -11,13 +11,15 @@ const wrap = (ui: React.ReactElement) =>
   render(<ThemeProvider theme={theme}>{ui}</ThemeProvider>);
 
 describe('ChatMessageBubble', () => {
-  it('renders AI avatar with W monogram', () => {
+  it('renders AI avatar with logo', () => {
     wrap(
       <ChatMessageBubble
         message={{ id: 'test-1', role: 'assistant', content: 'Hello', type: 'text', createdAt: new Date().toISOString() }}
       />
     );
-    expect(screen.getByText('W')).toBeTruthy();
+    const logo = screen.getByAltText('WhiteMatter');
+    expect(logo).toBeTruthy();
+    expect(logo.getAttribute('src')).toBe('/logo.png');
   });
 
   it('does not render avatar for user messages', () => {
@@ -26,6 +28,6 @@ describe('ChatMessageBubble', () => {
         message={{ id: 'test-2', role: 'user', content: 'Hi', type: 'text', createdAt: new Date().toISOString() }}
       />
     );
-    expect(screen.queryByText('W')).toBeNull();
+    expect(screen.queryByAltText('WhiteMatter')).toBeNull();
   });
 });

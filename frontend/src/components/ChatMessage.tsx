@@ -31,19 +31,20 @@ function AiAvatar() {
         alignItems: "center",
         justifyContent: "center",
         flexShrink: 0,
+        overflow: "hidden",
       }}
     >
-      <Typography
+      <Box
+        component="img"
+        src="/logo.png"
+        alt="WhiteMatter"
         sx={{
-          fontFamily: "'DM Serif Display', Georgia, serif",
-          fontSize: "0.8rem",
-          fontWeight: 400,
-          color: "#FFFFFF",
-          lineHeight: 1,
+          width: 20,
+          height: 20,
+          objectFit: "contain",
+          filter: "brightness(0) invert(1)",
         }}
-      >
-        W
-      </Typography>
+      />
     </Box>
   );
 }

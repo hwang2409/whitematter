@@ -433,19 +433,19 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
             }}
           >
             {/* Watermark logomark */}
-            <Typography
+            <Box
+              component="img"
+              src="/logo.png"
+              alt=""
               sx={{
-                fontFamily: "'DM Serif Display', Georgia, serif",
-                fontSize: "6rem",
-                fontWeight: 400,
-                color: "text.primary",
+                width: 120,
+                height: 120,
+                objectFit: "contain",
                 opacity: 0.06,
-                lineHeight: 1,
                 userSelect: "none",
+                pointerEvents: "none",
               }}
-            >
-              W
-            </Typography>
+            />
 
             {/* Heading */}
             <Typography
@@ -531,16 +531,17 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
                     },
                   }}
                 >
-                  <Typography
+                  <Box
+                    component="img"
+                    src="/logo.png"
+                    alt=""
                     sx={{
-                      fontFamily: "'DM Serif Display', Georgia, serif",
-                      fontSize: "0.8rem",
-                      color: "#FFFFFF",
-                      lineHeight: 1,
+                      width: 20,
+                      height: 20,
+                      objectFit: "contain",
+                      filter: "brightness(0) invert(1)",
                     }}
-                  >
-                    W
-                  </Typography>
+                  />
                 </Box>
                 {/* Sliding bar indicator */}
                 <Box

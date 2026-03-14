@@ -434,18 +434,19 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
             gap: 2,
           }}
         >
-          <Typography
+          <Box
+            component="img"
+            src="/logo.png"
+            alt=""
             sx={{
-              fontFamily: "'DM Serif Display', Georgia, serif",
-              fontSize: '4rem',
-              color: 'text.primary',
+              width: 80,
+              height: 80,
+              objectFit: 'contain',
               opacity: 0.06,
-              lineHeight: 1,
               userSelect: 'none',
+              pointerEvents: 'none',
             }}
-          >
-            W
-          </Typography>
+          />
           <Typography
             sx={{
               fontFamily: "'DM Serif Display', Georgia, serif",
