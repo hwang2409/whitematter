@@ -84,7 +84,7 @@ export default class ErrorBoundary extends Component<Props, State> {
                     borderRadius: 8,
                     overflow: "auto",
                     fontSize: "0.75rem",
-                    fontFamily: '"JetBrains Mono", monospace',
+                    fontFamily: "'DM Mono', monospace",
                   }}
                 >
                   {this.state.error.message}

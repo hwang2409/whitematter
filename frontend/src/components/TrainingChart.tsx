@@ -64,7 +64,7 @@ export default function TrainingChart({ data, singleAccent = true }: TrainingCha
           <XAxis
             dataKey="epoch"
             stroke={MUTED}
-            tick={{ fill: MUTED, fontSize: 11, fontFamily: '"JetBrains Mono", monospace' }}
+            tick={{ fill: MUTED, fontSize: 11, fontFamily: "'DM Mono', monospace" }}
             label={{
               value: "Epoch",
               position: "insideBottom",
@@ -76,7 +76,7 @@ export default function TrainingChart({ data, singleAccent = true }: TrainingCha
           <YAxis
             yAxisId="left"
             stroke={MUTED}
-            tick={{ fill: MUTED, fontSize: 11, fontFamily: '"JetBrains Mono", monospace' }}
+            tick={{ fill: MUTED, fontSize: 11, fontFamily: "'DM Mono', monospace" }}
             label={{
               value: "Loss",
               angle: -90,
@@ -89,7 +89,7 @@ export default function TrainingChart({ data, singleAccent = true }: TrainingCha
             yAxisId="right"
             orientation="right"
             stroke={MUTED}
-            tick={{ fill: MUTED, fontSize: 11, fontFamily: '"JetBrains Mono", monospace' }}
+            tick={{ fill: MUTED, fontSize: 11, fontFamily: "'DM Mono', monospace" }}
             domain={[0, 100]}
             label={{
               value: "Accuracy %",
@@ -104,7 +104,7 @@ export default function TrainingChart({ data, singleAccent = true }: TrainingCha
               backgroundColor: theme.palette.background.paper,
               border: `1px solid ${theme.palette.divider}`,
               borderRadius: 8,
-              fontFamily: '"JetBrains Mono", monospace',
+              fontFamily: "'DM Mono', monospace",
             }}
             labelStyle={{ color: "#fff" }}
             formatter={(value, name) => [

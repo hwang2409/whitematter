@@ -467,7 +467,7 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
                         </Typography>
                       </TableCell>
                       <TableCell>
-                        <Typography variant="body2" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: "0.8125rem" }}>
+                        <Typography variant="body2" sx={{ fontFamily: "'DM Mono', monospace", fontSize: "0.8125rem" }}>
                           {model.architecture}
                         </Typography>
                       </TableCell>
@@ -480,12 +480,12 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
                         />
                       </TableCell>
                       <TableCell>
-                        <Typography variant="body2" sx={{ fontFamily: '"JetBrains Mono", monospace' }}>
+                        <Typography variant="body2" sx={{ fontFamily: "'DM Mono', monospace" }}>
                           {model.best_accuracy.toFixed(2)}%
                         </Typography>
                       </TableCell>
                       <TableCell>
-                        <Typography variant="body2" sx={{ fontFamily: '"JetBrains Mono", monospace' }}>
+                        <Typography variant="body2" sx={{ fontFamily: "'DM Mono', monospace" }}>
                           {loss != null ? loss.toFixed(4) : "—"}
                         </Typography>
                       </TableCell>
@@ -507,7 +507,7 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
                               {model.status === "completed" && (
                                 <Typography
                                   sx={{
-                                    fontFamily: '"JetBrains Mono", monospace',
+                                    fontFamily: "'DM Mono', monospace",
                                     fontSize: "2.5rem",
                                     fontWeight: 700,
                                     color: "primary.main",
@@ -531,7 +531,7 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
                                       size="small"
                                       label={part}
                                       sx={{
-                                        fontFamily: '"JetBrains Mono", monospace',
+                                        fontFamily: "'DM Mono', monospace",
                                         fontSize: "0.6875rem",
                                         bgcolor: "action.hover",
                                         border: "1px solid",
@@ -576,8 +576,8 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
                                     {model.training_history.map((h) => (
                                       <TableRow key={h.epoch}>
                                         <TableCell>{h.epoch}</TableCell>
-                                        <TableCell sx={{ fontFamily: '"JetBrains Mono", monospace' }}>{h.loss.toFixed(4)}</TableCell>
-                                        <TableCell sx={{ fontFamily: '"JetBrains Mono", monospace' }}>{h.accuracy.toFixed(2)}%</TableCell>
+                                        <TableCell sx={{ fontFamily: "'DM Mono', monospace" }}>{h.loss.toFixed(4)}</TableCell>
+                                        <TableCell sx={{ fontFamily: "'DM Mono', monospace" }}>{h.accuracy.toFixed(2)}%</TableCell>
                                       </TableRow>
                                     ))}
                                   </TableBody>
@@ -634,7 +634,7 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
                                     <Typography variant="caption" color="text.secondary">
                                       Generated Text
                                     </Typography>
-                                    <Box component="pre" sx={{ fontFamily: '"JetBrains Mono", monospace', fontSize: "0.875rem", whiteSpace: "pre-wrap", mt: 0.5 }}>
+                                    <Box component="pre" sx={{ fontFamily: "'DM Mono', monospace", fontSize: "0.875rem", whiteSpace: "pre-wrap", mt: 0.5 }}>
                                       {generatedText}
                                     </Box>
                                   </Box>
@@ -655,7 +655,7 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
                                       sx={{
                                         flex: 1,
                                         fontSize: "0.8125rem",
-                                        fontFamily: '"JetBrains Mono", monospace',
+                                        fontFamily: "'DM Mono', monospace",
                                         p: 0.75,
                                         bgcolor: "action.hover",
                                         borderRadius: 1,
@@ -674,7 +674,7 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
                                     <Box
                                       component="pre"
                                       sx={{
-                                        fontFamily: '"JetBrains Mono", monospace',
+                                        fontFamily: "'DM Mono', monospace",
                                         fontSize: "0.75rem",
                                         p: 1,
                                         bgcolor: "action.hover",
