@@ -10,6 +10,8 @@ import type { ChatMessage } from "@/api";
 import ModelCard from "@/components/ModelCard";
 import TrainingProgress from "@/components/TrainingProgress";
 import CompletedModelCard from "./CompletedModelCard";
+import TrainingCard from './training/TrainingCard';
+import { TrainingStage } from './training/StageIndicator';
 
 interface ChatMessageBubbleProps {
   message: ChatMessage;
@@ -76,13 +78,13 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
     const convId = message.metadata.conversation_id as string;
     if (jobId && convId) {
       return (
-        <Box sx={{ px: 4, mb: 3 }}>
-          <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-start" }}>
-            <AiAvatar />
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <TrainingProgress conversationId={convId} jobId={jobId} onComplete={onTrainingComplete} />
-            </Box>
-          </Box>
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 1 }}>
+          <TrainingProgress
+            conversationId={convId}
+            jobId={jobId}
+            onComplete={message.metadata?.onComplete as (() => void) | undefined}
+            isLatestActive={message.metadata?.isLatestActive as boolean ?? false}
+          />
         </Box>
       );
     }
@@ -111,63 +113,41 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
 
   // Training error
   if (message.type === "training_error") {
-    const errorMsg = (message.metadata?.friendlyMessage as string) || message.content;
-    const suggestion = message.metadata?.suggestion as string | undefined;
     return (
-      <Box sx={{ px: 4, mb: 3 }}>
-        <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-start" }}>
-          <AiAvatar />
-          <Box
-            sx={{
-              bgcolor: "rgba(239,68,68,0.08)",
-              border: "1px solid rgba(239,68,68,0.2)",
-              borderRadius: "16px",
-              px: 2.5,
-              py: 1.5,
-            }}
-          >
-            <Typography
-              sx={{
-                fontSize: "0.8125rem",
-                fontWeight: 600,
-                color: "error.main",
-                mb: 0.5,
-              }}
-            >
-              Training Failed
-            </Typography>
-            <Typography variant="body2" sx={{ color: "text.secondary" }}>
-              {errorMsg}
-            </Typography>
-            {suggestion && (
-              <Typography variant="body2" sx={{ mt: 1, fontStyle: "italic", color: "text.secondary" }}>
-                {suggestion}
-              </Typography>
-            )}
-          </Box>
-        </Box>
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 1 }}>
+        <TrainingCard
+          modelName={message.metadata?.model_name as string ?? 'Model'}
+          stage={message.metadata?.stage as TrainingStage ?? 'training'}
+          epoch={message.metadata?.epoch as number ?? 0}
+          totalEpochs={message.metadata?.total_epochs as number ?? 0}
+          loss={message.metadata?.loss as number ?? 0}
+          accuracy={message.metadata?.accuracy as number ?? 0}
+          lossHistory={message.metadata?.loss_history as { epoch: number; loss: number; accuracy?: number }[] ?? []}
+          isLatestActive={false}
+          error={message.metadata?.error as string ?? message.content}
+        />
       </Box>
     );
   }
 
   // Training complete
   if (message.type === "training_complete") {
-    const meta = message.metadata || {};
     return (
-      <Box sx={{ px: 4, mb: 3 }}>
-        <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-start" }}>
-          <AiAvatar />
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <CompletedModelCard
-              modelId={meta.model_id as string}
-              accuracy={meta.accuracy as number}
-              params={meta.params as string}
-              trainingTime={meta.training_time as string}
-              architecture={meta.architecture as string}
-              datasetName={meta.dataset_name as string}
-            />
-          </Box>
-        </Box>
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 1 }}>
+        <TrainingCard
+          modelName={message.metadata?.model_name as string ?? 'Model'}
+          stage="complete"
+          epoch={message.metadata?.total_epochs as number ?? 0}
+          totalEpochs={message.metadata?.total_epochs as number ?? 0}
+          loss={message.metadata?.loss as number ?? 0}
+          accuracy={message.metadata?.accuracy as number ?? 0}
+          lossHistory={message.metadata?.loss_history as { epoch: number; loss: number; accuracy?: number }[] ?? []}
+          isLatestActive={false}
+          modelId={message.metadata?.model_id as string}
+          optimizer={message.metadata?.optimizer as string}
+          learningRate={message.metadata?.learning_rate as number}
+          batchSize={message.metadata?.batch_size as number}
+        />
       </Box>
     );
   }

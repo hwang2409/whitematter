@@ -490,9 +490,22 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
               flex: 1,
             }}
           >
-            {messages.map((msg) => (
-              <ChatMessageBubble key={msg.id} message={msg} onTrainingComplete={handleTrainingComplete} />
-            ))}
+            {(() => {
+              const lastActiveTrainingIdx = messages.reduceRight(
+                (found, msg, idx) =>
+                  found === -1 && msg.type === 'training_progress' ? idx : found,
+                -1
+              );
+              return messages.map((msg, idx) => {
+                const enrichedMsg =
+                  msg.type === 'training_progress'
+                    ? { ...msg, metadata: { ...msg.metadata, isLatestActive: idx === lastActiveTrainingIdx } }
+                    : msg;
+                return (
+                  <ChatMessageBubble key={msg.id} message={enrichedMsg} onTrainingComplete={handleTrainingComplete} />
+                );
+              });
+            })()}
 
             {streaming && (
               <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, px: 2, py: 1 }}>
