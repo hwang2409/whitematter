@@ -54,7 +54,7 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
   // Architecture type: render ModelCard
   if (message.type === "architecture" && message.metadata) {
     return (
-      <Box sx={{ px: 4, mb: 3 }}>
+      <Box sx={{ px: 4, mb: 3, animation: 'messageAppear 0.15s ease-out', '@keyframes messageAppear': { from: { opacity: 0, transform: 'translateY(8px)' }, to: { opacity: 1, transform: 'translateY(0)' } } }}>
         <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-start" }}>
           <AiAvatar />
           <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -78,7 +78,7 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
     const convId = message.metadata.conversation_id as string;
     if (jobId && convId) {
       return (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 1 }}>
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 1, animation: 'messageAppear 0.15s ease-out', '@keyframes messageAppear': { from: { opacity: 0, transform: 'translateY(8px)' }, to: { opacity: 1, transform: 'translateY(0)' } } }}>
           <TrainingProgress
             conversationId={convId}
             jobId={jobId}
@@ -89,7 +89,7 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
       );
     }
     return (
-      <Box sx={{ px: 4, mb: 3 }}>
+      <Box sx={{ px: 4, mb: 3, animation: 'messageAppear 0.15s ease-out', '@keyframes messageAppear': { from: { opacity: 0, transform: 'translateY(8px)' }, to: { opacity: 1, transform: 'translateY(0)' } } }}>
         <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-start" }}>
           <AiAvatar />
           <Box
@@ -114,7 +114,7 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
   // Training error
   if (message.type === "training_error") {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 1 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 1, animation: 'messageAppear 0.15s ease-out', '@keyframes messageAppear': { from: { opacity: 0, transform: 'translateY(8px)' }, to: { opacity: 1, transform: 'translateY(0)' } } }}>
         <TrainingCard
           modelName={message.metadata?.model_name as string ?? 'Model'}
           stage={message.metadata?.stage as TrainingStage ?? 'training'}
@@ -133,7 +133,7 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
   // Training complete
   if (message.type === "training_complete") {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 1 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 1, animation: 'messageAppear 0.15s ease-out', '@keyframes messageAppear': { from: { opacity: 0, transform: 'translateY(8px)' }, to: { opacity: 1, transform: 'translateY(0)' } } }}>
         <TrainingCard
           modelName={message.metadata?.model_name as string ?? 'Model'}
           stage="complete"
@@ -155,7 +155,7 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
   // File upload
   if (message.type === "file_upload") {
     return (
-      <Box sx={{ px: 4, mb: 3 }}>
+      <Box sx={{ px: 4, mb: 3, animation: 'messageAppear 0.15s ease-out', '@keyframes messageAppear': { from: { opacity: 0, transform: 'translateY(8px)' }, to: { opacity: 1, transform: 'translateY(0)' } } }}>
         <Box sx={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start" }}>
           <Box
             sx={{
@@ -180,7 +180,7 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
   // Prediction placeholder
   if (message.type === "prediction") {
     return (
-      <Box sx={{ px: 4, mb: 3 }}>
+      <Box sx={{ px: 4, mb: 3, animation: 'messageAppear 0.15s ease-out', '@keyframes messageAppear': { from: { opacity: 0, transform: 'translateY(8px)' }, to: { opacity: 1, transform: 'translateY(0)' } } }}>
         <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-start" }}>
           <AiAvatar />
           <Box
@@ -205,7 +205,7 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
   // User message
   if (isUser) {
     return (
-      <Box sx={{ px: 4, mb: 3 }}>
+      <Box sx={{ px: 4, mb: 3, animation: 'messageAppear 0.15s ease-out', '@keyframes messageAppear': { from: { opacity: 0, transform: 'translateY(8px)' }, to: { opacity: 1, transform: 'translateY(0)' } } }}>
         <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
           <Box
             sx={{
@@ -239,7 +239,7 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
 
   // Assistant text message
   return (
-    <Box sx={{ px: 4, mb: 3 }}>
+    <Box sx={{ px: 4, mb: 3, animation: 'messageAppear 0.15s ease-out', '@keyframes messageAppear': { from: { opacity: 0, transform: 'translateY(8px)' }, to: { opacity: 1, transform: 'translateY(0)' } } }}>
       <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-start" }}>
         <AiAvatar />
         <Box
