@@ -44,35 +44,31 @@ export default function QuickStartChips({ onSelect }: QuickStartChipsProps) {
             key={label}
             onClick={() => handleClick(label)}
             sx={{
-              px: 2,
-              py: 0.75,
               borderRadius: "9999px",
               border: "1px solid",
-              borderColor: isSelected ? "text.secondary" : "divider",
-              bgcolor: isSelected
-                ? (theme) =>
-                    theme.palette.mode === "dark"
-                      ? "rgba(255,255,255,0.08)"
-                      : "rgba(0,0,0,0.06)"
-                : "transparent",
+              borderColor: "divider",
+              bgcolor: "transparent",
+              color: "text.secondary",
+              px: 2,
+              py: 1,
               cursor: "pointer",
               transition: "all 0.15s ease-out",
               "&:hover": {
-                bgcolor: (theme) =>
-                  theme.palette.mode === "dark"
-                    ? "rgba(255,255,255,0.06)"
-                    : "rgba(0,0,0,0.04)",
-                borderColor: (theme) =>
-                  theme.palette.mode === "dark"
-                    ? "rgba(255,255,255,0.14)"
-                    : "rgba(0,0,0,0.12)",
+                borderColor: "primary.main",
+                boxShadow: "0 0 12px rgba(139, 92, 246, 0.1)",
+                color: "text.primary",
               },
+              ...(isSelected && {
+                bgcolor: "rgba(139, 92, 246, 0.08)",
+                borderColor: "primary.main",
+                color: "text.primary",
+              }),
             }}
           >
             <Typography
               sx={{
                 fontSize: "0.8125rem",
-                color: isSelected ? "text.primary" : "text.secondary",
+                color: "inherit",
                 whiteSpace: "nowrap",
               }}
             >
