@@ -495,23 +495,52 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
             ))}
 
             {streaming && (
-              <Box sx={{ display: "flex", alignItems: "center", gap: 1.5, px: 4, py: 1 }}>
+              <Box sx={{ display: "flex", alignItems: "flex-start", gap: 1.5, px: 2, py: 1 }}>
+                {/* AI Avatar */}
                 <Box
                   sx={{
-                    width: 30,
-                    height: 30,
+                    width: 28,
+                    height: 28,
                     borderRadius: "50%",
-                    bgcolor: "rgba(120,113,108,0.08)",
+                    bgcolor: "primary.main",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
+                    flexShrink: 0,
+                    animation: "pulse 1.5s ease-in-out infinite",
+                    "@keyframes pulse": {
+                      "0%, 100%": { opacity: 1 },
+                      "50%": { opacity: 0.5 },
+                    },
                   }}
                 >
-                  <CircularProgress size={14} sx={{ color: "primary.main" }} />
+                  <Typography
+                    sx={{
+                      fontFamily: "'DM Serif Display', Georgia, serif",
+                      fontSize: "0.8rem",
+                      color: "#FFFFFF",
+                      lineHeight: 1,
+                    }}
+                  >
+                    W
+                  </Typography>
                 </Box>
-                <Typography variant="body2" color="text.secondary">
-                  Thinking...
-                </Typography>
+                {/* Sliding bar indicator */}
+                <Box
+                  sx={{
+                    width: 40,
+                    height: 3,
+                    borderRadius: 2,
+                    bgcolor: "primary.main",
+                    mt: "12px",
+                    animation: "slideBar 1.2s ease-in-out infinite",
+                    "@keyframes slideBar": {
+                      "0%": { transform: "translateX(0)", opacity: 0.4 },
+                      "50%": { transform: "translateX(12px)", opacity: 1 },
+                      "100%": { transform: "translateX(0)", opacity: 0.4 },
+                    },
+                  }}
+                />
               </Box>
             )}
 
