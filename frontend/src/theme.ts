@@ -2,14 +2,14 @@
 
 import { createTheme } from "@mui/material/styles";
 
-const ACCENT = "#78716C";
-const ACCENT_LIGHT = "rgba(120, 113, 108, 0.08)";
-const ACCENT_MUTED = "rgba(120, 113, 108, 0.35)";
+const ACCENT = "#8B5CF6";
+const ACCENT_LIGHT = "rgba(139, 92, 246, 0.08)";
+const ACCENT_MUTED = "rgba(139, 92, 246, 0.35)";
 
 const dark = {
   bg: "#141311",
   surface: "#1E1D1B",
-  card: "#1A1917",
+  card: "#1C1A18",
   border: "rgba(255,255,255,0.07)",
   borderHover: "rgba(255,255,255,0.14)",
   textPrimary: "#F2F1EE",
@@ -22,7 +22,7 @@ const dark = {
 const light = {
   bg: "#F9F8F6",
   surface: "#FFFFFF",
-  card: "#F2F1EE",
+  card: "#F3F2F0",
   border: "rgba(0,0,0,0.06)",
   borderHover: "rgba(0,0,0,0.12)",
   textPrimary: "#1A1A1A",
@@ -40,9 +40,9 @@ export function getTheme(mode: ThemeMode) {
     palette: {
       mode,
       primary: {
-        main: ACCENT,
-        light: "#A8A29E",
-        dark: "#57534E",
+        main: mode === 'dark' ? '#8B5CF6' : '#7C3AED',
+        light: mode === 'dark' ? '#A78BFA' : '#8B5CF6',
+        dark: mode === 'dark' ? '#7C3AED' : '#6D28D9',
         contrastText: "#FFFFFF",
       },
       secondary: {
@@ -212,6 +212,32 @@ export function getTheme(mode: ThemeMode) {
         },
       },
       MuiAlert: { styleOverrides: { root: { borderRadius: 10 } } },
+      MuiButtonBase: {
+        styleOverrides: {
+          root: {
+            '&:focus-visible': {
+              outline: '2px solid #8B5CF6',
+              outlineOffset: '2px',
+            },
+          },
+        },
+      },
+      MuiOutlinedInput: {
+        styleOverrides: {
+          root: {
+            '&.Mui-focused': {
+              '& .MuiOutlinedInput-notchedOutline': {
+                borderColor: '#8B5CF6',
+                borderWidth: '2px',
+              },
+            },
+            '&:focus-visible': {
+              outline: '2px solid #8B5CF6',
+              outlineOffset: '2px',
+            },
+          },
+        },
+      },
     },
   });
 }
@@ -219,13 +245,20 @@ export function getTheme(mode: ThemeMode) {
 export const theme = getTheme("dark");
 
 export const themeTokens = {
-  accent: ACCENT,
-  accentLight: ACCENT_LIGHT,
-  accentMuted: ACCENT_MUTED,
-  bg: dark.bg,
-  surface: dark.surface,
-  card: dark.card,
-  border: dark.border,
-  borderHover: dark.borderHover,
-  textMuted: dark.textMuted,
+  accent: '#8B5CF6',
+  accentLight: '#A78BFA',
+  accentMuted: 'rgba(139, 92, 246, 0.15)',
+  completion: '#F59E0B',
+  completionLight: '#FBBF24',
+  completionMuted: 'rgba(245, 158, 11, 0.12)',
+  bg: '#141311',
+  surface: '#1E1D1B',
+  card: '#1C1A18',
+  text: '#F2F1EE',
+  textSecondary: '#9C9A95',
+  border: 'rgba(255,255,255,0.07)',
+  borderHover: 'rgba(255,255,255,0.14)',
+  textMuted: '#6B6963',
+  error: '#ef4444',
+  fontMono: "'DM Mono', monospace",
 };

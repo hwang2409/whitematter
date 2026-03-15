@@ -1,7 +1,7 @@
 import { Page } from "@playwright/test";
 
 /**
- * Register a new user account and wait for redirect to dashboard.
+ * Register a new user account and wait for redirect to chat.
  */
 export async function registerUser(
   page: Page,
@@ -12,11 +12,11 @@ export async function registerUser(
   await page.getByLabel(/email/i).fill(email);
   await page.getByLabel(/password/i).fill(password);
   await page.getByRole("button", { name: /sign up/i }).click();
-  await page.waitForURL("**/dashboard");
+  await page.waitForURL("**/chat");
 }
 
 /**
- * Log in with existing credentials and wait for redirect to dashboard.
+ * Log in with existing credentials and wait for redirect to chat.
  */
 export async function loginUser(
   page: Page,
@@ -27,11 +27,11 @@ export async function loginUser(
   await page.getByLabel(/email/i).fill(email);
   await page.getByLabel(/password/i).fill(password);
   await page.getByRole("button", { name: /sign in/i }).click();
-  await page.waitForURL("**/dashboard");
+  await page.waitForURL("**/chat");
 }
 
 /**
- * Log out from the authenticated layout by clicking the "Log out" button.
+ * Log out from the authenticated layout.
  */
 export async function logoutUser(page: Page) {
   await page.getByRole("button", { name: /log out/i }).click();

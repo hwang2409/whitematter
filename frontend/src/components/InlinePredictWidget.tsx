@@ -88,7 +88,7 @@ export default function InlinePredictWidget({ modelId }: InlinePredictWidgetProp
           p: 2.5,
           textAlign: "center",
           cursor: "pointer",
-          bgcolor: dragOver ? "rgba(120,113,108,0.04)" : "transparent",
+          bgcolor: dragOver ? "rgba(139,92,246,0.04)" : "transparent",
           transition: "all 0.15s ease-out",
           "&:hover": {
             borderColor: (theme) =>

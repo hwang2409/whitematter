@@ -72,7 +72,7 @@ export default function CompletedModelCard({
         overflow: "hidden",
       }}
     >
-      {/* Accent top bar */}
+      {/* Accent bar — solid violet, no gradient */}
       <Box
         sx={{
           position: "absolute",
@@ -80,7 +80,7 @@ export default function CompletedModelCard({
           left: 0,
           right: 0,
           height: 3,
-          background: "linear-gradient(90deg, #78716C, #A8A29E)",
+          bgcolor: "primary.main",
           borderRadius: "16px 16px 0 0",
         }}
       />

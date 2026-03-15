@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
@@ -9,6 +10,8 @@ import type { ChatMessage } from "@/api";
 import ModelCard from "@/components/ModelCard";
 import TrainingProgress from "@/components/TrainingProgress";
 import CompletedModelCard from "./CompletedModelCard";
+import TrainingCard from './training/TrainingCard';
+import { TrainingStage } from './training/StageIndicator';
 
 interface ChatMessageBubbleProps {
   message: ChatMessage;
@@ -20,22 +23,28 @@ function AiAvatar() {
   return (
     <Box
       sx={{
-        width: 30,
-        height: 30,
+        width: 28,
+        height: 28,
         borderRadius: "50%",
-        bgcolor: "rgba(120,113,108,0.08)",
+        bgcolor: "primary.main",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        fontSize: "0.6875rem",
-        fontWeight: 700,
-        color: "primary.main",
         flexShrink: 0,
-        mt: 0.25,
-        fontFamily: "'DM Sans', sans-serif",
+        overflow: "hidden",
       }}
     >
-      wm
+      <Box
+        component="img"
+        src="/logo.png"
+        alt="WhiteMatter"
+        sx={{
+          width: 20,
+          height: 20,
+          objectFit: "contain",
+          filter: "brightness(0) invert(1)",
+        }}
+      />
     </Box>
   );
 }
@@ -46,7 +55,7 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
   // Architecture type: render ModelCard
   if (message.type === "architecture" && message.metadata) {
     return (
-      <Box sx={{ px: 4, mb: 3 }}>
+      <Box sx={{ px: 4, mb: 3, animation: 'messageAppear 0.15s ease-out', '@keyframes messageAppear': { from: { opacity: 0, transform: 'translateY(8px)' }, to: { opacity: 1, transform: 'translateY(0)' } }, '@media (prefers-reduced-motion: reduce)': { animation: 'none', transition: 'none' } }}>
         <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-start" }}>
           <AiAvatar />
           <Box sx={{ flex: 1, minWidth: 0 }}>
@@ -70,18 +79,18 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
     const convId = message.metadata.conversation_id as string;
     if (jobId && convId) {
       return (
-        <Box sx={{ px: 4, mb: 3 }}>
-          <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-start" }}>
-            <AiAvatar />
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <TrainingProgress conversationId={convId} jobId={jobId} onComplete={onTrainingComplete} />
-            </Box>
-          </Box>
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 1, animation: 'messageAppear 0.15s ease-out', '@keyframes messageAppear': { from: { opacity: 0, transform: 'translateY(8px)' }, to: { opacity: 1, transform: 'translateY(0)' } }, '@media (prefers-reduced-motion: reduce)': { animation: 'none', transition: 'none' } }}>
+          <TrainingProgress
+            conversationId={convId}
+            jobId={jobId}
+            onComplete={message.metadata?.onComplete as (() => void) | undefined}
+            isLatestActive={message.metadata?.isLatestActive as boolean ?? false}
+          />
         </Box>
       );
     }
     return (
-      <Box sx={{ px: 4, mb: 3 }}>
+      <Box sx={{ px: 4, mb: 3, animation: 'messageAppear 0.15s ease-out', '@keyframes messageAppear': { from: { opacity: 0, transform: 'translateY(8px)' }, to: { opacity: 1, transform: 'translateY(0)' } }, '@media (prefers-reduced-motion: reduce)': { animation: 'none', transition: 'none' } }}>
         <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-start" }}>
           <AiAvatar />
           <Box
@@ -105,63 +114,41 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
 
   // Training error
   if (message.type === "training_error") {
-    const errorMsg = (message.metadata?.friendlyMessage as string) || message.content;
-    const suggestion = message.metadata?.suggestion as string | undefined;
     return (
-      <Box sx={{ px: 4, mb: 3 }}>
-        <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-start" }}>
-          <AiAvatar />
-          <Box
-            sx={{
-              bgcolor: "rgba(239,68,68,0.08)",
-              border: "1px solid rgba(239,68,68,0.2)",
-              borderRadius: "16px",
-              px: 2.5,
-              py: 1.5,
-            }}
-          >
-            <Typography
-              sx={{
-                fontSize: "0.8125rem",
-                fontWeight: 600,
-                color: "error.main",
-                mb: 0.5,
-              }}
-            >
-              Training Failed
-            </Typography>
-            <Typography variant="body2" sx={{ color: "text.secondary" }}>
-              {errorMsg}
-            </Typography>
-            {suggestion && (
-              <Typography variant="body2" sx={{ mt: 1, fontStyle: "italic", color: "text.secondary" }}>
-                {suggestion}
-              </Typography>
-            )}
-          </Box>
-        </Box>
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 1, animation: 'messageAppear 0.15s ease-out', '@keyframes messageAppear': { from: { opacity: 0, transform: 'translateY(8px)' }, to: { opacity: 1, transform: 'translateY(0)' } }, '@media (prefers-reduced-motion: reduce)': { animation: 'none', transition: 'none' } }}>
+        <TrainingCard
+          modelName={message.metadata?.model_name as string ?? 'Model'}
+          stage={message.metadata?.stage as TrainingStage ?? 'training'}
+          epoch={message.metadata?.epoch as number ?? 0}
+          totalEpochs={message.metadata?.total_epochs as number ?? 0}
+          loss={message.metadata?.loss as number ?? 0}
+          accuracy={message.metadata?.accuracy as number ?? 0}
+          lossHistory={message.metadata?.loss_history as { epoch: number; loss: number; accuracy?: number }[] ?? []}
+          isLatestActive={false}
+          error={message.metadata?.error as string ?? message.content}
+        />
       </Box>
     );
   }
 
   // Training complete
   if (message.type === "training_complete") {
-    const meta = message.metadata || {};
     return (
-      <Box sx={{ px: 4, mb: 3 }}>
-        <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-start" }}>
-          <AiAvatar />
-          <Box sx={{ flex: 1, minWidth: 0 }}>
-            <CompletedModelCard
-              modelId={meta.model_id as string}
-              accuracy={meta.accuracy as number}
-              params={meta.params as string}
-              trainingTime={meta.training_time as string}
-              architecture={meta.architecture as string}
-              datasetName={meta.dataset_name as string}
-            />
-          </Box>
-        </Box>
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 1, animation: 'messageAppear 0.15s ease-out', '@keyframes messageAppear': { from: { opacity: 0, transform: 'translateY(8px)' }, to: { opacity: 1, transform: 'translateY(0)' } }, '@media (prefers-reduced-motion: reduce)': { animation: 'none', transition: 'none' } }}>
+        <TrainingCard
+          modelName={message.metadata?.model_name as string ?? 'Model'}
+          stage="complete"
+          epoch={message.metadata?.total_epochs as number ?? 0}
+          totalEpochs={message.metadata?.total_epochs as number ?? 0}
+          loss={message.metadata?.loss as number ?? 0}
+          accuracy={message.metadata?.accuracy as number ?? 0}
+          lossHistory={message.metadata?.loss_history as { epoch: number; loss: number; accuracy?: number }[] ?? []}
+          isLatestActive={false}
+          modelId={message.metadata?.model_id as string}
+          optimizer={message.metadata?.optimizer as string}
+          learningRate={message.metadata?.learning_rate as number}
+          batchSize={message.metadata?.batch_size as number}
+        />
       </Box>
     );
   }
@@ -169,7 +156,7 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
   // File upload
   if (message.type === "file_upload") {
     return (
-      <Box sx={{ px: 4, mb: 3 }}>
+      <Box sx={{ px: 4, mb: 3, animation: 'messageAppear 0.15s ease-out', '@keyframes messageAppear': { from: { opacity: 0, transform: 'translateY(8px)' }, to: { opacity: 1, transform: 'translateY(0)' } }, '@media (prefers-reduced-motion: reduce)': { animation: 'none', transition: 'none' } }}>
         <Box sx={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start" }}>
           <Box
             sx={{
@@ -194,7 +181,7 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
   // Prediction placeholder
   if (message.type === "prediction") {
     return (
-      <Box sx={{ px: 4, mb: 3 }}>
+      <Box sx={{ px: 4, mb: 3, animation: 'messageAppear 0.15s ease-out', '@keyframes messageAppear': { from: { opacity: 0, transform: 'translateY(8px)' }, to: { opacity: 1, transform: 'translateY(0)' } }, '@media (prefers-reduced-motion: reduce)': { animation: 'none', transition: 'none' } }}>
         <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-start" }}>
           <AiAvatar />
           <Box
@@ -219,7 +206,7 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
   // User message
   if (isUser) {
     return (
-      <Box sx={{ px: 4, mb: 3 }}>
+      <Box sx={{ px: 4, mb: 3, animation: 'messageAppear 0.15s ease-out', '@keyframes messageAppear': { from: { opacity: 0, transform: 'translateY(8px)' }, to: { opacity: 1, transform: 'translateY(0)' } }, '@media (prefers-reduced-motion: reduce)': { animation: 'none', transition: 'none' } }}>
         <Box sx={{ display: "flex", justifyContent: "flex-end" }}>
           <Box
             sx={{
@@ -253,13 +240,14 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
 
   // Assistant text message
   return (
-    <Box sx={{ px: 4, mb: 3 }}>
+    <Box sx={{ px: 4, mb: 3, animation: 'messageAppear 0.15s ease-out', '@keyframes messageAppear': { from: { opacity: 0, transform: 'translateY(8px)' }, to: { opacity: 1, transform: 'translateY(0)' } }, '@media (prefers-reduced-motion: reduce)': { animation: 'none', transition: 'none' } }}>
       <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-start" }}>
         <AiAvatar />
         <Box
           sx={{
             flex: 1,
             minWidth: 0,
+            bgcolor: "transparent",
             "& p": { m: 0 },
             "& p + p": { mt: 1.5 },
             "& code": {
@@ -274,13 +262,15 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
               borderRadius: 0.75,
             },
             "& pre": {
-              bgcolor: (theme) =>
-                theme.palette.mode === "dark"
-                  ? "rgba(0,0,0,0.3)"
-                  : "rgba(0,0,0,0.03)",
-              borderRadius: 1.5,
-              p: 2,
+              backgroundColor: "#161514",
+              border: "1px solid rgba(255,255,255,0.07)",
+              borderLeft: "4px solid",
+              borderLeftColor: "primary.main",
+              borderRadius: "8px",
+              padding: "12px 16px",
               overflow: "auto",
+              fontFamily: "'DM Mono', monospace",
+              fontSize: "0.8125rem",
               my: 1.5,
               "& code": {
                 bgcolor: "transparent",

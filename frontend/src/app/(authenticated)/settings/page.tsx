@@ -5,7 +5,7 @@ import Box from "@mui/material/Box";
 import Tabs from "@mui/material/Tabs";
 import Tab from "@mui/material/Tab";
 import Typography from "@mui/material/Typography";
-import AccountTab from "@/components/settings/AccountTab";
+import GeneralTab from "@/components/settings/GeneralTab";
 import BillingTab from "@/components/settings/BillingTab";
 import ConnectTab from "@/components/settings/ConnectTab";
 
@@ -53,7 +53,7 @@ export default function SettingsRoute() {
 
         {/* Tab content */}
         <Box sx={{ flex: 1, pl: { xs: 0, sm: 4 }, pt: { xs: 2, sm: 0 } }}>
-          {activeTab === 0 && <AccountTab />}
+          {activeTab === 0 && <GeneralTab />}
           {activeTab === 1 && <BillingTab />}
           {activeTab === 2 && <ConnectTab />}
         </Box>
