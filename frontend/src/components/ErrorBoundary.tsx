@@ -3,7 +3,6 @@ import { Component, ReactNode } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
-import Paper from "@mui/material/Paper";
 
 interface Props {
   children: ReactNode;
@@ -50,41 +49,64 @@ export default class ErrorBoundary extends Component<Props, State> {
             p: 3,
           }}
         >
-          <Paper
-            variant="outlined"
+          <Box
             sx={{
-              p: 3,
+              p: 4,
               maxWidth: 440,
               textAlign: "center",
-              borderColor: "divider",
+              bgcolor: "#18181B",
+              border: "1px solid #27272A",
+              borderRadius: "12px",
+              boxShadow: "0 16px 48px rgba(0,0,0,0.4)",
             }}
           >
-            <Typography variant="h2" sx={{ mb: 1 }}>
+            <Typography
+              sx={{
+                fontFamily: "'Instrument Serif', Georgia, serif",
+                fontSize: "1.75rem",
+                fontWeight: 400,
+                color: "#FAFAFA",
+                mb: 1,
+                lineHeight: 1.2,
+              }}
+            >
               Something went wrong
             </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            <Typography
+              sx={{
+                fontSize: "0.875rem",
+                fontFamily: "'Outfit', sans-serif",
+                color: "#A1A1AA",
+                mb: 2.5,
+                lineHeight: 1.5,
+              }}
+            >
               An unexpected error occurred. Please try again or refresh the page.
             </Typography>
             {this.state.error && (
               <details
                 style={{
-                  marginBottom: 16,
+                  marginBottom: 20,
                   textAlign: "left",
                   cursor: "pointer",
-                  color: "rgba(255,255,255,0.6)",
+                  color: "#52525B",
                   fontSize: "0.8125rem",
+                  fontFamily: "'Outfit', sans-serif",
                 }}
               >
-                <summary>Error details</summary>
+                <summary style={{ marginBottom: 8 }}>Error details</summary>
                 <pre
                   style={{
-                    marginTop: 8,
                     padding: 12,
-                    background: "rgba(0,0,0,0.3)",
+                    background: "#09090B",
+                    border: "1px solid #27272A",
                     borderRadius: 8,
                     overflow: "auto",
                     fontSize: "0.75rem",
-                    fontFamily: '"JetBrains Mono", monospace',
+                    fontFamily: "'JetBrains Mono', monospace",
+                    color: "#A1A1AA",
+                    lineHeight: 1.5,
+                    margin: 0,
                   }}
                 >
                   {this.state.error.message}
@@ -92,14 +114,45 @@ export default class ErrorBoundary extends Component<Props, State> {
               </details>
             )}
             <Box sx={{ display: "flex", gap: 1, justifyContent: "center", flexWrap: "wrap" }}>
-              <Button variant="contained" color="primary" onClick={this.handleRetry}>
+              <Button
+                variant="contained"
+                onClick={this.handleRetry}
+                sx={{
+                  bgcolor: "#F97316",
+                  color: "#fff",
+                  fontFamily: "'Outfit', sans-serif",
+                  fontSize: "0.8125rem",
+                  fontWeight: 500,
+                  textTransform: "none",
+                  borderRadius: "8px",
+                  boxShadow: "none",
+                  "&:hover": { bgcolor: "#EA580C", boxShadow: "none" },
+                }}
+              >
                 Try Again
               </Button>
-              <Button variant="outlined" onClick={() => window.location.reload()}>
+              <Button
+                variant="outlined"
+                onClick={() => window.location.reload()}
+                sx={{
+                  borderColor: "#27272A",
+                  color: "#A1A1AA",
+                  fontFamily: "'Outfit', sans-serif",
+                  fontSize: "0.8125rem",
+                  fontWeight: 500,
+                  textTransform: "none",
+                  borderRadius: "8px",
+                  "&:hover": {
+                    borderColor: "#3F3F46",
+                    color: "#FAFAFA",
+                    bgcolor: "rgba(255,255,255,0.03)",
+                  },
+                }}
+              >
                 Refresh Page
               </Button>
             </Box>
-          </Paper>
+          </Box>
         </Box>
       );
     }

@@ -15,9 +15,6 @@ import {
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
-import Card from "@mui/material/Card";
-import Chip from "@mui/material/Chip";
-import Divider from "@mui/material/Divider";
 import CircularProgress from "@mui/material/CircularProgress";
 
 interface PlanDef {
@@ -32,35 +29,19 @@ const PLANS: PlanDef[] = [
     id: "free",
     name: "Free",
     price: "$0",
-    features: [
-      "5 training runs / day",
-      "3 saved models",
-      "1 GB storage",
-      "No GPU access",
-      "No deploy endpoints",
-    ],
+    features: ["5 trains/day", "3 models", "1 GB storage"],
   },
   {
     id: "pro",
     name: "Pro",
-    price: "$29/mo",
-    features: [
-      "Unlimited training runs",
-      "Unlimited models",
-      "20 GB storage",
-      "1 deploy endpoint",
-    ],
+    price: "$29",
+    features: ["Unlimited trains", "Unlimited models", "20 GB", "1 endpoint"],
   },
   {
     id: "scale",
     name: "Scale",
-    price: "$59/mo",
-    features: [
-      "Everything in Pro",
-      "GPU access",
-      "100 GB storage",
-      "5 deploy endpoints",
-    ],
+    price: "$59",
+    features: ["Everything in Pro", "GPU access", "100 GB", "5 endpoints"],
   },
 ];
 
@@ -78,14 +59,8 @@ export default function BillingTab() {
     let cancelled = false;
     (async () => {
       try {
-        const [s, u] = await Promise.all([
-          getBillingStatus(token),
-          getBillingUsage(token),
-        ]);
-        if (!cancelled) {
-          setStatus(s);
-          setUsage(u);
-        }
+        const [s, u] = await Promise.all([getBillingStatus(token), getBillingUsage(token)]);
+        if (!cancelled) { setStatus(s); setUsage(u); }
       } catch (e) {
         if (!cancelled) showError(e instanceof Error ? e.message : "Failed to load billing");
       } finally {
@@ -98,7 +73,7 @@ export default function BillingTab() {
 
   const currentPlan = status?.plan || "free";
 
-  const handleUpgradeDowngrade = async (planId: string) => {
+  const handleCheckout = async (planId: string) => {
     if (!token) return;
     setActionLoading(planId);
     try {
@@ -111,7 +86,7 @@ export default function BillingTab() {
     }
   };
 
-  const handleManageBilling = async () => {
+  const handlePortal = async () => {
     if (!token) return;
     setActionLoading("portal");
     try {
@@ -126,142 +101,211 @@ export default function BillingTab() {
 
   if (loading) {
     return (
-      <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}>
-        <CircularProgress />
+      <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
+        <CircularProgress size={20} sx={{ color: "#F97316" }} />
       </Box>
     );
   }
+
+  const labelSx = {
+    fontSize: "0.6875rem",
+    fontWeight: 600,
+    fontFamily: "'Outfit', sans-serif",
+    color: "#52525B",
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.08em",
+    mb: 1.5,
+  };
 
   const planRank = (id: string) => PLANS.findIndex((p) => p.id === id);
 
   return (
     <Box>
-      <Typography variant="h3" sx={{ mb: 3 }}>
-        Billing
-      </Typography>
-
-      {/* Current Plan */}
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="subtitle1" sx={{ mb: 1.5, fontWeight: 600 }}>
-          Current Plan
-        </Typography>
-        <Card
-          variant="outlined"
-          sx={{ p: 2, display: "inline-flex", alignItems: "center", gap: 1.5 }}
-        >
-          <Typography variant="h6">
-            {PLANS.find((p) => p.id === currentPlan)?.name || currentPlan}
-          </Typography>
-          <Chip label="Current Plan" size="small" color="primary" />
-        </Card>
-      </Box>
-
-      {/* Usage */}
+      {/* Usage row */}
       {usage && (
-        <Box sx={{ mb: 4 }}>
-          <Typography variant="subtitle1" sx={{ mb: 1.5, fontWeight: 600 }}>
-            Usage
-          </Typography>
-          <Box sx={{ display: "flex", gap: 3, flexWrap: "wrap" }}>
+        <Box sx={{ mb: 5 }}>
+          <Typography sx={labelSx}>Usage</Typography>
+          <Box sx={{ display: "flex", gap: 5 }}>
             {[
               { label: "Models", value: usage.models_count },
               { label: "Datasets", value: usage.datasets_count },
-              { label: "Conversations", value: usage.conversations_count },
+              { label: "Chats", value: usage.conversations_count },
             ].map((item) => (
-              <Card key={item.label} variant="outlined" sx={{ p: 2, minWidth: 120, textAlign: "center" }}>
-                <Typography variant="h5">{item.value}</Typography>
-                <Typography variant="body2" color="text.secondary">
+              <Box key={item.label}>
+                <Typography
+                  sx={{
+                    fontSize: "1.5rem",
+                    fontFamily: "'Instrument Serif', Georgia, serif",
+                    fontWeight: 400,
+                    color: "#FAFAFA",
+                    lineHeight: 1,
+                  }}
+                >
+                  {item.value}
+                </Typography>
+                <Typography
+                  sx={{
+                    fontSize: "0.75rem",
+                    color: "#52525B",
+                    fontFamily: "'Outfit', sans-serif",
+                    mt: 0.5,
+                  }}
+                >
                   {item.label}
                 </Typography>
-              </Card>
+              </Box>
             ))}
           </Box>
         </Box>
       )}
 
-      <Divider sx={{ mb: 3 }} />
-
-      {/* Plan Comparison */}
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="subtitle1" sx={{ mb: 1.5, fontWeight: 600 }}>
-          Plans
-        </Typography>
-        <Box sx={{ display: "flex", gap: 2, flexWrap: "wrap" }}>
+      {/* Plans */}
+      <Box sx={{ mb: 5 }}>
+        <Typography sx={labelSx}>Plan</Typography>
+        <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap" }}>
           {PLANS.map((plan) => {
             const isCurrent = plan.id === currentPlan;
             const rank = planRank(plan.id);
-            const currentRank = planRank(currentPlan);
-            const actionLabel = rank > currentRank ? "Upgrade" : "Downgrade";
+            const curRank = planRank(currentPlan);
+            const action = rank > curRank ? "Upgrade" : "Downgrade";
 
             return (
-              <Card
+              <Box
                 key={plan.id}
-                variant="outlined"
                 sx={{
+                  flex: "1 1 180px",
+                  maxWidth: 240,
                   p: 2.5,
-                  flex: "1 1 220px",
-                  maxWidth: 280,
+                  borderRadius: "10px",
+                  border: "1px solid",
+                  borderColor: isCurrent ? "#3F3F46" : "#27272A",
+                  bgcolor: "#18181B",
                   display: "flex",
                   flexDirection: "column",
-                  border: isCurrent ? 2 : 1,
-                  borderColor: isCurrent ? "primary.main" : "divider",
+                  transition: "border-color 0.15s ease",
+                  "&:hover": {
+                    borderColor: "#3F3F46",
+                  },
                 }}
               >
-                <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
-                  <Typography variant="h6">{plan.name}</Typography>
-                  {isCurrent && <Chip label="Current Plan" size="small" color="primary" />}
+                <Box
+                  sx={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "baseline",
+                    mb: 1.5,
+                  }}
+                >
+                  <Typography
+                    sx={{
+                      fontSize: "0.8125rem",
+                      fontWeight: 500,
+                      fontFamily: "'Outfit', sans-serif",
+                      color: "#FAFAFA",
+                    }}
+                  >
+                    {plan.name}
+                  </Typography>
+                  <Typography
+                    sx={{
+                      fontSize: "0.8125rem",
+                      fontFamily: "'Outfit', sans-serif",
+                      color: "#A1A1AA",
+                    }}
+                  >
+                    {plan.price}
+                    <Typography
+                      component="span"
+                      sx={{
+                        fontSize: "0.6875rem",
+                        color: "#52525B",
+                        fontFamily: "'Outfit', sans-serif",
+                      }}
+                    >
+                      {plan.id !== "free" ? "/mo" : ""}
+                    </Typography>
+                  </Typography>
                 </Box>
-                <Typography variant="h5" sx={{ mb: 1.5 }}>
-                  {plan.price}
-                </Typography>
-                <Box component="ul" sx={{ pl: 2, mb: 2, flex: 1 }}>
+                <Box sx={{ flex: 1, mb: 2 }}>
                   {plan.features.map((f) => (
-                    <Typography component="li" variant="body2" color="text.secondary" key={f} sx={{ mb: 0.5 }}>
+                    <Typography
+                      key={f}
+                      sx={{
+                        fontSize: "0.75rem",
+                        color: "#A1A1AA",
+                        fontFamily: "'Outfit', sans-serif",
+                        lineHeight: 1.8,
+                      }}
+                    >
                       {f}
                     </Typography>
                   ))}
                 </Box>
-                {!isCurrent && (
-                  <Button
-                    variant="contained"
-                    size="small"
-                    disabled={actionLoading === plan.id}
-                    onClick={() => handleUpgradeDowngrade(plan.id)}
+                {isCurrent ? (
+                  <Typography
+                    sx={{
+                      fontSize: "0.6875rem",
+                      color: "#52525B",
+                      fontFamily: "'Outfit', sans-serif",
+                      textAlign: "center",
+                    }}
                   >
-                    {actionLoading === plan.id ? (
-                      <CircularProgress size={18} />
-                    ) : (
-                      actionLabel
-                    )}
+                    Current
+                  </Typography>
+                ) : (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    disabled={actionLoading === plan.id}
+                    onClick={() => handleCheckout(plan.id)}
+                    sx={{
+                      fontSize: "0.75rem",
+                      fontFamily: "'Outfit', sans-serif",
+                      textTransform: "none",
+                      borderColor: "#27272A",
+                      color: "#A1A1AA",
+                      borderRadius: "8px",
+                      "&:hover": {
+                        borderColor: "#3F3F46",
+                        color: "#FAFAFA",
+                        bgcolor: "rgba(255,255,255,0.03)",
+                      },
+                    }}
+                  >
+                    {actionLoading === plan.id ? <CircularProgress size={14} /> : action}
                   </Button>
                 )}
-              </Card>
+              </Box>
             );
           })}
         </Box>
       </Box>
 
-      {/* Manage Subscription */}
+      {/* Manage */}
       {currentPlan !== "free" && (
-        <>
-          <Divider sx={{ mb: 3 }} />
-          <Box>
-            <Typography variant="subtitle1" sx={{ mb: 1.5, fontWeight: 600 }}>
-              Manage Subscription
-            </Typography>
-            <Button
-              variant="outlined"
-              onClick={handleManageBilling}
-              disabled={actionLoading === "portal"}
-            >
-              {actionLoading === "portal" ? (
-                <CircularProgress size={20} />
-              ) : (
-                "Manage Billing"
-              )}
-            </Button>
-          </Box>
-        </>
+        <Box sx={{ pt: 4, borderTop: "1px solid #27272A" }}>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={handlePortal}
+            disabled={actionLoading === "portal"}
+            sx={{
+              borderColor: "#27272A",
+              color: "#A1A1AA",
+              fontFamily: "'Outfit', sans-serif",
+              fontSize: "0.75rem",
+              textTransform: "none",
+              borderRadius: "8px",
+              "&:hover": {
+                borderColor: "#3F3F46",
+                color: "#FAFAFA",
+                bgcolor: "rgba(255,255,255,0.03)",
+              },
+            }}
+          >
+            {actionLoading === "portal" ? <CircularProgress size={16} /> : "Manage billing"}
+          </Button>
+        </Box>
       )}
 
       <Toast toasts={toasts} onDismiss={dismissToast} />

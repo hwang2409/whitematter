@@ -82,20 +82,33 @@ export default function TrainingProgress({ conversationId, jobId, onComplete }: 
   return (
     <Box
       sx={{
-        bgcolor: "background.paper",
-        border: "1px solid",
-        borderColor: "divider",
-        borderRadius: "16px",
+        bgcolor: "#18181B",
+        border: "1px solid #27272A",
+        borderRadius: "12px",
         p: 3,
         mt: 1,
       }}
     >
       {/* Header */}
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.5 }}>
-        <Typography sx={{ fontSize: "0.9375rem", fontWeight: 600, color: "text.primary" }}>
+        <Typography
+          sx={{
+            fontSize: "0.9375rem",
+            fontWeight: 600,
+            fontFamily: "'Outfit', sans-serif",
+            color: "#FAFAFA",
+          }}
+        >
           Training {status?.status === "completed" ? "Complete" : "in Progress"}
         </Typography>
-        <Typography sx={{ fontSize: "0.875rem", color: "text.secondary" }}>
+        <Typography
+          sx={{
+            fontSize: "0.875rem",
+            fontFamily: "'JetBrains Mono', monospace",
+            color: "#F97316",
+            fontWeight: 500,
+          }}
+        >
           {Math.round(progress)}%
         </Typography>
       </Box>
@@ -103,9 +116,9 @@ export default function TrainingProgress({ conversationId, jobId, onComplete }: 
       {/* Progress bar */}
       <Box
         sx={{
-          height: 6,
-          bgcolor: "background.default",
-          borderRadius: "3px",
+          height: 4,
+          bgcolor: "rgba(255,255,255,0.06)",
+          borderRadius: "2px",
           overflow: "hidden",
           mb: 2,
         }}
@@ -114,8 +127,8 @@ export default function TrainingProgress({ conversationId, jobId, onComplete }: 
           sx={{
             height: "100%",
             width: `${progress}%`,
-            bgcolor: "primary.main",
-            borderRadius: "3px",
+            bgcolor: "#F97316",
+            borderRadius: "2px",
             transition: "width 0.3s ease-out",
           }}
         />
@@ -133,17 +146,20 @@ export default function TrainingProgress({ conversationId, jobId, onComplete }: 
                   display: "flex",
                   justifyContent: "space-between",
                   py: 1,
-                  borderBottom: i < history.length - 1 ? "1px solid" : "none",
-                  borderColor: "divider",
+                  borderBottom: i < history.length - 1 ? "1px solid #27272A" : "none",
                   fontSize: "0.8125rem",
-                  color: isCurrent ? "text.primary" : "text.secondary",
+                  fontFamily: "'Outfit', sans-serif",
+                  color: isCurrent ? "#FAFAFA" : "#A1A1AA",
                   fontWeight: isCurrent ? 500 : 400,
                 }}
               >
                 <span>Epoch {entry.epoch}/{status?.total_epochs || "?"}</span>
-                <span>
+                <Box
+                  component="span"
+                  sx={{ fontFamily: "'JetBrains Mono', monospace" }}
+                >
                   Loss: {entry.loss.toFixed(3)} · Acc: {entry.accuracy.toFixed(1)}%
-                </span>
+                </Box>
               </Box>
             );
           })}
@@ -156,8 +172,8 @@ export default function TrainingProgress({ conversationId, jobId, onComplete }: 
           sx={{
             mt: 1.5,
             fontSize: "0.75rem",
-            color: "text.disabled",
-            fontFamily: "'DM Mono', monospace",
+            color: "#52525B",
+            fontFamily: "'JetBrains Mono', monospace",
           }}
         >
           {status.message}

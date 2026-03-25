@@ -9,8 +9,8 @@ import Chip from "@mui/material/Chip";
 interface ModelCardProps {
   name: string;
   description: string;
-  /** Human-readable layer summary, e.g. "3 Conv2D -> Flatten -> 2 Linear" */
-  layers: string;
+  /** Human-readable layer summary — string like "Conv2D → Linear" or array of layer objects */
+  layers: string | unknown[];
   /** Human-readable training config summary */
   trainingConfig: string;
   userPlan?: string;
@@ -29,33 +29,37 @@ export default function ModelCard({
 }: ModelCardProps) {
   const [compute, setCompute] = useState<"cpu" | "gpu">("gpu");
 
-  // Parse layers string into individual chips
-  const layerChips = layers
-    .split(/\s*->\s*|\s*→\s*|\s*,\s*/)
-    .map((l) => l.trim())
-    .filter(Boolean);
+  // Parse layers into individual chips — handles string or array
+  const layerChips: string[] = typeof layers === "string"
+    ? layers.split(/\s*->\s*|\s*→\s*|\s*,\s*/).map((l) => l.trim()).filter(Boolean)
+    : Array.isArray(layers)
+      ? layers.map((l) => typeof l === "string" ? l : (l as any).type ?? JSON.stringify(l))
+      : [];
 
   return (
     <Box
       sx={{
-        bgcolor: "background.paper",
-        border: "1px solid",
-        borderColor: "divider",
-        borderRadius: "16px",
+        bgcolor: "#18181B",
+        border: "1px solid #27272A",
+        borderRadius: "12px",
         p: 3,
         mt: 1,
         transition: "border-color 0.15s ease-out",
         "&:hover": {
-          borderColor: (theme) =>
-            theme.palette.mode === "dark"
-              ? "rgba(255,255,255,0.14)"
-              : "rgba(0,0,0,0.12)",
+          borderColor: "#3F3F46",
         },
       }}
     >
       {/* Header */}
       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.5 }}>
-        <Typography sx={{ fontSize: "1rem", fontWeight: 600, color: "text.primary" }}>
+        <Typography
+          sx={{
+            fontSize: "1rem",
+            fontWeight: 600,
+            color: "#FAFAFA",
+            fontFamily: "'Outfit', sans-serif",
+          }}
+        >
           {name}
         </Typography>
         <Box
@@ -64,9 +68,10 @@ export default function ModelCard({
             px: 1.25,
             py: 0.375,
             borderRadius: "99px",
-            bgcolor: "rgba(120,113,108,0.08)",
-            color: "primary.main",
+            bgcolor: "rgba(249,115,22,0.08)",
+            color: "#F97316",
             fontWeight: 500,
+            fontFamily: "'JetBrains Mono', monospace",
           }}
         >
           CNN
@@ -76,7 +81,12 @@ export default function ModelCard({
       {/* Description */}
       <Typography
         variant="body2"
-        sx={{ color: "text.secondary", mb: 2, lineHeight: 1.5 }}
+        sx={{
+          color: "#A1A1AA",
+          mb: 2,
+          lineHeight: 1.5,
+          fontFamily: "'Outfit', sans-serif",
+        }}
       >
         {description}
       </Typography>
@@ -87,15 +97,14 @@ export default function ModelCard({
           <Box
             key={i}
             sx={{
-              fontSize: "0.75rem",
+              fontSize: "0.6875rem",
               px: 1.25,
               py: 0.5,
-              borderRadius: "6px",
-              bgcolor: "background.default",
-              border: "1px solid",
-              borderColor: "divider",
-              color: "text.secondary",
-              fontFamily: "'DM Mono', monospace",
+              borderRadius: "4px",
+              bgcolor: "rgba(255,255,255,0.04)",
+              border: "1px solid #27272A",
+              color: "#A1A1AA",
+              fontFamily: "'JetBrains Mono', monospace",
             }}
           >
             {layer}
@@ -107,12 +116,12 @@ export default function ModelCard({
       <Typography
         sx={{
           fontSize: "0.8125rem",
-          fontFamily: "'DM Mono', monospace",
-          color: "text.secondary",
+          fontFamily: "'JetBrains Mono', monospace",
+          color: "#A1A1AA",
           mb: 2.5,
           p: 1.5,
-          borderRadius: "10px",
-          bgcolor: "background.default",
+          borderRadius: "8px",
+          bgcolor: "rgba(0,0,0,0.3)",
           lineHeight: 1.6,
         }}
       >
@@ -125,16 +134,34 @@ export default function ModelCard({
           <Chip
             label="CPU (instant)"
             onClick={() => setCompute("cpu")}
-            color={compute === "cpu" ? "primary" : "default"}
-            variant={compute === "cpu" ? "filled" : "outlined"}
             size="small"
+            sx={{
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: "0.75rem",
+              bgcolor: compute === "cpu" ? "#F97316" : "transparent",
+              color: compute === "cpu" ? "#FAFAFA" : "#A1A1AA",
+              border: compute === "cpu" ? "1px solid #F97316" : "1px solid #27272A",
+              "&:hover": {
+                bgcolor: compute === "cpu" ? "#EA580C" : "rgba(255,255,255,0.04)",
+                borderColor: compute === "cpu" ? "#EA580C" : "#3F3F46",
+              },
+            }}
           />
           <Chip
             label="GPU (faster, ~60s startup)"
             onClick={() => setCompute("gpu")}
-            color={compute === "gpu" ? "primary" : "default"}
-            variant={compute === "gpu" ? "filled" : "outlined"}
             size="small"
+            sx={{
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: "0.75rem",
+              bgcolor: compute === "gpu" ? "#F97316" : "transparent",
+              color: compute === "gpu" ? "#FAFAFA" : "#A1A1AA",
+              border: compute === "gpu" ? "1px solid #F97316" : "1px solid #27272A",
+              "&:hover": {
+                bgcolor: compute === "gpu" ? "#EA580C" : "rgba(255,255,255,0.04)",
+                borderColor: compute === "gpu" ? "#EA580C" : "#3F3F46",
+              },
+            }}
           />
         </Box>
       )}
@@ -147,13 +174,15 @@ export default function ModelCard({
           sx={{
             px: 3,
             py: 1.25,
-            borderRadius: "10px",
+            borderRadius: "8px",
             fontSize: "0.875rem",
             fontWeight: 500,
-            bgcolor: "text.primary",
-            color: (theme) => (theme.palette.mode === "dark" ? "#141311" : "#FFFFFF"),
+            fontFamily: "'Outfit', sans-serif",
+            bgcolor: "#F97316",
+            color: "#FFFFFF",
+            textTransform: "none",
             "&:hover": {
-              bgcolor: (theme) => (theme.palette.mode === "dark" ? "#d4d3d0" : "#333"),
+              bgcolor: "#EA580C",
             },
           }}
         >
@@ -166,17 +195,17 @@ export default function ModelCard({
           sx={{
             px: 3,
             py: 1.25,
-            borderRadius: "10px",
+            borderRadius: "8px",
             fontSize: "0.875rem",
             fontWeight: 500,
-            color: "text.secondary",
-            borderColor: "divider",
+            fontFamily: "'Outfit', sans-serif",
+            color: "#A1A1AA",
+            borderColor: "#27272A",
+            textTransform: "none",
             "&:hover": {
-              borderColor: (theme) =>
-                theme.palette.mode === "dark"
-                  ? "rgba(255,255,255,0.14)"
-                  : "rgba(0,0,0,0.12)",
-              color: "text.primary",
+              borderColor: "#3F3F46",
+              color: "#FAFAFA",
+              bgcolor: "transparent",
             },
           }}
         >

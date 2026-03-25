@@ -93,6 +93,46 @@ app.include_router(chat_router)
 app.include_router(billing_router)
 
 
+_background_worker = None
+
+
+@app.on_event("startup")
+def _start_background_worker():
+    """Start a training worker in a background daemon thread."""
+    import threading
+    from workers.worker import TrainingWorker
+
+    global _background_worker
+    _background_worker = TrainingWorker(worker_id="server-worker")
+
+    def _run():
+        # Can't register signal handlers from non-main thread, so just run the poll loop
+        _background_worker.running = True
+        _background_worker._stop_event.clear()
+        logger.info("[%s] Background worker started", _background_worker.worker_id)
+        while _background_worker.running and not _background_worker._stop_event.is_set():
+            try:
+                job = _background_worker.queue.claim(_background_worker.worker_id)
+                if job:
+                    _background_worker._process_job(job)
+                else:
+                    _background_worker._stop_event.wait(_background_worker.poll_interval)
+            except Exception as e:
+                logger.error("[%s] Error: %s", _background_worker.worker_id, e)
+                _background_worker._stop_event.wait(_background_worker.poll_interval)
+
+    t = threading.Thread(target=_run, daemon=True, name="training-worker")
+    t.start()
+    logger.info("Background training worker thread started")
+
+
+@app.on_event("shutdown")
+def _stop_background_worker():
+    global _background_worker
+    if _background_worker:
+        _background_worker.stop()
+
+
 @app.exception_handler(Exception)
 async def _global_exception_handler(request: Request, exc: Exception):
     logger.exception("Unhandled exception: %s", exc)
@@ -110,7 +150,7 @@ def main():
     args = parser.parse_args()
 
     import config
-    config.MODELS_DIR = args.models_dir
+    config.MODELS_DIR = Path(args.models_dir)
     ensure_dirs()
 
     logger.info("Whitematter Model Server v0.5.0 at http://%s:%s", args.host, args.port)

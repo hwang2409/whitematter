@@ -2,9 +2,6 @@
 
 import { useState } from "react";
 import Box from "@mui/material/Box";
-import Tabs from "@mui/material/Tabs";
-import Tab from "@mui/material/Tab";
-import Typography from "@mui/material/Typography";
 import AccountTab from "@/components/settings/AccountTab";
 import BillingTab from "@/components/settings/BillingTab";
 import ConnectTab from "@/components/settings/ConnectTab";
@@ -15,48 +12,64 @@ export default function SettingsRoute() {
   const [activeTab, setActiveTab] = useState(0);
 
   return (
-    <Box sx={{ p: { xs: 2, sm: 3 }, maxWidth: 900, mx: "auto", width: "100%" }}>
-      <Typography variant="h2" sx={{ mb: 3 }}>
-        Settings
-      </Typography>
-
+    <Box
+      sx={{
+        p: { xs: 2, sm: 4, md: 5 },
+        maxWidth: 820,
+        mx: "auto",
+        width: "100%",
+      }}
+    >
+      {/* Tab bar */}
       <Box
         sx={{
           display: "flex",
-          flexDirection: { xs: "column", sm: "row" },
           gap: 0,
-          minHeight: 400,
+          mb: 5,
+          borderBottom: "1px solid #27272A",
         }}
       >
-        {/* Vertical tabs */}
-        <Tabs
-          orientation="vertical"
-          value={activeTab}
-          onChange={(_, v) => setActiveTab(v)}
-          sx={{
-            minWidth: 180,
-            borderRight: 1,
-            borderColor: "divider",
-            "& .MuiTab-root": {
-              alignItems: "flex-start",
-              textTransform: "none",
-              fontSize: "0.875rem",
-              minHeight: 40,
-              py: 1,
-            },
-          }}
-        >
-          {TABS.map((label) => (
-            <Tab key={label} label={label} />
-          ))}
-        </Tabs>
+        {TABS.map((label, i) => (
+          <Box
+            key={label}
+            onClick={() => setActiveTab(i)}
+            sx={{
+              px: 2,
+              py: 1.25,
+              fontSize: "0.8125rem",
+              fontFamily: "'Outfit', sans-serif",
+              fontWeight: activeTab === i ? 500 : 400,
+              color: activeTab === i ? "#FAFAFA" : "#A1A1AA",
+              cursor: "pointer",
+              borderBottom: "2px solid",
+              borderColor: activeTab === i ? "#F97316" : "transparent",
+              mb: "-1px",
+              transition: "color 0.2s ease, border-color 0.2s ease",
+              userSelect: "none",
+              "&:hover": {
+                color: "#FAFAFA",
+              },
+            }}
+          >
+            {label}
+          </Box>
+        ))}
+      </Box>
 
-        {/* Tab content */}
-        <Box sx={{ flex: 1, pl: { xs: 0, sm: 4 }, pt: { xs: 2, sm: 0 } }}>
-          {activeTab === 0 && <AccountTab />}
-          {activeTab === 1 && <BillingTab />}
-          {activeTab === 2 && <ConnectTab />}
-        </Box>
+      {/* Content */}
+      <Box
+        sx={{
+          animation: "settingsFadeIn 0.2s ease-out",
+          "@keyframes settingsFadeIn": {
+            from: { opacity: 0, transform: "translateY(4px)" },
+            to: { opacity: 1, transform: "translateY(0)" },
+          },
+        }}
+        key={activeTab}
+      >
+        {activeTab === 0 && <AccountTab />}
+        {activeTab === 1 && <BillingTab />}
+        {activeTab === 2 && <ConnectTab />}
       </Box>
     </Box>
   );

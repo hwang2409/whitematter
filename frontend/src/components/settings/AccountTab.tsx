@@ -8,10 +8,7 @@ import { changePassword, exportUserData } from "@/api";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 import Button from "@mui/material/Button";
-import ButtonGroup from "@mui/material/ButtonGroup";
 import TextField from "@mui/material/TextField";
-import Chip from "@mui/material/Chip";
-import Divider from "@mui/material/Divider";
 import Alert from "@mui/material/Alert";
 import CircularProgress from "@mui/material/CircularProgress";
 import Toast from "@/components/Toast";
@@ -23,14 +20,11 @@ export default function AccountTab() {
 
   const isOAuth = user?.oauth_provider === "google";
 
-  // Change password state
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [passwordError, setPasswordError] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
-
-  // Export state
   const [exporting, setExporting] = useState(false);
 
   const validatePassword = (): string | null => {
@@ -44,10 +38,7 @@ export default function AccountTab() {
 
   const handleChangePassword = async () => {
     const err = validatePassword();
-    if (err) {
-      setPasswordError(err);
-      return;
-    }
+    if (err) { setPasswordError(err); return; }
     setPasswordError("");
     setChangingPassword(true);
     try {
@@ -83,133 +74,193 @@ export default function AccountTab() {
     }
   };
 
-  const sectionSx = { mb: 4 };
-  const sectionTitle = { mb: 1.5, fontWeight: 600 };
+  const labelSx = {
+    fontSize: "0.6875rem",
+    fontWeight: 600,
+    fontFamily: "'Outfit', sans-serif",
+    color: "#52525B",
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.08em",
+    mb: 1.5,
+  };
 
   return (
     <Box>
-      <Typography variant="h3" sx={{ mb: 3 }}>
-        Account
-      </Typography>
-
       {/* Appearance */}
-      <Box sx={sectionSx}>
-        <Typography variant="subtitle1" sx={sectionTitle}>
-          Appearance
-        </Typography>
-        <ButtonGroup size="small">
-          <Button
-            variant={mode === "light" ? "contained" : "outlined"}
-            onClick={() => setMode("light")}
-          >
-            Light
-          </Button>
-          <Button
-            variant={mode === "dark" ? "contained" : "outlined"}
-            onClick={() => setMode("dark")}
-          >
-            Dark
-          </Button>
-        </ButtonGroup>
+      <Box sx={{ mb: 5 }}>
+        <Typography sx={labelSx}>Appearance</Typography>
+        <Box sx={{ display: "flex", gap: 0.5 }}>
+          {(["light", "dark"] as const).map((m) => (
+            <Box
+              key={m}
+              onClick={() => setMode(m)}
+              sx={{
+                px: 2,
+                py: 0.75,
+                fontSize: "0.8125rem",
+                fontFamily: "'Outfit', sans-serif",
+                borderRadius: "8px",
+                cursor: "pointer",
+                fontWeight: mode === m ? 500 : 400,
+                color: mode === m ? "#FAFAFA" : "#A1A1AA",
+                bgcolor: mode === m ? "#27272A" : "transparent",
+                border: "1px solid",
+                borderColor: mode === m ? "#3F3F46" : "transparent",
+                transition: "all 0.15s ease",
+                textTransform: "capitalize",
+                userSelect: "none",
+                "&:hover": {
+                  bgcolor: mode === m ? "#27272A" : "rgba(255,255,255,0.03)",
+                },
+              }}
+            >
+              {m}
+            </Box>
+          ))}
+        </Box>
       </Box>
-
-      <Divider sx={{ mb: 3 }} />
 
       {/* Account Info */}
-      <Box sx={sectionSx}>
-        <Typography variant="subtitle1" sx={sectionTitle}>
-          Account Info
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+      <Box sx={{ mb: 5 }}>
+        <Typography sx={labelSx}>Account</Typography>
+        <Typography
+          variant="body2"
+          sx={{ color: "#FAFAFA", fontFamily: "'Outfit', sans-serif" }}
+        >
           {user?.email}
         </Typography>
-        <Chip
-          label={isOAuth ? "Google" : "Email & Password"}
-          size="small"
-          variant="outlined"
-        />
+        <Typography
+          sx={{
+            mt: 0.25,
+            fontSize: "0.75rem",
+            color: "#52525B",
+            fontFamily: "'Outfit', sans-serif",
+          }}
+        >
+          {isOAuth ? "Signed in with Google" : "Email & password"}
+        </Typography>
       </Box>
 
-      <Divider sx={{ mb: 3 }} />
-
-      {/* Change Password (non-OAuth only) */}
+      {/* Change Password */}
       {!isOAuth && (
-        <>
-          <Box sx={sectionSx}>
-            <Typography variant="subtitle1" sx={sectionTitle}>
-              Change Password
-            </Typography>
-            <Box sx={{ display: "flex", flexDirection: "column", gap: 2, maxWidth: 400 }}>
-              <TextField
-                label="Current Password"
-                type="password"
-                size="small"
-                value={currentPassword}
-                onChange={(e) => setCurrentPassword(e.target.value)}
-                autoComplete="current-password"
-              />
-              <TextField
-                label="New Password"
-                type="password"
-                size="small"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                autoComplete="new-password"
-                helperText="Min 8 characters, must include a letter and a digit"
-              />
-              <TextField
-                label="Confirm New Password"
-                type="password"
-                size="small"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                autoComplete="new-password"
-              />
-              {passwordError && (
-                <Alert severity="error" onClose={() => setPasswordError("")}>
-                  {passwordError}
-                </Alert>
-              )}
-              <Button
-                variant="contained"
-                onClick={handleChangePassword}
-                disabled={changingPassword}
-                sx={{ alignSelf: "flex-start" }}
+        <Box sx={{ mb: 5 }}>
+          <Typography sx={labelSx}>Password</Typography>
+          <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, maxWidth: 360 }}>
+            <TextField
+              placeholder="Current password"
+              type="password"
+              size="small"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              autoComplete="current-password"
+            />
+            <TextField
+              placeholder="New password"
+              type="password"
+              size="small"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              autoComplete="new-password"
+            />
+            <TextField
+              placeholder="Confirm new password"
+              type="password"
+              size="small"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              autoComplete="new-password"
+            />
+            {passwordError && (
+              <Alert
+                severity="error"
+                onClose={() => setPasswordError("")}
+                sx={{
+                  py: 0.25,
+                  borderRadius: "8px",
+                  bgcolor: "rgba(239,68,68,0.08)",
+                  border: "1px solid rgba(239,68,68,0.2)",
+                  "& .MuiAlert-message": {
+                    fontSize: "0.8125rem",
+                    fontFamily: "'Outfit', sans-serif",
+                  },
+                }}
               >
-                {changingPassword ? <CircularProgress size={20} /> : "Update Password"}
-              </Button>
-            </Box>
+                {passwordError}
+              </Alert>
+            )}
+            <Button
+              variant="contained"
+              size="small"
+              onClick={handleChangePassword}
+              disabled={changingPassword}
+              sx={{
+                alignSelf: "flex-start",
+                bgcolor: "#F97316",
+                color: "#fff",
+                fontFamily: "'Outfit', sans-serif",
+                fontSize: "0.75rem",
+                fontWeight: 500,
+                borderRadius: "8px",
+                textTransform: "none",
+                px: 2,
+                py: 0.75,
+                "&:hover": { bgcolor: "#EA580C" },
+                "&.Mui-disabled": { opacity: 0.5 },
+              }}
+            >
+              {changingPassword ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : "Update password"}
+            </Button>
           </Box>
-          <Divider sx={{ mb: 3 }} />
-        </>
+        </Box>
       )}
 
-      {/* Export Data */}
-      <Box sx={sectionSx}>
-        <Typography variant="subtitle1" sx={sectionTitle}>
-          Export Data
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
-          Download all your data as a JSON file.
-        </Typography>
+      {/* Footer actions */}
+      <Box
+        sx={{
+          display: "flex",
+          alignItems: "center",
+          gap: 1.5,
+          pt: 4,
+          borderTop: "1px solid #27272A",
+        }}
+      >
         <Button
           variant="outlined"
+          size="small"
           onClick={handleExport}
           disabled={exporting}
+          sx={{
+            borderColor: "#27272A",
+            color: "#A1A1AA",
+            fontFamily: "'Outfit', sans-serif",
+            fontSize: "0.75rem",
+            borderRadius: "8px",
+            textTransform: "none",
+            "&:hover": {
+              borderColor: "#3F3F46",
+              color: "#FAFAFA",
+              bgcolor: "rgba(255,255,255,0.03)",
+            },
+          }}
         >
-          {exporting ? <CircularProgress size={20} /> : "Export Data"}
+          {exporting ? <CircularProgress size={16} /> : "Export data"}
         </Button>
-      </Box>
-
-      <Divider sx={{ mb: 3 }} />
-
-      {/* Sign Out */}
-      <Box>
-        <Typography variant="subtitle1" sx={sectionTitle}>
-          Sign Out
-        </Typography>
-        <Button variant="outlined" color="error" onClick={logout}>
-          Sign Out
+        <Button
+          size="small"
+          onClick={logout}
+          sx={{
+            color: "#EF4444",
+            fontFamily: "'Outfit', sans-serif",
+            fontSize: "0.75rem",
+            borderRadius: "8px",
+            textTransform: "none",
+            "&:hover": {
+              bgcolor: "rgba(239,68,68,0.08)",
+              color: "#EF4444",
+            },
+          }}
+        >
+          Sign out
         </Button>
       </Box>
 

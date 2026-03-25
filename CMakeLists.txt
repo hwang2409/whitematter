@@ -16,15 +16,32 @@ option(WHITEMATTER_CUDA "Build with CUDA backend" OFF)
 # ------------------------------------------------------------------------------
 set(CORE_SRCS
   core/memory_pool.cpp
+  core/autograd.cpp
+  core/broadcast.cpp
   core/tensor.cpp
-  core/layer.cpp
+  core/layers/linear.cpp
+  core/layers/activations.cpp
+  core/layers/conv.cpp
+  core/layers/normalization.cpp
+  core/layers/embedding.cpp
+  core/layers/recurrent.cpp
+  core/layers/attention.cpp
+  core/layers/sequential.cpp
   core/loss.cpp
   core/optimizer.cpp
-  core/serialize.cpp
+  core/serialization/serialize.cpp
   core/dataloader.cpp
   core/model_zoo.cpp
-  core/onnx_export.cpp
+  core/serialization/onnx_export.cpp
+  core/serialization/onnx_import.cpp
   core/device.cpp
+  core/ops/simd_ops_avx.cpp
+  core/ops/simd_ops_neon.cpp
+  core/ops/simd_ops_fallback.cpp
+  core/ops/matmul_cpu.cpp
+  core/ops/im2col.cpp
+  core/ops/conv_ops.cpp
+  core/ops/augmentation.cpp
 )
 
 # Metal: stub (default) or backend on macOS
@@ -91,6 +108,7 @@ add_library(whitematter STATIC
 target_include_directories(whitematter PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}
   ${CMAKE_CURRENT_SOURCE_DIR}/core
+  ${CMAKE_CURRENT_SOURCE_DIR}/core/ops
   ${CMAKE_CURRENT_SOURCE_DIR}/datasets
 )
 if(WHITEMATTER_METAL AND CMAKE_SYSTEM_NAME STREQUAL "Darwin")

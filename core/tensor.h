@@ -2,6 +2,7 @@
 #define TENSOR_H
 
 #include "device.h"
+#include "autograd.h"
 #include <vector>
 #include <memory>
 #include <functional>
@@ -9,24 +10,6 @@
 #include <cassert>
 #include <cstdio>
 #include <random>
-
-// Global gradient computation flag
-class GradMode {
-public:
-    static bool is_enabled();
-    static void set_enabled(bool enabled);
-private:
-    static bool enabled_;
-};
-
-// RAII guard for disabling gradients (like PyTorch's torch.no_grad())
-class NoGradGuard {
-public:
-    NoGradGuard();
-    ~NoGradGuard();
-private:
-    bool prev_mode_;
-};
 
 class Tensor;
 using TensorPtr = std::shared_ptr<Tensor>;

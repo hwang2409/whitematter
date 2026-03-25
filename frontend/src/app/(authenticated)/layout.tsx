@@ -18,6 +18,7 @@ import MenuItem from "@mui/material/MenuItem";
 import InputAdornment from "@mui/material/InputAdornment";
 import ListItemIcon from "@mui/material/ListItemIcon";
 import ListItemText from "@mui/material/ListItemText";
+import Divider from "@mui/material/Divider";
 import AddOutlined from "@mui/icons-material/AddOutlined";
 import ViewSidebarOutlined from "@mui/icons-material/ViewSidebarOutlined";
 import SearchOutlined from "@mui/icons-material/SearchOutlined";
@@ -31,21 +32,23 @@ import CategoryOutlined from "@mui/icons-material/CategoryOutlined";
 import SettingsOutlined from "@mui/icons-material/SettingsOutlined";
 import MilitaryTechOutlined from "@mui/icons-material/MilitaryTechOutlined";
 import LogoutOutlined from "@mui/icons-material/LogoutOutlined";
-import Divider from "@mui/material/Divider";
 import { getConversations, updateConversation, deleteConversation } from "@/api";
 import type { Conversation } from "@/api";
 
-const SIDEBAR_WIDTH_EXPANDED = 260;
-const SIDEBAR_WIDTH_COLLAPSED = 60;
+const SIDEBAR_EXPANDED = 256;
+const SIDEBAR_COLLAPSED = 56;
 
 function formatRelativeDate(dateStr: string): string {
-  const date = new Date(dateStr);
+  // Backend sends ISO without Z — treat as UTC if no timezone specified
+  const normalized = dateStr.endsWith("Z") || dateStr.includes("+") ? dateStr : dateStr + "Z";
+  const date = new Date(normalized);
+  if (isNaN(date.getTime())) return "Recent";
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  if (diffDays === 0) return "Today";
+  if (diffDays <= 0) return "Today";
   if (diffDays === 1) return "Yesterday";
-  if (diffDays < 7) return `${diffDays} days ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
   return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
@@ -60,7 +63,6 @@ export default function AuthenticatedLayout({
   const pathname = usePathname();
   const [conversations, setConversations] = useState<Conversation[]>([]);
 
-  // Chat history management state
   const [searchQuery, setSearchQuery] = useState("");
   const [menuAnchorEl, setMenuAnchorEl] = useState<HTMLElement | null>(null);
   const [menuConvId, setMenuConvId] = useState<string | null>(null);
@@ -70,7 +72,7 @@ export default function AuthenticatedLayout({
   const [profileAnchorEl, setProfileAnchorEl] = useState<HTMLElement | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
-  const sidebarWidth = collapsed ? SIDEBAR_WIDTH_COLLAPSED : SIDEBAR_WIDTH_EXPANDED;
+  const sidebarWidth = collapsed ? SIDEBAR_COLLAPSED : SIDEBAR_EXPANDED;
 
   useEffect(() => {
     if (loading) return;
@@ -85,7 +87,6 @@ export default function AuthenticatedLayout({
     }
   }, [user, loading, router, pathname]);
 
-  // Fetch conversation list
   useEffect(() => {
     if (!user) return;
     getConversations()
@@ -93,7 +94,6 @@ export default function AuthenticatedLayout({
       .catch(() => {});
   }, [user, pathname]);
 
-  // Focus rename input when it appears
   useEffect(() => {
     if (renamingId && renameInputRef.current) {
       renameInputRef.current.focus();
@@ -101,32 +101,34 @@ export default function AuthenticatedLayout({
     }
   }, [renamingId]);
 
-  if (loading) {
+  useEffect(() => {
+    if (!loading && !user) {
+      router.replace("/login");
+    }
+  }, [user, loading, router]);
+
+  if (loading || !user) {
     return (
       <Box
         sx={{
-          minHeight: "100vh",
+          minHeight: "100dvh",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          bgcolor: "background.default",
+          bgcolor: "#09090B",
         }}
       >
-        <CircularProgress size={32} sx={{ color: "primary.main" }} />
+        <CircularProgress size={24} sx={{ color: "#F97316" }} />
       </Box>
     );
   }
 
-  const isOnChat = pathname?.startsWith("/chat");
-
-  // Filter conversations by search query
   const filtered = searchQuery
     ? conversations.filter((c) =>
         (c.title || "New conversation").toLowerCase().includes(searchQuery.toLowerCase())
       )
     : conversations;
 
-  // Group conversations by date, starred first within each group
   const grouped: { label: string; items: Conversation[] }[] = [];
   const buckets: Record<string, Conversation[]> = {};
   for (const c of filtered) {
@@ -143,7 +145,6 @@ export default function AuthenticatedLayout({
     grouped.push({ label, items });
   }
 
-  // Handlers
   function handleMenuOpen(e: React.MouseEvent<HTMLElement>, convId: string) {
     e.preventDefault();
     e.stopPropagation();
@@ -161,7 +162,6 @@ export default function AuthenticatedLayout({
     const conv = conversations.find((c) => c.id === menuConvId);
     if (!conv) return;
     const newStarred = !conv.isStarred;
-    // Optimistic update
     setConversations((prev) =>
       prev.map((c) => (c.id === menuConvId ? { ...c, isStarred: newStarred } : c))
     );
@@ -169,7 +169,6 @@ export default function AuthenticatedLayout({
     try {
       await updateConversation(menuConvId, { isStarred: newStarred });
     } catch {
-      // Revert on error
       setConversations((prev) =>
         prev.map((c) => (c.id === conv.id ? { ...c, isStarred: conv.isStarred } : c))
       );
@@ -187,12 +186,10 @@ export default function AuthenticatedLayout({
   async function handleRenameSubmit(convId: string) {
     const trimmed = renameValue.trim();
     if (!trimmed) {
-      // Don't save empty — revert
       setRenamingId(null);
       return;
     }
     const original = conversations.find((c) => c.id === convId);
-    // Optimistic update
     setConversations((prev) =>
       prev.map((c) => (c.id === convId ? { ...c, title: trimmed } : c))
     );
@@ -200,7 +197,6 @@ export default function AuthenticatedLayout({
     try {
       await updateConversation(convId, { title: trimmed });
     } catch {
-      // Revert
       if (original) {
         setConversations((prev) =>
           prev.map((c) => (c.id === convId ? { ...c, title: original.title } : c))
@@ -220,14 +216,12 @@ export default function AuthenticatedLayout({
     const id = deleteConfirmId;
     setConversations((prev) => prev.filter((c) => c.id !== id));
     setDeleteConfirmId(null);
-    // Redirect if deleting the active conversation
     if (pathname === `/chat/${id}`) {
       router.push("/chat");
     }
     try {
       await deleteConversation(id);
     } catch {
-      // Re-fetch on error
       getConversations()
         .then((convs) => setConversations(convs ?? []))
         .catch(() => {});
@@ -236,75 +230,88 @@ export default function AuthenticatedLayout({
 
   return (
     <ErrorBoundary>
-      <Box sx={{ display: "flex", minHeight: "100vh", bgcolor: "background.default" }}>
-        {/* Sidebar */}
+      <Box sx={{ display: "flex", height: "100dvh", overflow: "hidden", bgcolor: "#09090B" }}>
+        {/* ── Sidebar ─────────────────────────────────────────────── */}
         <Box
           component="nav"
           sx={{
             width: sidebarWidth,
             flexShrink: 0,
             borderRight: "1px solid",
-            borderColor: "divider",
+            borderColor: "#1A1A1E",
             display: "flex",
             flexDirection: "column",
-            bgcolor: "background.paper",
+            bgcolor: "#0C0C0E",
             overflow: "hidden",
-            transition: "width 0.2s ease",
+            transition: "width 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
           }}
         >
-          {/* Logo + collapse toggle */}
-          <Box sx={{ px: collapsed ? 0 : 1.5, pt: 1.5, pb: 1, display: "flex", alignItems: "center", justifyContent: collapsed ? "center" : "space-between" }}>
+          {/* Logo + toggle */}
+          <Box
+            sx={{
+              px: collapsed ? 0 : 1.5,
+              pt: 1.5,
+              pb: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: collapsed ? "center" : "space-between",
+            }}
+          >
             {!collapsed && (
               <Typography
                 sx={{
-                  fontFamily: "'DM Sans', sans-serif",
-                  fontSize: "1rem",
-                  fontWeight: 600,
-                  letterSpacing: "-0.02em",
-                  color: "text.primary",
-                  pl: 1,
+                  fontFamily: "'Instrument Serif', Georgia, serif",
+                  fontStyle: "italic",
+                  fontSize: "1.125rem",
+                  color: "#FAFAFA",
+                  pl: 0.75,
+                  letterSpacing: "-0.01em",
                 }}
               >
                 whitematter
               </Typography>
             )}
-            <Tooltip title={collapsed ? "Expand sidebar" : "Collapse sidebar"} placement="right" arrow>
+            <Tooltip title={collapsed ? "Expand" : "Collapse"} placement="right" arrow>
               <IconButton
                 onClick={toggleSidebar}
                 size="small"
                 sx={{
                   width: 28,
                   height: 28,
-                  color: "text.disabled",
-                  "&:hover": {
-                    color: "text.secondary",
-                    bgcolor: "action.hover",
-                  },
+                  borderRadius: "6px",
+                  color: "#52525B",
+                  "&:hover": { color: "#A1A1AA", bgcolor: "rgba(255,255,255,0.04)" },
                 }}
               >
-                <ViewSidebarOutlined fontSize="small" sx={{ transform: "scaleX(-1)" }} />
+                <ViewSidebarOutlined sx={{ fontSize: 16, transform: "scaleX(-1)" }} />
               </IconButton>
             </Tooltip>
           </Box>
 
-          {/* New chat button */}
-          <Box sx={{ px: collapsed ? 0 : 1.5, mb: collapsed ? 2 : 1, display: "flex", justifyContent: "center" }}>
+          {/* New chat */}
+          <Box
+            sx={{
+              px: collapsed ? 0 : 1.5,
+              mb: 0.5,
+              display: "flex",
+              justifyContent: "center",
+            }}
+          >
             {collapsed ? (
               <Tooltip title="New chat" placement="right" arrow>
                 <IconButton
                   component={Link}
                   href="/chat"
                   sx={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: "10px",
-                    border: "1px solid",
-                    borderColor: "divider",
-                    color: "text.secondary",
+                    width: 34,
+                    height: 34,
+                    borderRadius: "8px",
+                    border: "1px solid #27272A",
+                    color: "#A1A1AA",
                     "&:hover": {
-                      borderColor: "action.hover",
-                      bgcolor: "background.default",
-                      color: "text.primary",
+                      borderColor: "#3F3F46",
+                      bgcolor: "rgba(255,255,255,0.03)",
+                      color: "#FAFAFA",
                     },
                   }}
                 >
@@ -315,23 +322,22 @@ export default function AuthenticatedLayout({
               <Button
                 component={Link}
                 href="/chat"
-                startIcon={<AddOutlined sx={{ fontSize: "16px !important" }} />}
+                startIcon={<AddOutlined sx={{ fontSize: "15px !important" }} />}
                 fullWidth
                 sx={{
                   justifyContent: "flex-start",
-                  px: 1.5,
-                  py: 1,
-                  borderRadius: "10px",
-                  border: "1px solid",
-                  borderColor: "divider",
-                  color: "text.secondary",
-                  fontSize: "0.875rem",
+                  px: 1.25,
+                  py: 0.875,
+                  borderRadius: "8px",
+                  border: "1px solid #27272A",
+                  color: "#A1A1AA",
+                  fontSize: "0.8125rem",
                   fontWeight: 400,
                   textTransform: "none",
                   "&:hover": {
-                    borderColor: "action.hover",
-                    bgcolor: "background.default",
-                    color: "text.primary",
+                    borderColor: "#3F3F46",
+                    bgcolor: "rgba(255,255,255,0.03)",
+                    color: "#FAFAFA",
                   },
                 }}
               >
@@ -340,26 +346,30 @@ export default function AuthenticatedLayout({
             )}
           </Box>
 
-          {/* Models button */}
-          <Box sx={{ px: collapsed ? 0 : 1.5, mb: 1, display: "flex", justifyContent: "center" }}>
+          {/* Models nav */}
+          <Box
+            sx={{
+              px: collapsed ? 0 : 1.5,
+              mb: 0.75,
+              display: "flex",
+              justifyContent: "center",
+            }}
+          >
             {collapsed ? (
               <Tooltip title="Models" placement="right" arrow>
                 <IconButton
                   component={Link}
                   href="/models"
                   sx={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: "10px",
-                    color: pathname === "/models" ? "text.primary" : "text.secondary",
-                    bgcolor: pathname === "/models" ? "background.default" : "transparent",
-                    "&:hover": {
-                      bgcolor: "background.default",
-                      color: "text.primary",
-                    },
+                    width: 34,
+                    height: 34,
+                    borderRadius: "8px",
+                    color: pathname === "/models" ? "#FAFAFA" : "#52525B",
+                    bgcolor: pathname === "/models" ? "rgba(255,255,255,0.06)" : "transparent",
+                    "&:hover": { bgcolor: "rgba(255,255,255,0.04)", color: "#A1A1AA" },
                   }}
                 >
-                  <CategoryOutlined sx={{ fontSize: 18 }} />
+                  <CategoryOutlined sx={{ fontSize: 17 }} />
                 </IconButton>
               </Tooltip>
             ) : (
@@ -369,18 +379,15 @@ export default function AuthenticatedLayout({
                 fullWidth
                 sx={{
                   justifyContent: "flex-start",
-                  px: 1.5,
-                  py: 0.875,
-                  borderRadius: "10px",
-                  color: pathname === "/models" ? "text.primary" : "text.secondary",
-                  bgcolor: pathname === "/models" ? "background.default" : "transparent",
-                  fontSize: "0.875rem",
+                  px: 1.25,
+                  py: 0.75,
+                  borderRadius: "8px",
+                  color: pathname === "/models" ? "#FAFAFA" : "#71717A",
+                  bgcolor: pathname === "/models" ? "rgba(255,255,255,0.06)" : "transparent",
+                  fontSize: "0.8125rem",
                   fontWeight: pathname === "/models" ? 500 : 400,
                   textTransform: "none",
-                  "&:hover": {
-                    bgcolor: "background.default",
-                    color: "text.primary",
-                  },
+                  "&:hover": { bgcolor: "rgba(255,255,255,0.04)", color: "#FAFAFA" },
                 }}
               >
                 Models
@@ -388,12 +395,61 @@ export default function AuthenticatedLayout({
             )}
           </Box>
 
-          {/* Search bar */}
+          {/* Settings nav */}
+          <Box
+            sx={{
+              px: collapsed ? 0 : 1.5,
+              mb: 0.75,
+              display: "flex",
+              justifyContent: "center",
+            }}
+          >
+            {collapsed ? (
+              <Tooltip title="Settings" placement="right" arrow>
+                <IconButton
+                  component={Link}
+                  href="/settings"
+                  sx={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: "8px",
+                    color: pathname === "/settings" ? "#FAFAFA" : "#52525B",
+                    bgcolor: pathname === "/settings" ? "rgba(255,255,255,0.06)" : "transparent",
+                    "&:hover": { bgcolor: "rgba(255,255,255,0.04)", color: "#A1A1AA" },
+                  }}
+                >
+                  <SettingsOutlined sx={{ fontSize: 17 }} />
+                </IconButton>
+              </Tooltip>
+            ) : (
+              <Button
+                component={Link}
+                href="/settings"
+                fullWidth
+                sx={{
+                  justifyContent: "flex-start",
+                  px: 1.25,
+                  py: 0.75,
+                  borderRadius: "8px",
+                  color: pathname === "/settings" ? "#FAFAFA" : "#71717A",
+                  bgcolor: pathname === "/settings" ? "rgba(255,255,255,0.06)" : "transparent",
+                  fontSize: "0.8125rem",
+                  fontWeight: pathname === "/settings" ? 500 : 400,
+                  textTransform: "none",
+                  "&:hover": { bgcolor: "rgba(255,255,255,0.04)", color: "#FAFAFA" },
+                }}
+              >
+                Settings
+              </Button>
+            )}
+          </Box>
+
+          {/* Search */}
           {!collapsed && (
             <Box sx={{ px: 1.5, mb: 1 }}>
               <TextField
                 size="small"
-                placeholder="Search chats..."
+                placeholder="Search..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 fullWidth
@@ -401,53 +457,37 @@ export default function AuthenticatedLayout({
                   input: {
                     startAdornment: (
                       <InputAdornment position="start">
-                        <SearchOutlined sx={{ fontSize: 16, color: "text.disabled" }} />
+                        <SearchOutlined sx={{ fontSize: 14, color: "#52525B" }} />
                       </InputAdornment>
                     ),
                     sx: {
-                      fontSize: "0.8125rem",
+                      fontSize: "0.75rem",
                       borderRadius: "8px",
-                      "& fieldset": { borderColor: "divider" },
+                      bgcolor: "transparent",
+                      "& fieldset": { borderColor: "#1F1F23" },
+                      "&:hover fieldset": { borderColor: "#27272A !important" },
                     },
                   },
                 }}
-                sx={{ "& .MuiOutlinedInput-root": { height: 34 } }}
+                sx={{ "& .MuiOutlinedInput-root": { height: 32 } }}
               />
-            </Box>
-          )}
-
-          {/* Recents label */}
-          {!collapsed && (
-            <Box sx={{ px: 1.5, mb: 0.5 }}>
-              <Typography
-                sx={{
-                  fontSize: "0.6875rem",
-                  fontWeight: 600,
-                  letterSpacing: "0.06em",
-                  textTransform: "uppercase",
-                  color: "text.disabled",
-                  px: 1,
-                }}
-              >
-                Recents
-              </Typography>
             </Box>
           )}
 
           {/* Conversation list */}
           {!collapsed && (
-            <Box sx={{ flex: 1, overflowY: "auto", px: 1.5 }}>
+            <Box sx={{ flex: 1, overflowY: "auto", px: 1 }}>
               {grouped.map(({ label, items }) => (
-                <Box key={label} sx={{ mb: 1.5 }}>
+                <Box key={label} sx={{ mb: 1 }}>
                   <Typography
                     sx={{
-                      fontSize: "0.6875rem",
+                      fontSize: "0.625rem",
                       fontWeight: 600,
-                      letterSpacing: "0.06em",
+                      letterSpacing: "0.08em",
                       textTransform: "uppercase",
-                      color: "text.disabled",
-                      px: 1,
-                      mb: 0.5,
+                      color: "#3F3F46",
+                      px: 0.75,
+                      mb: 0.25,
                     }}
                   >
                     {label}
@@ -463,13 +503,15 @@ export default function AuthenticatedLayout({
                         sx={{
                           display: "flex",
                           alignItems: "center",
-                          borderRadius: "8px",
-                          bgcolor: isActive ? "background.default" : "transparent",
-                          mb: "2px",
-                          transition: "all 0.12s",
+                          borderRadius: "6px",
+                          bgcolor: isActive ? "rgba(255,255,255,0.06)" : "transparent",
+                          mb: "1px",
+                          transition: "background-color 0.1s",
                           "&:hover": {
-                            bgcolor: "background.default",
-                            "& .chat-menu-btn": { opacity: 1 },
+                            bgcolor: isActive
+                              ? "rgba(255,255,255,0.06)"
+                              : "rgba(255,255,255,0.03)",
+                            "& .conv-menu-btn": { opacity: 1 },
                           },
                         }}
                       >
@@ -488,8 +530,8 @@ export default function AuthenticatedLayout({
                             sx={{
                               mx: 0.5,
                               "& .MuiOutlinedInput-root": {
-                                height: 30,
-                                fontSize: "0.875rem",
+                                height: 28,
+                                fontSize: "0.8125rem",
                               },
                             }}
                           />
@@ -503,10 +545,10 @@ export default function AuthenticatedLayout({
                                 display: "flex",
                                 alignItems: "center",
                                 gap: 0.5,
-                                px: 1.5,
-                                py: 0.75,
-                                fontSize: "0.875rem",
-                                color: isActive ? "text.primary" : "text.secondary",
+                                px: 1,
+                                py: 0.625,
+                                fontSize: "0.8125rem",
+                                color: isActive ? "#FAFAFA" : "#71717A",
                                 fontWeight: isActive ? 500 : 400,
                                 cursor: "pointer",
                                 whiteSpace: "nowrap",
@@ -517,27 +559,33 @@ export default function AuthenticatedLayout({
                               }}
                             >
                               {conv.isStarred && (
-                                <StarOutlined sx={{ fontSize: 14, color: "warning.main", flexShrink: 0 }} />
+                                <StarOutlined
+                                  sx={{ fontSize: 12, color: "#EAB308", flexShrink: 0 }}
+                                />
                               )}
-                              <Box component="span" sx={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+                              <Box
+                                component="span"
+                                sx={{ overflow: "hidden", textOverflow: "ellipsis" }}
+                              >
                                 {conv.title || "New conversation"}
                               </Box>
                             </Box>
                             <IconButton
-                              className="chat-menu-btn"
+                              className="conv-menu-btn"
                               size="small"
                               onClick={(e) => handleMenuOpen(e, conv.id)}
                               sx={{
                                 opacity: 0,
-                                width: 24,
-                                height: 24,
-                                mr: 0.5,
-                                color: "text.disabled",
-                                "&:hover": { color: "text.secondary" },
+                                width: 22,
+                                height: 22,
+                                mr: 0.25,
+                                color: "#52525B",
+                                borderRadius: "4px",
+                                "&:hover": { color: "#A1A1AA", bgcolor: "rgba(255,255,255,0.06)" },
                                 flexShrink: 0,
                               }}
                             >
-                              <MoreHoriz sx={{ fontSize: 16 }} />
+                              <MoreHoriz sx={{ fontSize: 14 }} />
                             </IconButton>
                           </>
                         )}
@@ -549,185 +597,199 @@ export default function AuthenticatedLayout({
             </Box>
           )}
 
-          <Box sx={{ flex: !collapsed ? 0 : 1 }} />
-        </Box>
-
-        {/* Main content */}
-        <Box sx={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-          {/* Top bar */}
+          {/* ── Profile ─────────────────────── */}
           <Box
             sx={{
-              display: "flex",
-              justifyContent: "flex-end",
-              alignItems: "center",
-              px: 2,
-              py: 1,
-              minHeight: 48,
+              borderTop: "1px solid #1F1F23",
+              p: collapsed ? 1 : 1.5,
+              flexShrink: 0,
             }}
           >
-            {user ? (
-              <Tooltip title="Account" arrow>
+            {collapsed ? (
+              <Tooltip title={user?.email ?? "Account"} placement="right" arrow>
                 <IconButton
                   onClick={(e) => setProfileAnchorEl(e.currentTarget)}
                   sx={{
                     width: 34,
                     height: 34,
-                    borderRadius: "50%",
-                    bgcolor: "background.paper",
-                    border: "1px solid",
-                    borderColor: "divider",
-                    fontSize: "0.8125rem",
+                    borderRadius: "8px",
+                    bgcolor: "#18181B",
+                    border: "1px solid #27272A",
+                    fontSize: "0.75rem",
                     fontWeight: 600,
-                    color: "text.secondary",
-                    "&:hover": {
-                      borderColor: "primary.main",
-                      color: "primary.main",
-                    },
+                    fontFamily: "'JetBrains Mono', monospace",
+                    color: "#A1A1AA",
+                    display: "flex",
+                    mx: "auto",
+                    "&:hover": { borderColor: "#3F3F46", color: "#FAFAFA" },
                   }}
                 >
-                  {user.email?.[0]?.toUpperCase() ?? "U"}
+                  {user?.email?.[0]?.toUpperCase() ?? "U"}
                 </IconButton>
               </Tooltip>
             ) : (
-              <Button
-                component={Link}
-                href="/login"
-                size="small"
-                startIcon={<LoginOutlined sx={{ fontSize: "16px !important" }} />}
+              <Box
+                onClick={(e) => setProfileAnchorEl(e.currentTarget as HTMLElement)}
                 sx={{
-                  textTransform: "none",
-                  fontSize: "0.8125rem",
-                  fontWeight: 500,
-                  color: "text.primary",
-                  border: "1px solid",
-                  borderColor: "divider",
-                  borderRadius: "8px",
-                  px: 2,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 1,
+                  px: 0.5,
                   py: 0.5,
-                  "&:hover": {
-                    borderColor: "primary.main",
-                    bgcolor: "rgba(120,113,108,0.06)",
-                  },
+                  borderRadius: "8px",
+                  cursor: "pointer",
+                  transition: "background-color 0.15s",
+                  "&:hover": { bgcolor: "rgba(255,255,255,0.04)" },
                 }}
               >
-                Sign in
-              </Button>
+                <Box
+                  sx={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: "8px",
+                    bgcolor: "#18181B",
+                    border: "1px solid #27272A",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "0.75rem",
+                    fontWeight: 600,
+                    fontFamily: "'JetBrains Mono', monospace",
+                    color: "#A1A1AA",
+                    flexShrink: 0,
+                  }}
+                >
+                  {user?.email?.[0]?.toUpperCase() ?? "U"}
+                </Box>
+                <Typography
+                  sx={{
+                    flex: 1,
+                    fontSize: "0.8125rem",
+                    color: "#A1A1AA",
+                    fontFamily: "'Outfit', sans-serif",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    minWidth: 0,
+                  }}
+                >
+                  {user?.email}
+                </Typography>
+              </Box>
             )}
           </Box>
+        </Box>
+
+        {/* ── Main ────────────────────────────────────────────────── */}
+        <Box sx={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
+          {/* Content */}
           <Box
             component="main"
-            sx={{
-              flex: 1,
-              display: "flex",
-              flexDirection: "column",
-              minHeight: 0,
-            }}
+            sx={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}
           >
             {children}
           </Box>
         </Box>
       </Box>
 
-      {/* Three-dot context menu */}
+      {/* ── Context menu ──────────────────────────────────────────── */}
       <Menu
         anchorEl={menuAnchorEl}
         open={Boolean(menuAnchorEl)}
         onClose={handleMenuClose}
-        slotProps={{
-          paper: {
-            sx: {
-              bgcolor: "background.paper",
-              border: "1px solid",
-              borderColor: "divider",
-              borderRadius: "8px",
-              minWidth: 160,
-              boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
-            },
-          },
-        }}
       >
-        <MenuItem onClick={handleToggleStar} sx={{ fontSize: "0.875rem" }}>
+        <MenuItem onClick={handleToggleStar} sx={{ fontSize: "0.8125rem" }}>
           <ListItemIcon>
             {conversations.find((c) => c.id === menuConvId)?.isStarred ? (
-              <StarOutlined sx={{ fontSize: 18, color: "warning.main" }} />
+              <StarOutlined sx={{ fontSize: 16, color: "#EAB308" }} />
             ) : (
-              <StarBorderOutlined sx={{ fontSize: 18 }} />
+              <StarBorderOutlined sx={{ fontSize: 16 }} />
             )}
           </ListItemIcon>
           <ListItemText>
             {conversations.find((c) => c.id === menuConvId)?.isStarred ? "Unstar" : "Star"}
           </ListItemText>
         </MenuItem>
-        <MenuItem onClick={handleStartRename} sx={{ fontSize: "0.875rem" }}>
+        <MenuItem onClick={handleStartRename} sx={{ fontSize: "0.8125rem" }}>
           <ListItemIcon>
-            <EditOutlined sx={{ fontSize: 18 }} />
+            <EditOutlined sx={{ fontSize: 16 }} />
           </ListItemIcon>
           <ListItemText>Rename</ListItemText>
         </MenuItem>
-        <MenuItem onClick={handleDeleteClick} sx={{ fontSize: "0.875rem", color: "error.main" }}>
+        <MenuItem
+          onClick={handleDeleteClick}
+          sx={{ fontSize: "0.8125rem", color: "#EF4444" }}
+        >
           <ListItemIcon>
-            <DeleteOutlined sx={{ fontSize: 18, color: "error.main" }} />
+            <DeleteOutlined sx={{ fontSize: 16, color: "#EF4444" }} />
           </ListItemIcon>
           <ListItemText>Delete</ListItemText>
         </MenuItem>
       </Menu>
 
-      {/* Profile dropdown menu */}
+      {/* ── Profile menu ──────────────────────────────────────────── */}
       <Menu
         anchorEl={profileAnchorEl}
         open={Boolean(profileAnchorEl)}
         onClose={() => setProfileAnchorEl(null)}
-        anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
-        transformOrigin={{ vertical: "top", horizontal: "right" }}
-        slotProps={{
-          paper: {
-            sx: {
-              bgcolor: "background.paper",
-              border: "1px solid",
-              borderColor: "divider",
-              borderRadius: "10px",
-              minWidth: 200,
-              boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
-              mt: 0.5,
-            },
-          },
-        }}
+        anchorOrigin={{ vertical: "top", horizontal: "right" }}
+        transformOrigin={{ vertical: "bottom", horizontal: "left" }}
       >
-        {/* Account header */}
-        <Box sx={{ px: 2, py: 1.5 }}>
-          <Typography sx={{ fontSize: "0.6875rem", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: "text.disabled" }}>
+        <Box sx={{ px: 1.5, py: 1 }}>
+          <Typography
+            sx={{
+              fontSize: "0.625rem",
+              fontWeight: 600,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              color: "#52525B",
+            }}
+          >
             Account
           </Typography>
-          <Typography sx={{ fontSize: "0.8125rem", color: "text.secondary", mt: 0.25 }}>
+          <Typography sx={{ fontSize: "0.8125rem", color: "#A1A1AA", mt: 0.25 }}>
             {user?.email}
           </Typography>
         </Box>
-        <Divider />
+        <Divider sx={{ borderColor: "#27272A" }} />
         <MenuItem
-          onClick={() => { setProfileAnchorEl(null); router.push("/settings"); }}
-          sx={{ fontSize: "0.875rem", py: 1 }}
+          onClick={() => {
+            setProfileAnchorEl(null);
+            router.push("/settings");
+          }}
         >
-          <ListItemIcon><MilitaryTechOutlined sx={{ fontSize: 18 }} /></ListItemIcon>
-          <ListItemText>Upgrade plan</ListItemText>
+          <ListItemIcon>
+            <MilitaryTechOutlined sx={{ fontSize: 16 }} />
+          </ListItemIcon>
+          <ListItemText>Upgrade</ListItemText>
         </MenuItem>
         <MenuItem
-          onClick={() => { setProfileAnchorEl(null); router.push("/settings"); }}
-          sx={{ fontSize: "0.875rem", py: 1 }}
+          onClick={() => {
+            setProfileAnchorEl(null);
+            router.push("/settings");
+          }}
         >
-          <ListItemIcon><SettingsOutlined sx={{ fontSize: 18 }} /></ListItemIcon>
+          <ListItemIcon>
+            <SettingsOutlined sx={{ fontSize: 16 }} />
+          </ListItemIcon>
           <ListItemText>Settings</ListItemText>
         </MenuItem>
-        <Divider />
+        <Divider sx={{ borderColor: "#27272A" }} />
         <MenuItem
-          onClick={() => { setProfileAnchorEl(null); logout(); }}
-          sx={{ fontSize: "0.875rem", py: 1, color: "text.secondary" }}
+          onClick={() => {
+            setProfileAnchorEl(null);
+            logout();
+          }}
+          sx={{ color: "#71717A" }}
         >
-          <ListItemIcon><LogoutOutlined sx={{ fontSize: 18, color: "text.secondary" }} /></ListItemIcon>
+          <ListItemIcon>
+            <LogoutOutlined sx={{ fontSize: 16, color: "#71717A" }} />
+          </ListItemIcon>
           <ListItemText>Sign out</ListItemText>
         </MenuItem>
       </Menu>
 
-      {/* Delete confirmation dialog */}
+      {/* ── Delete confirmation ───────────────────────────────────── */}
       <ConfirmDialog
         isOpen={deleteConfirmId !== null}
         title="Delete Conversation"

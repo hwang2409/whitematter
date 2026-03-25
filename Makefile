@@ -37,12 +37,28 @@ METAL ?= 0
 CUDA ?= 0
 
 # Core library objects
-CORE_SRCS = $(CORE_DIR)/memory_pool.cpp $(CORE_DIR)/tensor.cpp $(CORE_DIR)/layer.cpp $(CORE_DIR)/loss.cpp \
-            $(CORE_DIR)/optimizer.cpp $(CORE_DIR)/serialize.cpp $(CORE_DIR)/dataloader.cpp \
-            $(CORE_DIR)/model_zoo.cpp $(CORE_DIR)/onnx_export.cpp $(CORE_DIR)/onnx_import.cpp $(CORE_DIR)/device.cpp
-CORE_OBJS = $(BUILD_DIR)/memory_pool.o $(BUILD_DIR)/tensor.o $(BUILD_DIR)/layer.o $(BUILD_DIR)/loss.o \
+LAYERS_DIR = $(CORE_DIR)/layers
+SERIAL_DIR = $(CORE_DIR)/serialization
+CORE_SRCS = $(CORE_DIR)/memory_pool.cpp $(CORE_DIR)/autograd.cpp $(CORE_DIR)/broadcast.cpp \
+            $(CORE_DIR)/tensor.cpp $(CORE_DIR)/loss.cpp \
+            $(CORE_DIR)/optimizer.cpp $(SERIAL_DIR)/serialize.cpp $(CORE_DIR)/dataloader.cpp \
+            $(CORE_DIR)/model_zoo.cpp $(SERIAL_DIR)/onnx_export.cpp $(SERIAL_DIR)/onnx_import.cpp $(CORE_DIR)/device.cpp \
+            $(LAYERS_DIR)/linear.cpp $(LAYERS_DIR)/activations.cpp $(LAYERS_DIR)/conv.cpp \
+            $(LAYERS_DIR)/normalization.cpp $(LAYERS_DIR)/embedding.cpp $(LAYERS_DIR)/recurrent.cpp \
+            $(LAYERS_DIR)/attention.cpp $(LAYERS_DIR)/sequential.cpp \
+            $(CORE_DIR)/ops/simd_ops_avx.cpp $(CORE_DIR)/ops/simd_ops_neon.cpp $(CORE_DIR)/ops/simd_ops_fallback.cpp \
+            $(CORE_DIR)/ops/matmul_cpu.cpp $(CORE_DIR)/ops/im2col.cpp \
+            $(CORE_DIR)/ops/conv_ops.cpp $(CORE_DIR)/ops/augmentation.cpp
+CORE_OBJS = $(BUILD_DIR)/memory_pool.o $(BUILD_DIR)/autograd.o $(BUILD_DIR)/broadcast.o \
+            $(BUILD_DIR)/tensor.o $(BUILD_DIR)/loss.o \
             $(BUILD_DIR)/optimizer.o $(BUILD_DIR)/serialize.o $(BUILD_DIR)/dataloader.o \
-            $(BUILD_DIR)/model_zoo.o $(BUILD_DIR)/onnx_export.o $(BUILD_DIR)/onnx_import.o $(BUILD_DIR)/device.o
+            $(BUILD_DIR)/model_zoo.o $(BUILD_DIR)/onnx_export.o $(BUILD_DIR)/onnx_import.o $(BUILD_DIR)/device.o \
+            $(BUILD_DIR)/layer_linear.o $(BUILD_DIR)/layer_activations.o $(BUILD_DIR)/layer_conv.o \
+            $(BUILD_DIR)/layer_normalization.o $(BUILD_DIR)/layer_embedding.o $(BUILD_DIR)/layer_recurrent.o \
+            $(BUILD_DIR)/layer_attention.o $(BUILD_DIR)/layer_sequential.o \
+            $(BUILD_DIR)/simd_ops_avx.o $(BUILD_DIR)/simd_ops_neon.o $(BUILD_DIR)/simd_ops_fallback.o \
+            $(BUILD_DIR)/matmul_cpu.o $(BUILD_DIR)/im2col.o \
+            $(BUILD_DIR)/conv_ops.o $(BUILD_DIR)/augmentation.o
 
 # Metal: use stub (returns false) unless METAL=1 on Darwin
 ifeq ($(METAL),1)
@@ -78,6 +94,9 @@ DATASET_OBJS = $(BUILD_DIR)/mnist.o $(BUILD_DIR)/cifar10.o
 # All library objects
 LIB_OBJS = $(CORE_OBJS) $(DATASET_OBJS)
 
+# Static library
+STATIC_LIB = $(BUILD_DIR)/libwhitematter.a
+
 # Test directory
 TESTS_DIR = tests
 
@@ -99,7 +118,7 @@ TEST_OBJS = $(BUILD_DIR)/test_tensor.o $(BUILD_DIR)/test_autograd.o \
             $(BUILD_DIR)/test_layers.o $(BUILD_DIR)/test_loss.o \
             $(BUILD_DIR)/test_optimizer.o $(BUILD_DIR)/run_tests.o
 
-all: $(ML_TARGET) $(CNN_MNIST_TARGET) $(CNN_CIFAR10_TARGET) $(TRANSFORMER_TARGET) $(AUTOENCODER_TARGET) $(GAN_TARGET) $(RNN_TEXT_GEN_TARGET)
+all: $(STATIC_LIB) $(ML_TARGET) $(CNN_MNIST_TARGET) $(CNN_CIFAR10_TARGET) $(TRANSFORMER_TARGET) $(AUTOENCODER_TARGET) $(GAN_TARGET) $(RNN_TEXT_GEN_TARGET)
 
 # Ensure build directory exists
 $(BUILD_DIR):
@@ -109,10 +128,58 @@ $(BUILD_DIR):
 $(BUILD_DIR)/memory_pool.o: $(CORE_DIR)/memory_pool.cpp $(CORE_DIR)/memory_pool.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/tensor.o: $(CORE_DIR)/tensor.cpp $(CORE_DIR)/tensor.h $(CORE_DIR)/memory_pool.h | $(BUILD_DIR)
+$(BUILD_DIR)/autograd.o: $(CORE_DIR)/autograd.cpp $(CORE_DIR)/autograd.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/layer.o: $(CORE_DIR)/layer.cpp $(CORE_DIR)/layer.h $(CORE_DIR)/tensor.h | $(BUILD_DIR)
+$(BUILD_DIR)/broadcast.o: $(CORE_DIR)/broadcast.cpp $(CORE_DIR)/broadcast.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/simd_ops_avx.o: $(CORE_DIR)/ops/simd_ops_avx.cpp $(CORE_DIR)/ops/simd_ops.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -I$(CORE_DIR)/ops -c -o $@ $<
+
+$(BUILD_DIR)/simd_ops_neon.o: $(CORE_DIR)/ops/simd_ops_neon.cpp $(CORE_DIR)/ops/simd_ops.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -I$(CORE_DIR)/ops -c -o $@ $<
+
+$(BUILD_DIR)/simd_ops_fallback.o: $(CORE_DIR)/ops/simd_ops_fallback.cpp $(CORE_DIR)/ops/simd_ops.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -I$(CORE_DIR)/ops -c -o $@ $<
+
+$(BUILD_DIR)/matmul_cpu.o: $(CORE_DIR)/ops/matmul_cpu.cpp $(CORE_DIR)/ops/matmul_cpu.h $(CORE_DIR)/ops/simd_ops.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -I$(CORE_DIR)/ops -c -o $@ $<
+
+$(BUILD_DIR)/im2col.o: $(CORE_DIR)/ops/im2col.cpp $(CORE_DIR)/ops/im2col.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -I$(CORE_DIR)/ops -c -o $@ $<
+
+$(BUILD_DIR)/conv_ops.o: $(CORE_DIR)/ops/conv_ops.cpp $(CORE_DIR)/tensor.h $(CORE_DIR)/ops/im2col.h $(CORE_DIR)/ops/matmul_cpu.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -I$(CORE_DIR)/ops -c -o $@ $<
+
+$(BUILD_DIR)/augmentation.o: $(CORE_DIR)/ops/augmentation.cpp $(CORE_DIR)/tensor.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/tensor.o: $(CORE_DIR)/tensor.cpp $(CORE_DIR)/tensor.h $(CORE_DIR)/memory_pool.h $(CORE_DIR)/broadcast.h $(CORE_DIR)/ops/simd_ops.h $(CORE_DIR)/ops/matmul_cpu.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/layer_linear.o: $(LAYERS_DIR)/linear.cpp $(CORE_DIR)/layer.h $(CORE_DIR)/tensor.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/layer_activations.o: $(LAYERS_DIR)/activations.cpp $(CORE_DIR)/layer.h $(CORE_DIR)/tensor.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/layer_conv.o: $(LAYERS_DIR)/conv.cpp $(CORE_DIR)/layer.h $(CORE_DIR)/tensor.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/layer_normalization.o: $(LAYERS_DIR)/normalization.cpp $(CORE_DIR)/layer.h $(CORE_DIR)/tensor.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/layer_embedding.o: $(LAYERS_DIR)/embedding.cpp $(CORE_DIR)/layer.h $(CORE_DIR)/tensor.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/layer_recurrent.o: $(LAYERS_DIR)/recurrent.cpp $(CORE_DIR)/layer.h $(CORE_DIR)/tensor.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/layer_attention.o: $(LAYERS_DIR)/attention.cpp $(CORE_DIR)/layer.h $(CORE_DIR)/tensor.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/layer_sequential.o: $(LAYERS_DIR)/sequential.cpp $(CORE_DIR)/layer.h $(CORE_DIR)/tensor.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/loss.o: $(CORE_DIR)/loss.cpp $(CORE_DIR)/loss.h $(CORE_DIR)/tensor.h | $(BUILD_DIR)
@@ -121,7 +188,7 @@ $(BUILD_DIR)/loss.o: $(CORE_DIR)/loss.cpp $(CORE_DIR)/loss.h $(CORE_DIR)/tensor.
 $(BUILD_DIR)/optimizer.o: $(CORE_DIR)/optimizer.cpp $(CORE_DIR)/optimizer.h $(CORE_DIR)/tensor.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/serialize.o: $(CORE_DIR)/serialize.cpp $(CORE_DIR)/serialize.h $(CORE_DIR)/tensor.h $(CORE_DIR)/layer.h | $(BUILD_DIR)
+$(BUILD_DIR)/serialize.o: $(SERIAL_DIR)/serialize.cpp $(CORE_DIR)/serialize.h $(CORE_DIR)/tensor.h $(CORE_DIR)/layer.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/dataloader.o: $(CORE_DIR)/dataloader.cpp $(CORE_DIR)/dataloader.h $(CORE_DIR)/tensor.h | $(BUILD_DIR)
@@ -130,10 +197,10 @@ $(BUILD_DIR)/dataloader.o: $(CORE_DIR)/dataloader.cpp $(CORE_DIR)/dataloader.h $
 $(BUILD_DIR)/model_zoo.o: $(CORE_DIR)/model_zoo.cpp $(CORE_DIR)/model_zoo.h $(CORE_DIR)/layer.h $(CORE_DIR)/serialize.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/onnx_export.o: $(CORE_DIR)/onnx_export.cpp $(CORE_DIR)/onnx_export.h $(CORE_DIR)/layer.h | $(BUILD_DIR)
+$(BUILD_DIR)/onnx_export.o: $(SERIAL_DIR)/onnx_export.cpp $(CORE_DIR)/onnx_export.h $(CORE_DIR)/layer.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/onnx_import.o: $(CORE_DIR)/onnx_import.cpp $(CORE_DIR)/onnx_import.h $(CORE_DIR)/onnx_export.h $(CORE_DIR)/layer.h | $(BUILD_DIR)
+$(BUILD_DIR)/onnx_import.o: $(SERIAL_DIR)/onnx_import.cpp $(CORE_DIR)/onnx_import.h $(CORE_DIR)/onnx_export.h $(CORE_DIR)/layer.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/device.o: $(CORE_DIR)/device.cpp $(CORE_DIR)/device.h | $(BUILD_DIR)
@@ -179,27 +246,31 @@ $(BUILD_DIR)/gan.o: $(EXAMPLES_DIR)/gan.cpp | $(BUILD_DIR)
 $(BUILD_DIR)/rnn_text_gen.o: $(EXAMPLES_DIR)/rnn_text_gen.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
+# Static library archive
+$(STATIC_LIB): $(LIB_OBJS)
+	ar rcs $@ $^
+
 # Link examples
-$(ML_TARGET): $(BUILD_DIR)/ml.o $(LIB_OBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+$(ML_TARGET): $(BUILD_DIR)/ml.o $(STATIC_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $< -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
 
-$(CNN_MNIST_TARGET): $(BUILD_DIR)/cnn_mnist.o $(LIB_OBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+$(CNN_MNIST_TARGET): $(BUILD_DIR)/cnn_mnist.o $(STATIC_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $< -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
 
-$(CNN_CIFAR10_TARGET): $(BUILD_DIR)/cnn_cifar10.o $(LIB_OBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+$(CNN_CIFAR10_TARGET): $(BUILD_DIR)/cnn_cifar10.o $(STATIC_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $< -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
 
-$(TRANSFORMER_TARGET): $(BUILD_DIR)/transformer_example.o $(LIB_OBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+$(TRANSFORMER_TARGET): $(BUILD_DIR)/transformer_example.o $(STATIC_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $< -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
 
-$(AUTOENCODER_TARGET): $(BUILD_DIR)/autoencoder.o $(LIB_OBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+$(AUTOENCODER_TARGET): $(BUILD_DIR)/autoencoder.o $(STATIC_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $< -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
 
-$(GAN_TARGET): $(BUILD_DIR)/gan.o $(LIB_OBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+$(GAN_TARGET): $(BUILD_DIR)/gan.o $(STATIC_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $< -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
 
-$(RNN_TEXT_GEN_TARGET): $(BUILD_DIR)/rnn_text_gen.o $(LIB_OBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+$(RNN_TEXT_GEN_TARGET): $(BUILD_DIR)/rnn_text_gen.o $(STATIC_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $< -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
 
 # Test compilation
 $(BUILD_DIR)/test_tensor.o: $(TESTS_DIR)/test_tensor.cpp $(TESTS_DIR)/test_framework.h | $(BUILD_DIR)
@@ -221,8 +292,8 @@ $(BUILD_DIR)/run_tests.o: $(TESTS_DIR)/run_tests.cpp $(TESTS_DIR)/test_framework
 	$(CXX) $(CXXFLAGS) -I$(TESTS_DIR) -c -o $@ $<
 
 # Link tests
-$(TESTS_TARGET): $(TEST_OBJS) $(CORE_OBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+$(TESTS_TARGET): $(TEST_OBJS) $(STATIC_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $(TEST_OBJS) -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
 
 # Test targets
 test: $(TESTS_TARGET)
@@ -244,7 +315,7 @@ test-optimizer: $(TESTS_TARGET)
 	./$(TESTS_TARGET) --optimizer
 
 clean:
-	rm -rf $(BUILD_DIR)/*.o $(BUILD_DIR)/ml $(BUILD_DIR)/cnn_mnist $(BUILD_DIR)/cnn_cifar10 $(BUILD_DIR)/transformer_example $(BUILD_DIR)/autoencoder $(BUILD_DIR)/gan $(BUILD_DIR)/rnn_text_gen $(BUILD_DIR)/run_tests
+	rm -rf $(BUILD_DIR)/*.o $(BUILD_DIR)/*.a $(BUILD_DIR)/ml $(BUILD_DIR)/cnn_mnist $(BUILD_DIR)/cnn_cifar10 $(BUILD_DIR)/transformer_example $(BUILD_DIR)/autoencoder $(BUILD_DIR)/gan $(BUILD_DIR)/rnn_text_gen $(BUILD_DIR)/run_tests
 
 run: $(ML_TARGET)
 	./$(ML_TARGET)

@@ -83,22 +83,25 @@ export default function InlinePredictWidget({ modelId }: InlinePredictWidgetProp
         }}
         sx={{
           border: "2px dashed",
-          borderColor: dragOver ? "primary.main" : "divider",
-          borderRadius: "12px",
+          borderColor: dragOver ? "#F97316" : "#27272A",
+          borderRadius: "10px",
           p: 2.5,
           textAlign: "center",
           cursor: "pointer",
-          bgcolor: dragOver ? "rgba(120,113,108,0.04)" : "transparent",
+          bgcolor: dragOver ? "rgba(249,115,22,0.04)" : "transparent",
           transition: "all 0.15s ease-out",
           "&:hover": {
-            borderColor: (theme) =>
-              theme.palette.mode === "dark"
-                ? "rgba(255,255,255,0.14)"
-                : "rgba(0,0,0,0.12)",
+            borderColor: "#3F3F46",
           },
         }}
       >
-        <Typography variant="body2" color="text.secondary">
+        <Typography
+          variant="body2"
+          sx={{
+            color: "#A1A1AA",
+            fontFamily: "'Outfit', sans-serif",
+          }}
+        >
           Drop an image here or click to upload
         </Typography>
       </Box>
@@ -110,16 +113,47 @@ export default function InlinePredictWidget({ modelId }: InlinePredictWidgetProp
             <Box
               component="img"
               src={previewUrl}
-              sx={{ width: 80, height: 80, objectFit: "cover", borderRadius: "10px" }}
+              sx={{
+                width: 72,
+                height: 72,
+                objectFit: "cover",
+                borderRadius: "8px",
+                border: "1px solid #27272A",
+              }}
             />
           )}
           <Box sx={{ flex: 1 }}>
-            {loading && <CircularProgress size={20} sx={{ color: "primary.main" }} />}
-            {error && <Typography color="error" variant="body2">{error}</Typography>}
+            {loading && <CircularProgress size={20} sx={{ color: "#F97316" }} />}
+            {error && (
+              <Typography
+                variant="body2"
+                sx={{
+                  color: "#EF4444",
+                  fontFamily: "'Outfit', sans-serif",
+                }}
+              >
+                {error}
+              </Typography>
+            )}
             {predictions && predictions.map((p, i) => (
               <Box key={i} sx={{ display: "flex", justifyContent: "space-between", mb: 0.5 }}>
-                <Typography variant="body2" color="text.secondary">{p.label}</Typography>
-                <Typography variant="body2" sx={{ fontWeight: 600, color: "text.primary" }}>
+                <Typography
+                  variant="body2"
+                  sx={{
+                    color: "#A1A1AA",
+                    fontFamily: "'Outfit', sans-serif",
+                  }}
+                >
+                  {p.label}
+                </Typography>
+                <Typography
+                  variant="body2"
+                  sx={{
+                    fontWeight: 600,
+                    color: "#FAFAFA",
+                    fontFamily: "'JetBrains Mono', monospace",
+                  }}
+                >
                   {(p.confidence * 100).toFixed(1)}%
                 </Typography>
               </Box>

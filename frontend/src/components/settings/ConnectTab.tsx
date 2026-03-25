@@ -65,14 +65,13 @@ export default function ConnectTab() {
         const data = await getCredentials(token);
         if (cancelled) return;
         if (data && data.access_key) {
-          const creds: FormFields = {
+          setStored({
             access_key: data.access_key || "",
             secret_key: "",
             default_region: data.default_region || "us-east-1",
             endpoint_url: data.endpoint_url || "",
             provider: data.provider || "aws",
-          };
-          setStored(creds);
+          });
           setViewState("viewing");
         } else {
           setViewState("empty");
@@ -97,10 +96,7 @@ export default function ConnectTab() {
 
   const handleSave = async () => {
     const err = validate();
-    if (err) {
-      setFormError(err);
-      return;
-    }
+    if (err) { setFormError(err); return; }
     if (!token) return;
     setSaving(true);
     setFormError("");
@@ -113,19 +109,15 @@ export default function ConnectTab() {
         provider: form.provider || null,
       };
       const isUpdate = viewState === "editing";
-      if (isUpdate) {
-        await updateCredentials(token, payload);
-      } else {
-        await storeCredentials(token, payload);
-      }
-      const saved: FormFields = {
+      if (isUpdate) await updateCredentials(token, payload);
+      else await storeCredentials(token, payload);
+      setStored({
         access_key: form.access_key.trim(),
         secret_key: "",
         default_region: form.default_region,
         endpoint_url: form.endpoint_url.trim(),
         provider: form.provider,
-      };
-      setStored(saved);
+      });
       setViewState("viewing");
       success(isUpdate ? "Credentials updated" : "Credentials saved");
     } catch (e) {
@@ -163,76 +155,175 @@ export default function ConnectTab() {
 
   const cancelEditing = () => {
     setFormError("");
-    if (stored) {
-      setViewState("viewing");
-    } else {
-      setViewState("empty");
-    }
+    setViewState(stored ? "viewing" : "empty");
+  };
+
+  const labelSx = {
+    fontSize: "0.6875rem",
+    fontWeight: 600,
+    fontFamily: "'Outfit', sans-serif",
+    color: "#52525B",
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.08em",
+    mb: 1.5,
   };
 
   if (viewState === "loading") {
     return (
-      <Box sx={{ display: "flex", justifyContent: "center", py: 6 }}>
-        <CircularProgress />
+      <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
+        <CircularProgress size={20} sx={{ color: "#F97316" }} />
       </Box>
     );
   }
 
   return (
     <Box>
-      <Typography variant="h3" sx={{ mb: 1 }}>
-        Connect
-      </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-        Connect your cloud storage credentials for dataset storage and model deployment.
+      <Typography
+        sx={{
+          mb: 4,
+          fontSize: "0.875rem",
+          color: "#A1A1AA",
+          fontFamily: "'Outfit', sans-serif",
+        }}
+      >
+        Cloud credentials for storage and deployment.
       </Typography>
 
-      {/* Viewing state — show masked credentials */}
+      {/* Viewing state */}
       {viewState === "viewing" && stored && (
         <Box>
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, mb: 3 }}>
-            <Box>
-              <Typography variant="body2" color="text.secondary">
-                Access Key
-              </Typography>
-              <Typography variant="body1" sx={{ fontFamily: "monospace" }}>
-                {maskKey(stored.access_key)}
-              </Typography>
-            </Box>
-            <Box>
-              <Typography variant="body2" color="text.secondary">
-                Region
-              </Typography>
-              <Typography variant="body1">{stored.default_region}</Typography>
-            </Box>
+          <Typography sx={labelSx}>Credentials</Typography>
+          <Box
+            sx={{
+              display: "grid",
+              gridTemplateColumns: "auto 1fr",
+              columnGap: 3,
+              rowGap: 1,
+              mb: 3,
+              p: 2.5,
+              bgcolor: "#18181B",
+              border: "1px solid #27272A",
+              borderRadius: "10px",
+              fontSize: "0.8125rem",
+            }}
+          >
+            <Typography
+              sx={{
+                color: "#52525B",
+                fontSize: "inherit",
+                fontFamily: "'Outfit', sans-serif",
+              }}
+            >
+              Key
+            </Typography>
+            <Typography
+              sx={{
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: "inherit",
+                color: "#FAFAFA",
+              }}
+            >
+              {maskKey(stored.access_key)}
+            </Typography>
+            <Typography
+              sx={{
+                color: "#52525B",
+                fontSize: "inherit",
+                fontFamily: "'Outfit', sans-serif",
+              }}
+            >
+              Region
+            </Typography>
+            <Typography
+              sx={{
+                fontSize: "inherit",
+                color: "#FAFAFA",
+                fontFamily: "'Outfit', sans-serif",
+              }}
+            >
+              {stored.default_region}
+            </Typography>
             {stored.provider && (
-              <Box>
-                <Typography variant="body2" color="text.secondary">
+              <>
+                <Typography
+                  sx={{
+                    color: "#52525B",
+                    fontSize: "inherit",
+                    fontFamily: "'Outfit', sans-serif",
+                  }}
+                >
                   Provider
                 </Typography>
-                <Typography variant="body1" sx={{ textTransform: "uppercase" }}>
+                <Typography
+                  sx={{
+                    fontSize: "inherit",
+                    textTransform: "uppercase",
+                    color: "#FAFAFA",
+                    fontFamily: "'Outfit', sans-serif",
+                  }}
+                >
                   {stored.provider}
                 </Typography>
-              </Box>
+              </>
             )}
             {stored.endpoint_url && (
-              <Box>
-                <Typography variant="body2" color="text.secondary">
+              <>
+                <Typography
+                  sx={{
+                    color: "#52525B",
+                    fontSize: "inherit",
+                    fontFamily: "'Outfit', sans-serif",
+                  }}
+                >
                   Endpoint
                 </Typography>
-                <Typography variant="body1">{stored.endpoint_url}</Typography>
-              </Box>
+                <Typography
+                  sx={{
+                    fontSize: "inherit",
+                    color: "#FAFAFA",
+                    fontFamily: "'JetBrains Mono', monospace",
+                  }}
+                >
+                  {stored.endpoint_url}
+                </Typography>
+              </>
             )}
           </Box>
-          <Box sx={{ display: "flex", gap: 1.5 }}>
-            <Button variant="outlined" size="small" onClick={startEditing}>
+          <Box sx={{ display: "flex", gap: 1 }}>
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={startEditing}
+              sx={{
+                borderColor: "#27272A",
+                color: "#A1A1AA",
+                fontFamily: "'Outfit', sans-serif",
+                fontSize: "0.75rem",
+                textTransform: "none",
+                borderRadius: "8px",
+                "&:hover": {
+                  borderColor: "#3F3F46",
+                  color: "#FAFAFA",
+                  bgcolor: "rgba(255,255,255,0.03)",
+                },
+              }}
+            >
               Edit
             </Button>
             <Button
-              variant="outlined"
               size="small"
-              color="error"
               onClick={() => setConfirmDelete(true)}
+              sx={{
+                color: "#EF4444",
+                fontFamily: "'Outfit', sans-serif",
+                fontSize: "0.75rem",
+                textTransform: "none",
+                borderRadius: "8px",
+                "&:hover": {
+                  bgcolor: "rgba(239,68,68,0.08)",
+                  color: "#EF4444",
+                },
+              }}
             >
               Delete
             </Button>
@@ -240,73 +331,114 @@ export default function ConnectTab() {
         </Box>
       )}
 
-      {/* Empty / Editing state — show form */}
+      {/* Form state */}
       {(viewState === "empty" || viewState === "editing") && (
-        <Box sx={{ display: "flex", flexDirection: "column", gap: 2, maxWidth: 440 }}>
+        <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, maxWidth: 400 }}>
           <TextField
-            label="Access Key ID"
+            placeholder="Access Key ID"
             size="small"
             value={form.access_key}
             onChange={(e) => updateField("access_key", e.target.value)}
           />
           <TextField
-            label="Secret Access Key"
+            placeholder="Secret Access Key"
             type="password"
             size="small"
             value={form.secret_key}
             onChange={(e) => updateField("secret_key", e.target.value)}
             autoComplete="off"
           />
+          <Box sx={{ display: "flex", gap: 1.5 }}>
+            <TextField
+              label="Region"
+              size="small"
+              select
+              value={form.default_region}
+              onChange={(e) => updateField("default_region", e.target.value)}
+              sx={{ flex: 1 }}
+            >
+              {REGIONS.map((r) => (
+                <MenuItem key={r} value={r}>{r}</MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              label="Provider"
+              size="small"
+              select
+              value={form.provider}
+              onChange={(e) => updateField("provider", e.target.value)}
+              sx={{ flex: 1 }}
+            >
+              {PROVIDERS.map((p) => (
+                <MenuItem key={p} value={p}>{p.toUpperCase()}</MenuItem>
+              ))}
+            </TextField>
+          </Box>
           <TextField
-            label="Region"
-            size="small"
-            select
-            value={form.default_region}
-            onChange={(e) => updateField("default_region", e.target.value)}
-          >
-            {REGIONS.map((r) => (
-              <MenuItem key={r} value={r}>
-                {r}
-              </MenuItem>
-            ))}
-          </TextField>
-          <TextField
-            label="S3-Compatible Endpoint (optional)"
+            placeholder="S3-compatible endpoint (optional)"
             size="small"
             value={form.endpoint_url}
             onChange={(e) => updateField("endpoint_url", e.target.value)}
-            placeholder="https://..."
           />
-          <TextField
-            label="Provider (optional)"
-            size="small"
-            select
-            value={form.provider}
-            onChange={(e) => updateField("provider", e.target.value)}
-          >
-            {PROVIDERS.map((p) => (
-              <MenuItem key={p} value={p}>
-                {p.toUpperCase()}
-              </MenuItem>
-            ))}
-          </TextField>
 
           {formError && (
-            <Alert severity="error" onClose={() => setFormError("")}>
+            <Alert
+              severity="error"
+              onClose={() => setFormError("")}
+              sx={{
+                py: 0.25,
+                borderRadius: "8px",
+                bgcolor: "rgba(239,68,68,0.08)",
+                border: "1px solid rgba(239,68,68,0.2)",
+                "& .MuiAlert-message": {
+                  fontSize: "0.8125rem",
+                  fontFamily: "'Outfit', sans-serif",
+                },
+              }}
+            >
               {formError}
             </Alert>
           )}
 
-          <Box sx={{ display: "flex", gap: 1.5 }}>
+          <Box sx={{ display: "flex", gap: 1, pt: 0.5 }}>
             <Button
               variant="contained"
+              size="small"
               onClick={handleSave}
               disabled={saving}
+              sx={{
+                bgcolor: "#F97316",
+                color: "#fff",
+                fontFamily: "'Outfit', sans-serif",
+                fontSize: "0.75rem",
+                fontWeight: 500,
+                borderRadius: "8px",
+                textTransform: "none",
+                "&:hover": { bgcolor: "#EA580C" },
+                "&.Mui-disabled": { opacity: 0.5 },
+              }}
             >
-              {saving ? <CircularProgress size={20} /> : viewState === "editing" ? "Update" : "Save"}
+              {saving ? <CircularProgress size={16} sx={{ color: "#fff" }} /> : viewState === "editing" ? "Update" : "Save"}
             </Button>
             {viewState === "editing" && (
-              <Button variant="outlined" onClick={cancelEditing}>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={cancelEditing}
+                sx={{
+                  borderColor: "#27272A",
+                  color: "#A1A1AA",
+                  fontFamily: "'Outfit', sans-serif",
+                  fontSize: "0.75rem",
+                  textTransform: "none",
+                  borderRadius: "8px",
+                  "&:hover": {
+                    borderColor: "#3F3F46",
+                    color: "#FAFAFA",
+                    bgcolor: "rgba(255,255,255,0.03)",
+                  },
+                }}
+              >
                 Cancel
               </Button>
             )}
@@ -317,7 +449,7 @@ export default function ConnectTab() {
       <ConfirmDialog
         isOpen={confirmDelete}
         title="Delete Credentials"
-        message="Are you sure you want to delete your cloud credentials? This cannot be undone."
+        message="Are you sure? This cannot be undone."
         confirmLabel="Delete"
         variant="danger"
         onConfirm={handleDelete}

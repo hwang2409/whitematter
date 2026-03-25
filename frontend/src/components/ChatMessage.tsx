@@ -14,25 +14,26 @@ interface ChatMessageBubbleProps {
   message: ChatMessage;
   onRetry?: () => void;
   onTrainingComplete?: (status: any) => void;
+  onSend?: (text: string) => void;
 }
 
 function AiAvatar() {
   return (
     <Box
       sx={{
-        width: 30,
-        height: 30,
-        borderRadius: "50%",
-        bgcolor: "rgba(120,113,108,0.08)",
+        width: 28,
+        height: 28,
+        borderRadius: "6px",
+        bgcolor: "#27272A",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        fontSize: "0.6875rem",
+        fontSize: "0.625rem",
         fontWeight: 700,
-        color: "primary.main",
+        color: "#F97316",
         flexShrink: 0,
         mt: 0.25,
-        fontFamily: "'DM Sans', sans-serif",
+        fontFamily: "'JetBrains Mono', monospace",
       }}
     >
       wm
@@ -40,23 +41,25 @@ function AiAvatar() {
   );
 }
 
-export default function ChatMessageBubble({ message, onRetry, onTrainingComplete }: ChatMessageBubbleProps) {
+export default function ChatMessageBubble({ message, onRetry, onTrainingComplete, onSend }: ChatMessageBubbleProps) {
   const isUser = message.role === "user";
 
   // Architecture type: render ModelCard
   if (message.type === "architecture" && message.metadata) {
+    // Metadata may be the architecture directly or wrapped in {"architecture": ...}
+    const arch = (message.metadata.architecture ?? message.metadata) as Record<string, unknown>;
     return (
       <Box sx={{ px: 4, mb: 3 }}>
         <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-start" }}>
           <AiAvatar />
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <ModelCard
-              name={message.metadata.name as string}
-              description={message.metadata.description as string}
-              layers={message.metadata.layers as string}
-              trainingConfig={message.metadata.trainingConfig as string}
-              onApprove={() => {}}
-              onRequestChanges={() => {}}
+              name={(arch.name as string) ?? "Model"}
+              description={(arch.description as string) ?? ""}
+              layers={(arch.layers as string) ?? ""}
+              trainingConfig={(arch.trainingConfig as string) ?? ""}
+              onApprove={() => onSend?.("Train it!")}
+              onRequestChanges={() => onSend?.("I'd like to modify the architecture.")}
             />
           </Box>
         </Box>
@@ -86,15 +89,17 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
           <AiAvatar />
           <Box
             sx={{
-              bgcolor: "background.paper",
-              border: "1px solid",
-              borderColor: "divider",
-              borderRadius: "16px",
               px: 2,
               py: 1.5,
             }}
           >
-            <Typography variant="body2" color="text.secondary">
+            <Typography
+              variant="body2"
+              sx={{
+                color: "#A1A1AA",
+                fontFamily: "'Outfit', sans-serif",
+              }}
+            >
               {message.content}
             </Typography>
           </Box>
@@ -113,9 +118,9 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
           <AiAvatar />
           <Box
             sx={{
-              bgcolor: "rgba(239,68,68,0.08)",
-              border: "1px solid rgba(239,68,68,0.2)",
-              borderRadius: "16px",
+              bgcolor: "rgba(239,68,68,0.05)",
+              borderLeft: "3px solid #EF4444",
+              borderRadius: "4px",
               px: 2.5,
               py: 1.5,
             }}
@@ -124,17 +129,32 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
               sx={{
                 fontSize: "0.8125rem",
                 fontWeight: 600,
-                color: "error.main",
+                color: "#EF4444",
                 mb: 0.5,
+                fontFamily: "'Outfit', sans-serif",
               }}
             >
               Training Failed
             </Typography>
-            <Typography variant="body2" sx={{ color: "text.secondary" }}>
+            <Typography
+              variant="body2"
+              sx={{
+                color: "#A1A1AA",
+                fontFamily: "'Outfit', sans-serif",
+              }}
+            >
               {errorMsg}
             </Typography>
             {suggestion && (
-              <Typography variant="body2" sx={{ mt: 1, fontStyle: "italic", color: "text.secondary" }}>
+              <Typography
+                variant="body2"
+                sx={{
+                  mt: 1,
+                  fontStyle: "italic",
+                  color: "#A1A1AA",
+                  fontFamily: "'Outfit', sans-serif",
+                }}
+              >
                 {suggestion}
               </Typography>
             )}
@@ -173,16 +193,20 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
         <Box sx={{ display: "flex", justifyContent: isUser ? "flex-end" : "flex-start" }}>
           <Box
             sx={{
-              bgcolor: "background.paper",
-              border: "1px solid",
-              borderColor: "divider",
-              borderRadius: "16px",
+              bgcolor: "rgba(255,255,255,0.05)",
+              borderRadius: "16px 16px 4px 16px",
               px: 2.5,
               py: 1.5,
               maxWidth: "70%",
             }}
           >
-            <Typography variant="body2" color="text.secondary">
+            <Typography
+              variant="body2"
+              sx={{
+                color: "#A1A1AA",
+                fontFamily: "'Outfit', sans-serif",
+              }}
+            >
               {message.content}
             </Typography>
           </Box>
@@ -199,15 +223,17 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
           <AiAvatar />
           <Box
             sx={{
-              bgcolor: "background.paper",
-              border: "1px solid",
-              borderColor: "divider",
-              borderRadius: "16px",
-              px: 2.5,
+              px: 2,
               py: 1.5,
             }}
           >
-            <Typography variant="body2" color="text.secondary">
+            <Typography
+              variant="body2"
+              sx={{
+                color: "#A1A1AA",
+                fontFamily: "'Outfit', sans-serif",
+              }}
+            >
               Prediction result placeholder
             </Typography>
           </Box>
@@ -224,11 +250,8 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
           <Box
             sx={{
               maxWidth: "70%",
-              bgcolor: (theme) =>
-                theme.palette.mode === "dark"
-                  ? "rgba(255,255,255,0.06)"
-                  : "#F2F1EE",
-              borderRadius: "18px 18px 4px 18px",
+              bgcolor: "rgba(255,255,255,0.05)",
+              borderRadius: "16px 16px 4px 16px",
               px: 2.5,
               py: 1.5,
               "& p": { m: 0 },
@@ -240,7 +263,8 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
               sx={{
                 fontSize: "0.9375rem",
                 lineHeight: 1.6,
-                color: "text.primary",
+                color: "#FAFAFA",
+                fontFamily: "'Outfit', sans-serif",
               }}
             >
               <Markdown remarkPlugins={[remarkGfm]}>{message.content}</Markdown>
@@ -263,22 +287,16 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
             "& p": { m: 0 },
             "& p + p": { mt: 1.5 },
             "& code": {
-              fontFamily: "'DM Mono', monospace",
+              fontFamily: "'JetBrains Mono', monospace",
               fontSize: "0.8125rem",
-              bgcolor: (theme) =>
-                theme.palette.mode === "dark"
-                  ? "rgba(120,113,108,0.1)"
-                  : "rgba(120,113,108,0.06)",
+              bgcolor: "rgba(255,255,255,0.06)",
               px: 0.75,
               py: 0.25,
-              borderRadius: 0.75,
+              borderRadius: "4px",
             },
             "& pre": {
-              bgcolor: (theme) =>
-                theme.palette.mode === "dark"
-                  ? "rgba(0,0,0,0.3)"
-                  : "rgba(0,0,0,0.03)",
-              borderRadius: 1.5,
+              bgcolor: "rgba(0,0,0,0.4)",
+              borderRadius: "8px",
               p: 2,
               overflow: "auto",
               my: 1.5,
@@ -289,9 +307,9 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
               },
             },
             "& ul, & ol": { pl: 2.5, my: 0.5 },
-            "& li": { mb: 0.25 },
-            "& a": { color: "primary.main", textDecoration: "underline" },
-            "& strong": { fontWeight: 500, color: "text.primary" },
+            "& li": { mb: 0.5 },
+            "& a": { color: "#F97316", textDecoration: "underline" },
+            "& strong": { fontWeight: 500, color: "#FAFAFA" },
           }}
         >
           <Typography
@@ -299,7 +317,8 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
             sx={{
               fontSize: "0.9375rem",
               lineHeight: 1.7,
-              color: "text.secondary",
+              color: "#A1A1AA",
+              fontFamily: "'Outfit', sans-serif",
             }}
           >
             <Markdown remarkPlugins={[remarkGfm]}>{message.content}</Markdown>
@@ -308,7 +327,14 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
             <Button
               size="small"
               onClick={onRetry}
-              sx={{ mt: 1, color: "primary.main" }}
+              sx={{
+                mt: 1,
+                color: "#F97316",
+                fontFamily: "'Outfit', sans-serif",
+                "&:hover": {
+                  bgcolor: "rgba(249,115,22,0.08)",
+                },
+              }}
             >
               Try again
             </Button>

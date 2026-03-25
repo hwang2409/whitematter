@@ -12,7 +12,7 @@ from typing import Generator
 
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import NullPool, StaticPool
 
 from .models import Base
 
@@ -32,10 +32,13 @@ DATABASE_URL = os.environ.get(
 # Create engine
 # For SQLite, we need special settings for thread safety
 if DATABASE_URL.startswith("sqlite://"):
+    # Use NullPool for file-based SQLite so each thread gets its own connection.
+    # StaticPool (single shared connection) causes corruption under concurrent access.
+    _is_memory = ":memory:" in DATABASE_URL
     engine = create_engine(
         DATABASE_URL,
         connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
+        poolclass=StaticPool if _is_memory else NullPool,
         echo=False,
     )
 
@@ -44,6 +47,7 @@ if DATABASE_URL.startswith("sqlite://"):
     def set_sqlite_pragma(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.execute("PRAGMA journal_mode=WAL")
         cursor.close()
 else:
     # PostgreSQL or other databases
