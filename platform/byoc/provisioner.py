@@ -14,8 +14,6 @@ DEEP_LEARNING_AMIS = {
 }
 DEFAULT_AMI = "ami-0a0c8eebcdd6dcbd0"
 
-WHITEMATTER_VERSION = "0.1.0"
-
 
 class ByocProvisioner:
     def __init__(self, platform_url: str = "http://localhost:8080",
@@ -44,11 +42,6 @@ class ByocProvisioner:
             platform_url=self.platform_url,
             job_id=job.id,
             job_token=job_token,
-            whitematter_version=WHITEMATTER_VERSION,
-            training_config={
-                "model_config": job.model_config,
-                "dataset_config": job.dataset_config,
-            },
         )
 
         ami = DEEP_LEARNING_AMIS.get(cred.default_region, DEFAULT_AMI)
