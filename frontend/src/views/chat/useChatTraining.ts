@@ -16,13 +16,16 @@ export function useChatTraining({
   const handleTrainingComplete = useCallback(
     (status: any) => {
       if (status.status === "failed") {
-        const parsed = parseTrainingError(status.message || "Unknown error");
+        const parsed = parseTrainingError(status.error_message || status.message || "Unknown error");
         const errorMsg: ChatMessage = {
           id: crypto.randomUUID(),
           role: "assistant",
           type: "training_error",
           content: parsed.friendly,
-          metadata: { friendlyMessage: parsed.friendly },
+          metadata: {
+            friendlyMessage: parsed.friendly,
+            suggestion: parsed.suggestion,
+          },
           createdAt: new Date().toISOString(),
         };
         setMessages((prev) => [...prev, errorMsg]);

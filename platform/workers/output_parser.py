@@ -1,7 +1,31 @@
 import logging
+import re
 from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
+
+ERROR_PATTERNS = [
+    re.compile(r"cannot open|Cannot open", re.IGNORECASE),
+    re.compile(r"invalid tensor|Invalid tensor", re.IGNORECASE),
+    re.compile(r"segmentation fault|segfault", re.IGNORECASE),
+    re.compile(r"^error:|Error:", re.IGNORECASE),
+    re.compile(r"undefined reference", re.IGNORECASE),
+    re.compile(r"fatal error", re.IGNORECASE),
+    re.compile(r"out of memory|OOM|malloc", re.IGNORECASE),
+    re.compile(r"nan|NaN detected", re.IGNORECASE),
+    re.compile(r"shape mismatch|dimension mismatch", re.IGNORECASE),
+]
+
+
+def parse_error_line(line: str) -> dict | None:
+    """
+    Check if a training output line matches known error patterns.
+    Returns {"type": "error", "message": <stripped line>} or None.
+    """
+    for pattern in ERROR_PATTERNS:
+        if pattern.search(line):
+            return {"type": "error", "message": line.strip()}
+    return None
 
 
 def parse_training_line(line: str) -> Optional[Dict[str, Any]]:
