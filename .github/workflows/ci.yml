@@ -144,9 +144,7 @@ jobs:
           pip install -r platform/requirements.txt
 
       - name: pip audit
-        # CVE-2024-23342 (ecdsa): transitive dep via python-jose, no fix available.
-        # TODO: migrate from python-jose to PyJWT to drop ecdsa entirely.
-        run: pip-audit --ignore-vuln CVE-2024-23342 --ignore-vuln CVE-2026-4539
+        run: pip-audit --ignore-vuln CVE-2026-4539
 
       - name: Bandit static analysis
         working-directory: platform

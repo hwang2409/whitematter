@@ -2,7 +2,8 @@ import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from passlib.context import CryptContext
-from jose import jwt, JWTError, ExpiredSignatureError
+import jwt
+from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
 
 
 _DEFAULT_DEV_SECRET = "dev-secret-change-me"
@@ -55,5 +56,5 @@ class AuthService:
             return jwt.decode(token, self.jwt_secret, algorithms=[self.ALGORITHM])
         except ExpiredSignatureError:
             raise ValueError("Token has expired")
-        except JWTError:
+        except InvalidTokenError:
             raise ValueError("Invalid token")
