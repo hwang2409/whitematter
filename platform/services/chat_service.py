@@ -288,6 +288,9 @@ class ChatService:
             "message": job_row.message or "",
         }
 
+        if job_row.error_message:
+            result["error_message"] = job_row.error_message
+
         # Check if completed and update conversation phase
         if status in ("completed", "failed", "cancelled"):
             if status == "completed":

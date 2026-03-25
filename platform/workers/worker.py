@@ -117,30 +117,44 @@ class TrainingWorker:
                     arch_config = model.architecture_config or {}
                     train_config = model.training_config or {}
 
-                # Generate code (uses plain dicts, not ORM objects)
-                self.queue.update_status(
-                    job.job_id, JobStatus.COMPILING,
-                    message="Generating training code..."
-                )
-                self.executor.generate_code(job_dir, dataset_info, arch_config, train_config)
+                try:
+                    self.queue.update_status(
+                        job.job_id, JobStatus.COMPILING,
+                        message="Generating training code..."
+                    )
+                    self.executor.generate_code(job_dir, dataset_info, arch_config, train_config)
+                except Exception as e:
+                    raise RuntimeError(f"[codegen] {str(e)[:500]}")
 
-                self.queue.update_status(
-                    job.job_id, JobStatus.COMPILING, message="Compiling..."
-                )
-                success, compile_msg = self.executor.compile(job_dir)
-                if not success:
-                    raise RuntimeError(f"Compilation failed: {compile_msg}")
+                try:
+                    self.queue.update_status(
+                        job.job_id, JobStatus.COMPILING, message="Compiling..."
+                    )
+                    success, compile_msg = self.executor.compile(job_dir)
+                    if not success:
+                        raise RuntimeError(f"[compile] {compile_msg[:500]}")
+                except RuntimeError:
+                    raise
+                except Exception as e:
+                    raise RuntimeError(f"[compile] {str(e)[:500]}")
 
-                self.queue.update_status(
-                    job.job_id, JobStatus.TRAINING, message="Training started"
-                )
-                self._run_training(job, job_dir, dataset_info)
+                try:
+                    self.queue.update_status(
+                        job.job_id, JobStatus.TRAINING, message="Training started"
+                    )
+                    self._run_training(job, job_dir, dataset_info)
+                except Exception as e:
+                    raise RuntimeError(f"[train] {str(e)[:500]}")
 
+                # Check if cancelled
                 job_info = self.queue.get_job(job.job_id)
                 if job_info and job_info['status'] == JobStatus.CANCELLED.value:
                     return
 
-                self._store_artifacts(job, job_dir)
+                try:
+                    self._store_artifacts(job, job_dir)
+                except Exception as e:
+                    raise RuntimeError(f"[store] {str(e)[:500]}")
 
                 self.queue.update_status(
                     job.job_id, JobStatus.COMPLETED, message="Training complete"
@@ -222,6 +236,8 @@ class TrainingWorker:
                             m.final_loss = final_loss
 
             self._current_process.wait()
+            if self._current_process.returncode != 0:
+                raise RuntimeError(f"Training process exited with code {self._current_process.returncode}")
 
         finally:
             self._current_process = None

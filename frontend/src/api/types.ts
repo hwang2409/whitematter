@@ -248,6 +248,7 @@ export interface TrainingStatus {
   loss: number;
   accuracy: number;
   message: string;
+  error_message?: string;
 }
 
 export interface BillingStatus {
