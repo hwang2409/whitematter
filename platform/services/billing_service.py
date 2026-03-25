@@ -16,7 +16,9 @@ PLANS = {
     },
     "pro": {
         "stripe_price_id": os.environ.get("STRIPE_PRO_PRICE_ID", ""),
+        "stripe_annual_price_id": os.environ.get("STRIPE_PRO_ANNUAL_PRICE_ID", ""),
         "price": 29,
+        "annual_price": 23,
         "training_runs_per_day": None,  # unlimited
         "max_models": None,  # unlimited
         "storage_gb": 20,
@@ -25,7 +27,9 @@ PLANS = {
     },
     "scale": {
         "stripe_price_id": os.environ.get("STRIPE_SCALE_PRICE_ID", ""),
+        "stripe_annual_price_id": os.environ.get("STRIPE_SCALE_ANNUAL_PRICE_ID", ""),
         "price": 59,
+        "annual_price": 47,
         "training_runs_per_day": None,
         "max_models": None,
         "storage_gb": 100,
@@ -71,7 +75,8 @@ class BillingService:
             return None
 
     def create_checkout_session(
-        self, customer_id: str, plan: str, success_url: str, cancel_url: str
+        self, customer_id: str, plan: str, success_url: str, cancel_url: str,
+        interval: str = "month",
     ) -> Optional[str]:
         """Create Stripe Checkout session. Returns session URL."""
         if not self.stripe:
@@ -81,7 +86,10 @@ class BillingService:
         if not plan_config or plan == "free":
             return None
 
-        price_id = plan_config.get("stripe_price_id")
+        if interval == "year":
+            price_id = plan_config.get("stripe_annual_price_id")
+        else:
+            price_id = plan_config.get("stripe_price_id")
         if not price_id:
             logger.error("No Stripe price ID for plan: %s", plan)
             return None
