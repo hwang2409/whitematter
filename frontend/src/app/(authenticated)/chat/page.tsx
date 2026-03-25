@@ -1,4 +1,4 @@
-import ChatPage from "@/views/ChatPage";
+import ChatPage from "@/views/chat";
 
 export default function Page() {
   return <ChatPage />;

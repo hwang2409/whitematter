@@ -5,19 +5,14 @@ Can be run as multiple instances for parallel training.
 All persistent data is stored in the database - temp files are used
 only during training and cleaned up afterwards.
 """
-import os
-import json
 import logging
 import uuid
-import time
 import signal
-import shutil
 import subprocess
 import threading
 import tempfile
 from pathlib import Path
 from typing import Optional
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +22,8 @@ from db import (
     JobStatus, ModelStatus, DatasetStatus
 )
 from workers.queue import JobQueue, get_job_queue, JobMessage
+from workers.training_executor import TrainingExecutor
+from workers.output_parser import parse_training_line
 
 
 class TrainingWorker:
@@ -50,8 +47,8 @@ class TrainingWorker:
         self._stop_event = threading.Event()
         self._current_process: Optional[subprocess.Popen] = None
 
-        # Project paths (for finding C++ headers)
         self.project_root = project_root or Path(__file__).parent.parent.parent
+        self.executor = TrainingExecutor(self.blob_store, self.project_root)
 
     def start(self):
         """Start the worker loop."""
@@ -94,89 +91,60 @@ class TrainingWorker:
         """Process a single training job using temp directories."""
         logger.info("[%s] Processing job %s", self.worker_id, job.job_id)
 
-        # Use temp directory for all file operations - cleaned up automatically
         with tempfile.TemporaryDirectory(prefix=f"wm_job_{job.job_id}_") as temp_dir:
             job_dir = Path(temp_dir)
 
             try:
-                # Get model and dataset info
+                # Get model and dataset info — extract plain data inside session
+                # to avoid detached-instance errors after session closes.
                 with get_db_session() as db:
                     model = db.query(Model).filter_by(id=job.model_id).first()
                     if not model:
                         raise ValueError(f"Model {job.model_id} not found")
 
                     dataset = None
+                    dataset_info = None
                     if model.dataset_id:
                         dataset = db.query(Dataset).filter_by(id=model.dataset_id).first()
+                    if dataset:
+                        dataset_info = {
+                            "processed_blob_prefix": dataset.processed_blob_prefix,
+                            "input_shape": dataset.input_shape,
+                            "num_classes": dataset.num_classes,
+                            "class_names": dataset.class_names,
+                        }
 
                     arch_config = model.architecture_config or {}
                     train_config = model.training_config or {}
 
-                # Update status to compiling
+                # Generate code (uses plain dicts, not ORM objects)
                 self.queue.update_status(
-                    job.job_id,
-                    JobStatus.COMPILING,
+                    job.job_id, JobStatus.COMPILING,
                     message="Generating training code..."
                 )
+                self.executor.generate_code(job_dir, dataset_info, arch_config, train_config)
 
-                # Generate training code in temp directory
-                self._generate_code(job_dir, model, dataset, arch_config, train_config)
-
-                # Compile
                 self.queue.update_status(
-                    job.job_id,
-                    JobStatus.COMPILING,
-                    message="Compiling..."
+                    job.job_id, JobStatus.COMPILING, message="Compiling..."
                 )
-
-                success, compile_msg = self._compile(job_dir)
+                success, compile_msg = self.executor.compile(job_dir)
                 if not success:
                     raise RuntimeError(f"Compilation failed: {compile_msg}")
 
-                # Run training
                 self.queue.update_status(
-                    job.job_id,
-                    JobStatus.TRAINING,
-                    message="Training started"
+                    job.job_id, JobStatus.TRAINING, message="Training started"
                 )
+                self._run_training(job, job_dir, dataset_info)
 
-                self._run_training(job, job_dir, model, dataset)
-
-                # Check if cancelled
                 job_info = self.queue.get_job(job.job_id)
                 if job_info and job_info['status'] == JobStatus.CANCELLED.value:
                     return
 
-                # Store model weights in blob storage BEFORE temp dir is deleted
-                output_model = job_dir / "model.bin"
-                if output_model.exists():
-                    blob_key = self.blob_store.put_file(
-                        output_model,
-                        key=f"models/{job.model_id}/weights.bin",
-                        content_type="application/octet-stream"
-                    )
-                    with get_db_session() as db:
-                        m = db.query(Model).filter_by(id=job.model_id).first()
-                        if m:
-                            m.weights_blob_key = blob_key
+                self._store_artifacts(job, job_dir)
 
-                # Store inference executable for text generation models
-                infer_exe = job_dir / "infer"
-                if infer_exe.exists():
-                    self.blob_store.put_file(
-                        infer_exe,
-                        key=f"models/{job.model_id}/infer",
-                        content_type="application/octet-stream"
-                    )
-
-                # Mark as completed
                 self.queue.update_status(
-                    job.job_id,
-                    JobStatus.COMPLETED,
-                    message="Training complete"
+                    job.job_id, JobStatus.COMPLETED, message="Training complete"
                 )
-
-                # Update model status
                 with get_db_session() as db:
                     model = db.query(Model).filter_by(id=job.model_id).first()
                     if model:
@@ -187,99 +155,25 @@ class TrainingWorker:
             except Exception as e:
                 logger.error("[%s] Job %s failed: %s", self.worker_id, job.job_id, e)
                 self.queue.update_status(
-                    job.job_id,
-                    JobStatus.FAILED,
-                    message=str(e),
-                    error_message=str(e)
+                    job.job_id, JobStatus.FAILED,
+                    message=str(e), error_message=str(e)
                 )
                 with get_db_session() as db:
                     model = db.query(Model).filter_by(id=job.model_id).first()
                     if model:
                         model.status = ModelStatus.FAILED.value
 
-        # Temp directory is automatically cleaned up here
-
-    def _generate_code(
-        self,
-        job_dir: Path,
-        model: Model,
-        dataset: Optional[Dataset],
-        arch_config: dict,
-        train_config: dict
-    ):
-        """Generate C++ training code."""
-        # Import here to avoid circular imports
-        from codegen import CodeGenerator
-
-        generator = CodeGenerator()
-
-        # Build dataset config from database model
-        if dataset:
-            processed_blob_prefix = dataset.processed_blob_prefix
-            if processed_blob_prefix:
-                # Load config from blob storage
-                config_blob = self.blob_store.get(f"{processed_blob_prefix}/config.json")
-                if config_blob:
-                    dataset_config = json.loads(config_blob.decode())
-                else:
-                    dataset_config = {
-                        "input_shape": dataset.input_shape,
-                        "num_classes": dataset.num_classes,
-                        "class_names": dataset.class_names,
-                        "mean": [0.5],
-                        "std": [0.5]
-                    }
-            else:
-                dataset_config = {
-                    "input_shape": dataset.input_shape,
-                    "num_classes": dataset.num_classes,
-                    "class_names": dataset.class_names,
-                    "mean": [0.5],
-                    "std": [0.5]
-                }
-        else:
-            dataset_config = train_config.get("dataset_config", {})
-
-        generator.generate(
-            architecture=arch_config,
-            dataset_config=dataset_config,
-            output_dir=job_dir
-        )
-
-    def _compile(self, job_dir: Path) -> tuple[bool, str]:
-        """Compile the generated training code."""
-        from codegen import compile_training_code
-        return compile_training_code(job_dir)
-
-    def _run_training(
-        self,
-        job: JobMessage,
-        job_dir: Path,
-        model: Model,
-        dataset: Optional[Dataset]
-    ):
+    def _run_training(self, job: JobMessage, job_dir: Path, dataset_info: Optional[dict]):
         """Run the training process and stream progress."""
-        train_exe = job_dir / "train"
-        output_model = job_dir / "model.bin"
-
-        # Get data directory
-        if dataset and dataset.processed_blob_prefix:
-            # Extract processed data from blob storage to temp dir
+        blob_prefix = dataset_info.get("processed_blob_prefix") if dataset_info else None
+        if blob_prefix:
             data_dir = job_dir / "data"
             data_dir.mkdir(exist_ok=True)
-            self._extract_dataset_from_blobs(dataset.processed_blob_prefix, data_dir)
+            self.executor.extract_dataset_from_blobs(blob_prefix, data_dir)
         else:
             data_dir = job_dir / "data"
 
-        cmd = [str(train_exe), str(data_dir), str(output_model)]
-
-        self._current_process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1
-        )
+        self._current_process = self.executor.run_training(job_dir, data_dir)
 
         best_accuracy = 0.0
         final_loss = None
@@ -294,86 +188,65 @@ class TrainingWorker:
                     self._current_process.terminate()
                     break
 
-                # Parse training output
-                if "Epoch" in line and "Loss:" in line:
-                    try:
-                        parts = line.split("|")
-                        epoch = int(parts[0].split()[1])
-                        loss = float(parts[1].split(":")[1].strip())
-                        acc = 0.0
+                metrics = parse_training_line(line)
+                if metrics:
+                    epoch = metrics["epoch"]
+                    loss = metrics["loss"]
+                    acc = metrics["accuracy"]
 
-                        for p in parts[2:]:
-                            if "Test Acc:" in p or "Acc:" in p:
-                                acc = float(p.split(":")[1].strip().rstrip('%'))
-                                break
+                    best_accuracy = max(best_accuracy, acc)
+                    final_loss = loss
 
-                        best_accuracy = max(best_accuracy, acc)
-                        final_loss = loss
+                    self.queue.update_status(
+                        job.job_id, JobStatus.TRAINING,
+                        message=f"Epoch {epoch}: {acc:.2f}%",
+                        current_epoch=epoch,
+                        current_loss=loss,
+                        current_accuracy=acc
+                    )
 
-                        # Update queue status
-                        self.queue.update_status(
-                            job.job_id,
-                            JobStatus.TRAINING,
-                            message=f"Epoch {epoch}: {acc:.2f}%",
-                            current_epoch=epoch,
-                            current_loss=loss,
-                            current_accuracy=acc
+                    with get_db_session() as db:
+                        history = TrainingHistory(
+                            model_id=job.model_id,
+                            job_id=job.job_id,
+                            epoch=epoch,
+                            loss=loss,
+                            accuracy=acc
                         )
+                        db.add(history)
 
-                        # Record training history
-                        with get_db_session() as db:
-                            history = TrainingHistory(
-                                model_id=job.model_id,
-                                job_id=job.job_id,
-                                epoch=epoch,
-                                loss=loss,
-                                accuracy=acc
-                            )
-                            db.add(history)
-
-                            # Update model stats
-                            m = db.query(Model).filter_by(id=job.model_id).first()
-                            if m:
-                                m.epochs_trained = epoch
-                                m.best_accuracy = best_accuracy
-                                m.final_loss = final_loss
-
-                    except Exception as e:
-                        logger.warning("[%s] Parse error: %s", self.worker_id, e)
+                        m = db.query(Model).filter_by(id=job.model_id).first()
+                        if m:
+                            m.epochs_trained = epoch
+                            m.best_accuracy = best_accuracy
+                            m.final_loss = final_loss
 
             self._current_process.wait()
 
         finally:
             self._current_process = None
 
-    def _extract_dataset_from_blobs(self, blob_prefix: str, output_dir: Path):
-        """Extract dataset files from blob storage."""
-        # List files with the prefix and extract them
-        # Image dataset files
-        image_files = [
-            "train_images.bin",
-            "train_labels.bin",
-            "test_images.bin",
-            "test_labels.bin",
-            "config.json"
-        ]
-        # Text dataset files
-        text_files = [
-            "train_inputs.bin",
-            "train_targets.bin",
-            "test_inputs.bin",
-            "test_targets.bin",
-            "config.json",
-            "vocabulary.json"
-        ]
+    def _store_artifacts(self, job: JobMessage, job_dir: Path):
+        """Store model weights and inference binary in blob storage."""
+        output_model = job_dir / "model.bin"
+        if output_model.exists():
+            blob_key = self.blob_store.put_file(
+                output_model,
+                key=f"models/{job.model_id}/weights.bin",
+                content_type="application/octet-stream"
+            )
+            with get_db_session() as db:
+                m = db.query(Model).filter_by(id=job.model_id).first()
+                if m:
+                    m.weights_blob_key = blob_key
 
-        # Try to extract all possible files (will skip if not found)
-        all_files = set(image_files + text_files)
-        for filename in all_files:
-            blob_key = f"{blob_prefix}/{filename}"
-            data = self.blob_store.get(blob_key)
-            if data:
-                (output_dir / filename).write_bytes(data)
+        infer_exe = job_dir / "infer"
+        if infer_exe.exists():
+            self.blob_store.put_file(
+                infer_exe,
+                key=f"models/{job.model_id}/infer",
+                content_type="application/octet-stream"
+            )
 
 
 def run_worker(worker_id: Optional[str] = None):

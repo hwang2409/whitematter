@@ -1,8 +1,7 @@
-#include "serialize.h"
+#include "../serialize.h"
 #include <cstdio>
 #include <cstring>
 
-// Helper functions for binary I/O
 static bool write_uint32(std::ofstream& out, uint32_t val) {
     out.write(reinterpret_cast<const char*>(&val), sizeof(val));
     return out.good();
@@ -33,7 +32,6 @@ static bool read_int(std::ifstream& in, int& val) {
     return in.good();
 }
 
-// Tensor serialization
 bool save_tensor(const TensorPtr& tensor, std::ofstream& out) {
     if (!tensor || !out.good()) return false;
 
@@ -108,7 +106,6 @@ TensorPtr load_tensor(const std::string& path) {
     return load_tensor(in);
 }
 
-// Model serialization
 bool save_model(Module* module, const std::string& path) {
     if (!module) return false;
 
@@ -183,7 +180,6 @@ bool load_model(Module* module, const std::string& path) {
     return true;
 }
 
-// Optimizer state serialization
 bool save_optimizer(Optimizer* optimizer, const std::string& path) {
     if (!optimizer) return false;
 
@@ -337,7 +333,6 @@ bool load_optimizer(Optimizer* optimizer, const std::string& path) {
     return in.good();
 }
 
-// Checkpoint functions
 bool save_checkpoint(const std::string& path, Module* model, Optimizer* optimizer,
                      int epoch, float loss, float accuracy) {
     std::ofstream out(path, std::ios::binary);

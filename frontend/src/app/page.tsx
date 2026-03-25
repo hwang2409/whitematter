@@ -1,15 +1,18 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
+import { useAuth } from "@/context/AuthContext";
 import Box from "@mui/material/Box";
 import CircularProgress from "@mui/material/CircularProgress";
 
 export default function HomePage() {
   const router = useRouter();
+  const { user, loading } = useAuth();
 
   useEffect(() => {
-    router.replace("/chat");
-  }, [router]);
+    if (loading) return;
+    router.replace(user ? "/chat" : "/login");
+  }, [user, loading, router]);
 
   return (
     <Box

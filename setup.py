@@ -18,7 +18,6 @@ def _read_version():
                 return m.group(1)
     raise RuntimeError("Unable to find version in pyproject.toml")
 
-
 extra_compile_args = ["-std=c++17", "-O3", "-ffast-math"]
 extra_link_args = []
 
@@ -47,18 +46,42 @@ ext_modules = [
     Extension(
         "whitematter",
         sources=[
-            os.path.join("bindings", "whitematter_py.cpp"),
-            os.path.join("core", "tensor.cpp"),
-            os.path.join("core", "layer.cpp"),
-            os.path.join("core", "loss.cpp"),
-            os.path.join("core", "optimizer.cpp"),
-            os.path.join("core", "serialize.cpp"),
-            os.path.join("core", "memory_pool.cpp"),
+            os.path.join(ROOT, "bindings", "whitematter_py.cpp"),
+            os.path.join(ROOT, "core", "memory_pool.cpp"),
+            os.path.join(ROOT, "core", "autograd.cpp"),
+            os.path.join(ROOT, "core", "broadcast.cpp"),
+            os.path.join(ROOT, "core", "tensor.cpp"),
+            os.path.join(ROOT, "core", "loss.cpp"),
+            os.path.join(ROOT, "core", "optimizer.cpp"),
+            os.path.join(ROOT, "core", "serialization", "serialize.cpp"),
+            os.path.join(ROOT, "core", "dataloader.cpp"),
+            os.path.join(ROOT, "core", "model_zoo.cpp"),
+            os.path.join(ROOT, "core", "serialization", "onnx_export.cpp"),
+            os.path.join(ROOT, "core", "serialization", "onnx_import.cpp"),
+            os.path.join(ROOT, "core", "device.cpp"),
+            os.path.join(ROOT, "core", "layers", "linear.cpp"),
+            os.path.join(ROOT, "core", "layers", "activations.cpp"),
+            os.path.join(ROOT, "core", "layers", "conv.cpp"),
+            os.path.join(ROOT, "core", "layers", "normalization.cpp"),
+            os.path.join(ROOT, "core", "layers", "embedding.cpp"),
+            os.path.join(ROOT, "core", "layers", "recurrent.cpp"),
+            os.path.join(ROOT, "core", "layers", "attention.cpp"),
+            os.path.join(ROOT, "core", "layers", "sequential.cpp"),
+            os.path.join(ROOT, "core", "ops", "simd_ops_avx.cpp"),
+            os.path.join(ROOT, "core", "ops", "simd_ops_neon.cpp"),
+            os.path.join(ROOT, "core", "ops", "simd_ops_fallback.cpp"),
+            os.path.join(ROOT, "core", "ops", "matmul_cpu.cpp"),
+            os.path.join(ROOT, "core", "ops", "im2col.cpp"),
+            os.path.join(ROOT, "core", "ops", "conv_ops.cpp"),
+            os.path.join(ROOT, "core", "ops", "augmentation.cpp"),
+            os.path.join(ROOT, "core", "metal", "metal_stub.cpp"),
+            os.path.join(ROOT, "core", "cuda", "cuda_stub.cpp"),
         ],
         include_dirs=[
-            ".",
-            os.path.join("core"),
-            os.path.join("bindings"),
+            ROOT,
+            os.path.join(ROOT, "core"),
+            os.path.join(ROOT, "core", "ops"),
+            os.path.join(ROOT, "bindings"),
         ],
         language="c++",
         extra_compile_args=extra_compile_args,
@@ -68,7 +91,7 @@ ext_modules = [
 
 
 def _read_readme():
-    readme = os.path.join(os.path.dirname(os.path.abspath(__file__)), "README.md")
+    readme = os.path.join(ROOT, "README.md")
     if os.path.isfile(readme):
         with open(readme, encoding="utf-8") as f:
             return f.read()

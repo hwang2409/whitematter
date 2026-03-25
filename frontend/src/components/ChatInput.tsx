@@ -72,18 +72,17 @@ export default function ChatInput({
         display: "flex",
         alignItems: "center",
         gap: 0.75,
-        bgcolor: "background.paper",
+        bgcolor: "#18181B",
         border: "1px solid",
-        borderColor: "divider",
-        borderRadius: "14px",
+        borderColor: "#27272A",
+        borderRadius: "12px",
         px: 0.75,
         pl: 2.5,
         py: 0.75,
         transition: "all 0.2s ease-out",
-        boxShadow: "0 2px 12px rgba(0,0,0,0.02)",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
         "&:focus-within": {
-          borderColor: "primary.main",
-          boxShadow: "0 0 0 2px rgba(139, 92, 246, 0.15)",
+          borderColor: "#3F3F46",
         },
       }}
     >
@@ -101,9 +100,9 @@ export default function ChatInput({
           background: "none",
           border: "none",
           outline: "none",
-          color: "text.primary",
+          color: "#FAFAFA",
           fontSize: "0.9375rem",
-          fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif",
+          fontFamily: "'Outfit', sans-serif",
           py: 1.25,
           px: 0,
           resize: "none",
@@ -111,7 +110,7 @@ export default function ChatInput({
           overflow: "auto",
           lineHeight: 1.5,
           "&::placeholder": {
-            color: "text.disabled",
+            color: "#52525B",
           },
           "&:disabled": {
             opacity: 0.5,
@@ -134,11 +133,11 @@ export default function ChatInput({
         sx={{
           width: 36,
           height: 36,
-          borderRadius: "10px",
-          color: "text.disabled",
+          borderRadius: "8px",
+          color: "#52525B",
           "&:hover": {
-            color: "text.secondary",
-            bgcolor: "background.default",
+            color: "#A1A1AA",
+            bgcolor: "rgba(255,255,255,0.04)",
           },
         }}
         aria-label="Attach file"
@@ -153,21 +152,17 @@ export default function ChatInput({
         sx={{
           width: 36,
           height: 36,
-          borderRadius: "10px",
-          bgcolor: hasText ? "text.primary" : "transparent",
-          color: hasText
-            ? (theme) => (theme.palette.mode === "dark" ? "#141311" : "#FFFFFF")
-            : "text.disabled",
+          borderRadius: "50%",
+          bgcolor: hasText ? "#F97316" : "transparent",
+          color: hasText ? "#FFFFFF" : "#52525B",
           "&:hover": {
-            bgcolor: hasText
-              ? (theme) => (theme.palette.mode === "dark" ? "#d4d3d0" : "#333")
-              : "transparent",
+            bgcolor: hasText ? "#EA580C" : "transparent",
           },
           "&.Mui-disabled": {
-            color: "text.disabled",
+            color: "#52525B",
             bgcolor: "transparent",
           },
-          transition: "all 0.15s ease-out",
+          transition: "all 0.2s ease-out",
         }}
         aria-label="Send message"
       >

@@ -29,12 +29,12 @@ class DeploymentService:
 
     def get_config_for_model(self, model_id: str, dataset_id: str) -> Optional[dict]:
         """Get dataset config (target_size, mean, std, channels, class_names) for a custom dataset."""
-        from dependencies import dataset_manager  # noqa: lazy import avoids circular
+        from config import UPLOADS_DIR
         from services.dataset_service import DatasetService
         ds = DatasetService()
 
-        # File-based: dataset_manager.uploads_dir / dataset_id / "processed" / config.json
-        processed_dir = dataset_manager.uploads_dir / dataset_id / "processed"
+        # File-based: UPLOADS_DIR / dataset_id / "processed" / config.json
+        processed_dir = UPLOADS_DIR / dataset_id / "processed"
         config_path = processed_dir / "config.json"
         if config_path.exists():
             with open(config_path) as f:

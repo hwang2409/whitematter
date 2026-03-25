@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
-import TrainingCard from './training/TrainingCard';
-import { TrainingStage } from './training/StageIndicator';
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -13,28 +13,15 @@ interface TrainingStatus {
   loss: number;
   accuracy: number;
   message: string;
-  model_name?: string;
 }
 
 interface Props {
   conversationId: string;
   jobId: string;
   onComplete?: (status: TrainingStatus) => void;
-  isLatestActive?: boolean;
 }
 
-function mapStatusToStage(status?: string): TrainingStage {
-  switch (status) {
-    case 'preparing': return 'preparing';
-    case 'training': return 'training';
-    case 'evaluating': return 'evaluating';
-    case 'completed': return 'complete';
-    case 'ready': return 'ready';
-    default: return 'preparing';
-  }
-}
-
-export default function TrainingProgress({ conversationId, jobId, onComplete, isLatestActive }: Props) {
+export default function TrainingProgress({ conversationId, jobId, onComplete }: Props) {
   const [status, setStatus] = useState<TrainingStatus | null>(null);
   const [history, setHistory] = useState<{ epoch: number; loss: number; accuracy: number }[]>([]);
 
@@ -88,16 +75,110 @@ export default function TrainingProgress({ conversationId, jobId, onComplete, is
     return () => controller.abort();
   }, [conversationId, jobId]);
 
+  const progress = status && status.total_epochs > 0
+    ? (status.epoch / status.total_epochs) * 100
+    : 0;
+
   return (
-    <TrainingCard
-      modelName={status?.model_name ?? 'Model'}
-      stage={mapStatusToStage(status?.status)}
-      epoch={status?.epoch ?? 0}
-      totalEpochs={status?.total_epochs ?? 0}
-      loss={status?.loss ?? 0}
-      accuracy={status?.accuracy ?? 0}
-      lossHistory={history.map((e) => ({ epoch: e.epoch, loss: e.loss, accuracy: e.accuracy }))}
-      isLatestActive={isLatestActive ?? false}
-    />
+    <Box
+      sx={{
+        bgcolor: "#18181B",
+        border: "1px solid #27272A",
+        borderRadius: "12px",
+        p: 3,
+        mt: 1,
+      }}
+    >
+      {/* Header */}
+      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.5 }}>
+        <Typography
+          sx={{
+            fontSize: "0.9375rem",
+            fontWeight: 600,
+            fontFamily: "'Outfit', sans-serif",
+            color: "#FAFAFA",
+          }}
+        >
+          Training {status?.status === "completed" ? "Complete" : "in Progress"}
+        </Typography>
+        <Typography
+          sx={{
+            fontSize: "0.875rem",
+            fontFamily: "'JetBrains Mono', monospace",
+            color: "#F97316",
+            fontWeight: 500,
+          }}
+        >
+          {Math.round(progress)}%
+        </Typography>
+      </Box>
+
+      {/* Progress bar */}
+      <Box
+        sx={{
+          height: 4,
+          bgcolor: "rgba(255,255,255,0.06)",
+          borderRadius: "2px",
+          overflow: "hidden",
+          mb: 2,
+        }}
+      >
+        <Box
+          sx={{
+            height: "100%",
+            width: `${progress}%`,
+            bgcolor: "#F97316",
+            borderRadius: "2px",
+            transition: "width 0.3s ease-out",
+          }}
+        />
+      </Box>
+
+      {/* Epoch list */}
+      {history.length > 0 && (
+        <Box sx={{ display: "flex", flexDirection: "column" }}>
+          {history.map((entry, i) => {
+            const isCurrent = i === history.length - 1 && status?.status !== "completed";
+            return (
+              <Box
+                key={i}
+                sx={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  py: 1,
+                  borderBottom: i < history.length - 1 ? "1px solid #27272A" : "none",
+                  fontSize: "0.8125rem",
+                  fontFamily: "'Outfit', sans-serif",
+                  color: isCurrent ? "#FAFAFA" : "#A1A1AA",
+                  fontWeight: isCurrent ? 500 : 400,
+                }}
+              >
+                <span>Epoch {entry.epoch}/{status?.total_epochs || "?"}</span>
+                <Box
+                  component="span"
+                  sx={{ fontFamily: "'JetBrains Mono', monospace" }}
+                >
+                  Loss: {entry.loss.toFixed(3)} · Acc: {entry.accuracy.toFixed(1)}%
+                </Box>
+              </Box>
+            );
+          })}
+        </Box>
+      )}
+
+      {/* Status message */}
+      {status?.message && (
+        <Typography
+          sx={{
+            mt: 1.5,
+            fontSize: "0.75rem",
+            color: "#52525B",
+            fontFamily: "'JetBrains Mono', monospace",
+          }}
+        >
+          {status.message}
+        </Typography>
+      )}
+    </Box>
   );
 }

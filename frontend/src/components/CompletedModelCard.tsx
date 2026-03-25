@@ -61,10 +61,9 @@ export default function CompletedModelCard({
     <Box
       id={`model-card-${modelId}`}
       sx={{
-        bgcolor: "background.paper",
-        border: "1px solid",
-        borderColor: "divider",
-        borderRadius: "16px",
+        bgcolor: "#18181B",
+        border: "1px solid #27272A",
+        borderRadius: "12px",
         p: 3.5,
         mt: 1,
         textAlign: "center",
@@ -72,16 +71,15 @@ export default function CompletedModelCard({
         overflow: "hidden",
       }}
     >
-      {/* Accent bar — solid violet, no gradient */}
+      {/* Accent top bar */}
       <Box
         sx={{
           position: "absolute",
           top: 0,
           left: 0,
           right: 0,
-          height: 3,
-          bgcolor: "primary.main",
-          borderRadius: "16px 16px 0 0",
+          height: 2,
+          bgcolor: "#F97316",
         }}
       />
 
@@ -90,7 +88,10 @@ export default function CompletedModelCard({
         sx={{
           fontSize: "0.8125rem",
           fontWeight: 500,
-          color: "success.main",
+          fontFamily: "'Outfit', sans-serif",
+          color: "#22C55E",
+          textTransform: "uppercase",
+          letterSpacing: "0.05em",
           mb: 2,
         }}
       >
@@ -100,9 +101,9 @@ export default function CompletedModelCard({
       {/* Big accuracy number */}
       <Typography
         sx={{
-          fontFamily: "'DM Serif Display', Georgia, serif",
-          fontSize: "3.25rem",
-          color: "text.primary",
+          fontFamily: "'Instrument Serif', Georgia, serif",
+          fontSize: "3.5rem",
+          color: "#F97316",
           letterSpacing: "-0.03em",
           lineHeight: 1,
         }}
@@ -112,7 +113,8 @@ export default function CompletedModelCard({
       <Typography
         sx={{
           fontSize: "0.875rem",
-          color: "text.disabled",
+          fontFamily: "'Outfit', sans-serif",
+          color: "#52525B",
           mt: 0.5,
           mb: 2.5,
         }}
@@ -127,24 +129,53 @@ export default function CompletedModelCard({
           justifyContent: "center",
           gap: 4,
           pb: 2.5,
-          borderBottom: "1px solid",
-          borderColor: "divider",
+          borderBottom: "1px solid #27272A",
           mb: 2.5,
         }}
       >
         <Box>
-          <Typography sx={{ fontSize: "1.25rem", fontWeight: 600, color: "text.primary", letterSpacing: "-0.02em" }}>
+          <Typography
+            sx={{
+              fontSize: "1.25rem",
+              fontWeight: 600,
+              fontFamily: "'JetBrains Mono', monospace",
+              color: "#FAFAFA",
+              letterSpacing: "-0.02em",
+            }}
+          >
             {params}
           </Typography>
-          <Typography sx={{ fontSize: "0.75rem", color: "text.disabled", mt: 0.25 }}>
+          <Typography
+            sx={{
+              fontSize: "0.75rem",
+              fontFamily: "'Outfit', sans-serif",
+              color: "#52525B",
+              mt: 0.25,
+            }}
+          >
             Parameters
           </Typography>
         </Box>
         <Box>
-          <Typography sx={{ fontSize: "1.25rem", fontWeight: 600, color: "text.primary", letterSpacing: "-0.02em" }}>
+          <Typography
+            sx={{
+              fontSize: "1.25rem",
+              fontWeight: 600,
+              fontFamily: "'JetBrains Mono', monospace",
+              color: "#FAFAFA",
+              letterSpacing: "-0.02em",
+            }}
+          >
             {trainingTime}
           </Typography>
-          <Typography sx={{ fontSize: "0.75rem", color: "text.disabled", mt: 0.25 }}>
+          <Typography
+            sx={{
+              fontSize: "0.75rem",
+              fontFamily: "'Outfit', sans-serif",
+              color: "#52525B",
+              mt: 0.25,
+            }}
+          >
             Training time
           </Typography>
         </Box>
@@ -154,7 +185,8 @@ export default function CompletedModelCard({
       <Typography
         sx={{
           fontSize: "0.8125rem",
-          color: "text.secondary",
+          fontFamily: "'Outfit', sans-serif",
+          color: "#A1A1AA",
           mb: 2.5,
         }}
       >
@@ -169,13 +201,15 @@ export default function CompletedModelCard({
           sx={{
             px: 3,
             py: 1.25,
-            borderRadius: "10px",
+            borderRadius: "8px",
             fontSize: "0.875rem",
             fontWeight: 500,
-            bgcolor: "text.primary",
-            color: (theme) => (theme.palette.mode === "dark" ? "#141311" : "#FFFFFF"),
+            fontFamily: "'Outfit', sans-serif",
+            bgcolor: "#F97316",
+            color: "#FFFFFF",
+            textTransform: "none",
             "&:hover": {
-              bgcolor: (theme) => (theme.palette.mode === "dark" ? "#d4d3d0" : "#333"),
+              bgcolor: "#EA580C",
             },
           }}
         >
@@ -188,11 +222,21 @@ export default function CompletedModelCard({
           sx={{
             px: 3,
             py: 1.25,
-            borderRadius: "10px",
+            borderRadius: "8px",
             fontSize: "0.875rem",
             fontWeight: 500,
-            color: "text.secondary",
-            borderColor: "divider",
+            fontFamily: "'Outfit', sans-serif",
+            color: "#A1A1AA",
+            borderColor: "#27272A",
+            textTransform: "none",
+            "&:hover": {
+              borderColor: "#3F3F46",
+              bgcolor: "transparent",
+            },
+            "&.Mui-disabled": {
+              color: "#52525B",
+              borderColor: "#27272A",
+            },
           }}
         >
           Deploy API (coming soon)
@@ -204,16 +248,16 @@ export default function CompletedModelCard({
           sx={{
             px: 2,
             py: 1.25,
-            borderRadius: "10px",
+            borderRadius: "8px",
             fontSize: "0.875rem",
-            color: "text.secondary",
-            borderColor: "divider",
+            fontFamily: "'Outfit', sans-serif",
+            color: "#A1A1AA",
+            borderColor: "#27272A",
+            textTransform: "none",
             "&:hover": {
-              borderColor: (theme) =>
-                theme.palette.mode === "dark"
-                  ? "rgba(255,255,255,0.14)"
-                  : "rgba(0,0,0,0.12)",
-              color: "text.primary",
+              borderColor: "#3F3F46",
+              color: "#FAFAFA",
+              bgcolor: "transparent",
             },
           }}
         >
@@ -225,10 +269,15 @@ export default function CompletedModelCard({
           sx={{
             px: 2,
             py: 1.25,
-            borderRadius: "10px",
+            borderRadius: "8px",
             fontSize: "0.875rem",
-            color: "text.secondary",
-            "&:hover": { color: "text.primary" },
+            fontFamily: "'Outfit', sans-serif",
+            color: "#A1A1AA",
+            textTransform: "none",
+            "&:hover": {
+              color: "#FAFAFA",
+              bgcolor: "transparent",
+            },
           }}
         >
           Save image

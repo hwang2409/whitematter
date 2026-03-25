@@ -23,7 +23,7 @@ export default function ShareCard({ model }: Props) {
     try {
       const html2canvas = (await import("html2canvas")).default;
       const canvas = await html2canvas(cardRef.current, {
-        backgroundColor: "#0a0a0a",
+        backgroundColor: "#09090B",
         scale: 2,
       });
       const blob = await new Promise<Blob | null>((resolve) =>
@@ -69,42 +69,45 @@ export default function ShareCard({ model }: Props) {
           left: "-9999px",
           width: 600,
           height: 400,
-          bgcolor: "#0a0a0a",
+          bgcolor: "#09090B",
           p: 4,
           display: "flex",
           flexDirection: "column",
           justifyContent: "space-between",
-          border: "1px solid rgba(126,184,255,0.2)",
-          borderRadius: 2,
+          border: "1px solid #27272A",
+          borderRadius: "12px",
         }}
       >
         <Box>
           <Typography
             sx={{
-              fontFamily: "'DM Mono', monospace",
+              fontFamily: "'JetBrains Mono', monospace",
               fontSize: "0.875rem",
-              color: "#7EB8FF",
-              mb: 1,
+              fontWeight: 600,
+              color: "#F97316",
+              mb: 1.5,
             }}
           >
             wm
           </Typography>
           <Typography
             sx={{
+              fontFamily: "'Outfit', sans-serif",
               fontSize: "1.5rem",
-              fontWeight: 700,
-              color: "#fff",
+              fontWeight: 600,
+              color: "#FAFAFA",
               mb: 0.5,
+              lineHeight: 1.2,
             }}
           >
             {model.name.replace(/^custom_/, "").replace(/_/g, " ")}
           </Typography>
           <Typography
             sx={{
-              fontFamily: "'DM Mono', monospace",
+              fontFamily: "'Instrument Serif', Georgia, serif",
               fontSize: "3rem",
-              fontWeight: 700,
-              color: "#7EB8FF",
+              fontWeight: 400,
+              color: "#F97316",
               lineHeight: 1,
               mb: 2,
             }}
@@ -112,6 +115,7 @@ export default function ShareCard({ model }: Props) {
             {model.best_accuracy.toFixed(1)}%
           </Typography>
         </Box>
+
         <Box>
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 2 }}>
             {archParts.slice(0, 8).map((part, i) => (
@@ -120,11 +124,14 @@ export default function ShareCard({ model }: Props) {
                 size="small"
                 label={part}
                 sx={{
-                  fontFamily: "'DM Mono', monospace",
+                  fontFamily: "'JetBrains Mono', monospace",
                   fontSize: "0.625rem",
-                  bgcolor: "rgba(126,184,255,0.15)",
-                  color: "#7EB8FF",
-                  border: "1px solid rgba(126,184,255,0.3)",
+                  fontWeight: 500,
+                  bgcolor: "rgba(249,115,22,0.08)",
+                  color: "#F97316",
+                  border: "1px solid rgba(249,115,22,0.2)",
+                  borderRadius: "6px",
+                  height: 22,
                 }}
               />
             ))}
@@ -134,7 +141,8 @@ export default function ShareCard({ model }: Props) {
               display: "flex",
               gap: 2,
               fontSize: "0.75rem",
-              color: "rgba(255,255,255,0.5)",
+              fontFamily: "'Outfit', sans-serif",
+              color: "#52525B",
             }}
           >
             <span>{model.epochs_trained} epochs</span>
@@ -146,11 +154,12 @@ export default function ShareCard({ model }: Props) {
             </span>
           </Box>
         </Box>
+
         <Typography
           sx={{
             fontSize: "0.6875rem",
-            color: "rgba(255,255,255,0.3)",
-            fontFamily: "'DM Mono', monospace",
+            color: "#52525B",
+            fontFamily: "'JetBrains Mono', monospace",
           }}
         >
           Built with whitematter
@@ -163,6 +172,19 @@ export default function ShareCard({ model }: Props) {
         startIcon={<ShareOutlined />}
         onClick={handleShare}
         disabled={generating}
+        sx={{
+          borderColor: "#27272A",
+          color: "#A1A1AA",
+          fontFamily: "'Outfit', sans-serif",
+          fontSize: "0.75rem",
+          textTransform: "none",
+          borderRadius: "8px",
+          "&:hover": {
+            borderColor: "#3F3F46",
+            color: "#FAFAFA",
+            bgcolor: "rgba(255,255,255,0.03)",
+          },
+        }}
       >
         {generating ? "Generating..." : "Share"}
       </Button>

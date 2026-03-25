@@ -15,7 +15,9 @@ from datasets import load_dataset
 logger = logging.getLogger(__name__)
 
 # Reasonable limits to avoid OOM or abuse
-MAX_IMAGE_ROWS = 50_000
+MAX_IMAGE_ROWS = 10_000
+MAX_IMAGE_DIM = 224  # Resize images so max side is this (matches common CNN input)
+MAX_UNCOMPRESSED_BYTES = 500_000_000  # 500MB uncompressed — compresses well under SQLite 2GB
 MAX_TEXT_ROWS = 100_000
 MAX_TEXT_CHARS = 10_000_000  # 10M chars
 
@@ -46,7 +48,7 @@ def _ensure_pil(image: Any) -> Any:
     """Return PIL Image. HF sometimes gives dict with bytes."""
     from PIL import Image as PILImage
     if hasattr(image, "save"):
-        return image
+        return image.convert("RGB") if image.mode != "RGB" else image
     if isinstance(image, dict) and "bytes" in image:
         return PILImage.open(io.BytesIO(image["bytes"])).convert("RGB")
     if isinstance(image, bytes):
@@ -72,7 +74,6 @@ def import_image_dataset(
             dataset_id,
             config=config,
             split=split,
-            trust_remote_code=True,
         )
     except Exception as e:
         raise HuggingFaceImportError(f"Failed to load dataset: {e}") from e
@@ -100,6 +101,7 @@ def import_image_dataset(
     # Build class folders in memory and create ZIP
     buffer = io.BytesIO()
     class_to_idx: dict[str, int] = {}
+    total_bytes = 0
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
         for i in range(n):
             row = ds[i]
@@ -112,16 +114,23 @@ def import_image_dataset(
             except Exception as e:
                 logger.warning("Skip row %d: %s", i, e)
                 continue
+            # Resize to keep ZIP well under SQLite BLOB limit
+            pil_img.thumbnail((MAX_IMAGE_DIM, MAX_IMAGE_DIM))
             if isinstance(label_val, int):
                 class_name = str(label_val)
             else:
                 class_name = str(label_val).replace("/", "_").replace("\\", "_") or "unknown"
             if class_name not in class_to_idx:
                 class_to_idx[class_name] = len(class_to_idx)
-            arcname = f"{class_name}/img_{i:06d}.png"
+            arcname = f"{class_name}/img_{i:06d}.jpg"
             img_buffer = io.BytesIO()
-            pil_img.save(img_buffer, format="PNG")
-            zf.writestr(arcname, img_buffer.getvalue())
+            pil_img.save(img_buffer, format="JPEG", quality=85)
+            img_bytes = img_buffer.getvalue()
+            total_bytes += len(img_bytes)
+            zf.writestr(arcname, img_bytes)
+            if total_bytes > MAX_UNCOMPRESSED_BYTES:
+                logger.warning("Truncating at row %d: reached %dMB byte limit", i, total_bytes // 1_000_000)
+                break
 
     if len(class_to_idx) == 0:
         raise HuggingFaceImportError("No valid image/label rows found")
@@ -156,7 +165,6 @@ def import_text_dataset(
             dataset_id,
             config=config,
             split=split,
-            trust_remote_code=True,
         )
     except Exception as e:
         raise HuggingFaceImportError(f"Failed to load dataset: {e}") from e
@@ -227,7 +235,6 @@ def import_from_huggingface(
             dataset_id,
             config=config,
             split=split,
-            trust_remote_code=True,
         )
     except Exception as e:
         raise HuggingFaceImportError(f"Failed to load dataset: {e}") from e

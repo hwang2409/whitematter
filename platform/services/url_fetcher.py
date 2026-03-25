@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from dataset_manager import MAX_UPLOAD_SIZE_BYTES
+from services.dataset_validation import MAX_UPLOAD_SIZE_BYTES
 
 # 1 GB max for URL fetch (align with upload limit)
 MAX_FETCH_BYTES = MAX_UPLOAD_SIZE_BYTES

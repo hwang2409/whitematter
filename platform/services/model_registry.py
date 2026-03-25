@@ -16,7 +16,7 @@ from config import (
     CIFAR10_MEAN, CIFAR10_STD, MNIST_MEAN, MNIST_STD,
 )
 from schemas import ModelMetadata
-from model_format import (
+from services.model_format import (
     validate_model_file, format_header_info,
 )
 
