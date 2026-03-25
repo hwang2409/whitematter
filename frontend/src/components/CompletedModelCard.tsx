@@ -71,7 +71,6 @@ export default function CompletedModelCard({
         overflow: "hidden",
       }}
     >
-      {/* Accent top bar */}
       <Box
         sx={{
           position: "absolute",
@@ -83,7 +82,6 @@ export default function CompletedModelCard({
         }}
       />
 
-      {/* Status */}
       <Typography
         sx={{
           fontSize: "0.8125rem",
@@ -98,7 +96,6 @@ export default function CompletedModelCard({
         Training complete
       </Typography>
 
-      {/* Big accuracy number */}
       <Typography
         sx={{
           fontFamily: "'Instrument Serif', Georgia, serif",
@@ -122,7 +119,6 @@ export default function CompletedModelCard({
         Accuracy
       </Typography>
 
-      {/* Stats row */}
       <Box
         sx={{
           display: "flex",
@@ -181,7 +177,6 @@ export default function CompletedModelCard({
         </Box>
       </Box>
 
-      {/* Architecture info */}
       <Typography
         sx={{
           fontSize: "0.8125rem",
@@ -193,7 +188,6 @@ export default function CompletedModelCard({
         {architecture} on {datasetName}
       </Typography>
 
-      {/* Actions */}
       <Box sx={{ display: "flex", gap: 1, justifyContent: "center", flexWrap: "wrap" }}>
         <Button
           size="small"
@@ -284,7 +278,6 @@ export default function CompletedModelCard({
         </Button>
       </Box>
 
-      {/* Inline prediction widget */}
       {showPredict && (
         <Box sx={{ mt: 2.5, textAlign: "left" }}>
           <InlinePredictWidget modelId={modelId} />

@@ -1,4 +1,3 @@
-"""Storage service — abstraction over SQLite BlobStore and R2/S3."""
 import logging
 import os
 from pathlib import Path
@@ -21,7 +20,6 @@ class StorageService:
 
     @property
     def r2(self):
-        """Lazy R2/S3 client initialization."""
         if self._r2_client is None and self.use_r2:
             import boto3
             self._r2_client = boto3.client(
@@ -35,7 +33,6 @@ class StorageService:
 
     @property
     def blob_store(self):
-        """Lazy BlobStore initialization."""
         if self._blob_store is None:
             from db.blob_store import get_blob_store
             self._blob_store = get_blob_store()
@@ -158,7 +155,6 @@ _storage_service: Optional[StorageService] = None
 
 
 def get_storage_service() -> StorageService:
-    """Get the global storage service instance."""
     global _storage_service
     if _storage_service is None:
         _storage_service = StorageService()

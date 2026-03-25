@@ -1,4 +1,3 @@
-"""S3 storage schemas."""
 from pydantic import BaseModel
 
 

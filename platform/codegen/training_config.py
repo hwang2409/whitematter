@@ -1,8 +1,3 @@
-"""
-Training configuration code generation - optimizer and scheduler templates.
-"""
-
-
 OPTIMIZER_TEMPLATES = {
     "sgd": "SGD optimizer(model.parameters(), {learning_rate}f, {momentum}f);",
     "adam": "Adam optimizer(model.parameters(), {learning_rate}f, {beta1}f, {beta2}f);",
@@ -17,7 +12,6 @@ SCHEDULER_TEMPLATES = {
 
 
 def generate_optimizer(optimizer_config: dict) -> str:
-    """Generate optimizer initialization code."""
     opt_type = optimizer_config.get("type", "sgd").lower()
     params = optimizer_config.get("params", {})
 
@@ -36,7 +30,6 @@ def generate_optimizer(optimizer_config: dict) -> str:
 
 
 def generate_scheduler(scheduler_config: dict) -> str:
-    """Generate scheduler initialization code."""
     sched_type = scheduler_config.get("type", "none").lower()
     params = scheduler_config.get("params", {})
 

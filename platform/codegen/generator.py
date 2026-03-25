@@ -1,8 +1,3 @@
-"""
-Code Generator - generates C++ training code from architecture JSON.
-Uses template-based generation for safety.
-"""
-
 import json
 from pathlib import Path
 from typing import Dict, Any, List
@@ -22,8 +17,6 @@ from .templates.makefile import generate_makefile
 
 
 class CodeGenerator:
-    """Generate C++ training code from architecture specification."""
-
     def __init__(self, templates_dir: Path = None):
         self.templates_dir = templates_dir or Path(__file__).parent / "templates"
 
@@ -33,17 +26,6 @@ class CodeGenerator:
         dataset_config: Dict[str, Any],
         output_dir: Path
     ) -> Path:
-        """
-        Generate training code from architecture and dataset config.
-
-        Args:
-            architecture: Architecture JSON with layers and training config
-            dataset_config: Dataset preprocessing config (from image_processor)
-            output_dir: Where to write generated files
-
-        Returns:
-            Path to generated train.cpp
-        """
         output_dir.mkdir(parents=True, exist_ok=True)
 
         data_type = dataset_config.get("data_type", "image")
@@ -104,19 +86,15 @@ class CodeGenerator:
         return train_cpp
 
     def _generate_layers(self, layers: List[Dict[str, Any]]) -> str:
-        """Generate C++ layer initialization code."""
         return generate_layers(layers)
 
     def _fill_template(self, template: str, params: dict, layer_type: str) -> str:
-        """Fill template with parameters, using defaults where needed."""
         return fill_template(template, params, layer_type)
 
     def _generate_optimizer(self, optimizer_config: dict) -> str:
-        """Generate optimizer initialization code."""
         return generate_optimizer(optimizer_config)
 
     def _generate_scheduler(self, scheduler_config: dict) -> str:
-        """Generate scheduler initialization code."""
         return generate_scheduler(scheduler_config)
 
     def _generate_training_code(
@@ -128,7 +106,6 @@ class CodeGenerator:
         batch_size: int,
         dataset_config: dict
     ) -> str:
-        """Generate complete training code."""
         return generate_image_training_code(
             layers_code=layers_code,
             optimizer_code=optimizer_code,
@@ -143,7 +120,6 @@ class CodeGenerator:
         layers_code: str,
         dataset_config: dict
     ) -> str:
-        """Generate inference-only code for the model."""
         return generate_image_inference_code(
             layers_code=layers_code,
             dataset_config=dataset_config
@@ -158,7 +134,6 @@ class CodeGenerator:
         batch_size: int,
         dataset_config: dict
     ) -> str:
-        """Generate text model training code for language modeling using Transformer."""
         return generate_text_training_code(
             layers_code=layers_code,
             optimizer_code=optimizer_code,
@@ -173,14 +148,12 @@ class CodeGenerator:
         layers_code: str,
         dataset_config: dict
     ) -> str:
-        """Generate text generation inference code using Transformer."""
         return generate_text_inference_code(
             layers_code=layers_code,
             dataset_config=dataset_config
         )
 
     def _generate_makefile(self) -> str:
-        """Generate Makefile for compiling training and inference code."""
         return generate_makefile()
 
     def validate_architecture(self, architecture: Dict[str, Any]) -> Dict[str, Any]:
@@ -192,7 +165,6 @@ class CodeGenerator:
         errors = []
         warnings = []
 
-        # Check required fields
         if "layers" not in architecture:
             errors.append("Missing 'layers' field")
         else:
@@ -200,14 +172,12 @@ class CodeGenerator:
             if not layers:
                 errors.append("No layers specified")
             else:
-                # Validate each layer
                 for i, layer in enumerate(layers):
                     if "type" not in layer:
                         errors.append(f"Layer {i}: missing 'type' field")
                     elif layer["type"].lower() not in LAYER_TEMPLATES:
                         errors.append(f"Layer {i}: unknown type '{layer['type']}'")
 
-        # Check training config
         training = architecture.get("training", {})
         optimizer = training.get("optimizer", {})
         if optimizer.get("type", "sgd").lower() not in OPTIMIZER_TEMPLATES:

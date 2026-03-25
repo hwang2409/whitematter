@@ -82,15 +82,12 @@ void AdamW::step() {
         for (size_t j = 0; j < p->size(); j++) {
             float g = p->grad()[j];
 
-            // Update biased first and second moment estimates
             m[i][j] = beta1 * m[i][j] + (1.0f - beta1) * g;
             v[i][j] = beta2 * v[i][j] + (1.0f - beta2) * g * g;
 
-            // Compute bias-corrected estimates
             float m_hat = m[i][j] / bias_correction1;
             float v_hat = v[i][j] / bias_correction2;
 
-            // AdamW: decoupled weight decay (applied directly to params, not to gradients)
             p->data()[j] -= lr * (m_hat / (std::sqrt(v_hat) + eps) + weight_decay * p->data()[j]);
         }
     }
@@ -112,31 +109,23 @@ void RMSprop::step() {
         for (size_t j = 0; j < p->size(); j++) {
             float g = p->grad()[j];
 
-            // Apply weight decay
             if (weight_decay != 0.0f) {
                 g += weight_decay * p->data()[j];
             }
 
-            // Update running average of squared gradients
             v[i][j] = alpha * v[i][j] + (1.0f - alpha) * g * g;
 
             float avg = std::sqrt(v[i][j]) + eps;
 
             if (momentum > 0.0f) {
-                // With momentum
                 buffer[i][j] = momentum * buffer[i][j] + g / avg;
                 p->data()[j] -= lr * buffer[i][j];
             } else {
-                // Without momentum
                 p->data()[j] -= lr * g / avg;
             }
         }
     }
 }
-
-// ============================================================================
-// Gradient Clipping
-// ============================================================================
 
 float get_grad_norm(const std::vector<TensorPtr>& params) {
     float total_norm = 0.0f;
@@ -172,10 +161,6 @@ void clip_grad_value_(std::vector<TensorPtr>& params, float clip_value) {
     }
 }
 
-// ============================================================================
-// Learning Rate Schedulers
-// ============================================================================
-
 LRScheduler::LRScheduler(Optimizer* optimizer)
     : optimizer(optimizer), base_lr(optimizer->lr), last_epoch(-1) {}
 
@@ -184,7 +169,6 @@ void LRScheduler::step() {
     optimizer->lr = get_lr();
 }
 
-// StepLR: decay by gamma every step_size epochs
 StepLR::StepLR(Optimizer* optimizer, int step_size, float gamma)
     : LRScheduler(optimizer), step_size(step_size), gamma(gamma) {}
 
@@ -193,7 +177,6 @@ float StepLR::get_lr() {
     return base_lr * std::pow(gamma, last_epoch / step_size);
 }
 
-// ExponentialLR: decay by gamma every epoch
 ExponentialLR::ExponentialLR(Optimizer* optimizer, float gamma)
     : LRScheduler(optimizer), gamma(gamma) {}
 
@@ -202,7 +185,6 @@ float ExponentialLR::get_lr() {
     return base_lr * std::pow(gamma, last_epoch);
 }
 
-// CosineAnnealingLR: cosine annealing from base_lr to eta_min
 CosineAnnealingLR::CosineAnnealingLR(Optimizer* optimizer, int T_max, float eta_min)
     : LRScheduler(optimizer), T_max(T_max), eta_min(eta_min) {}
 
@@ -211,7 +193,6 @@ float CosineAnnealingLR::get_lr() {
     return eta_min + (base_lr - eta_min) * (1.0f + std::cos(M_PI * last_epoch / T_max)) / 2.0f;
 }
 
-// CosineAnnealingWarmRestarts: cosine annealing with warm restarts
 CosineAnnealingWarmRestarts::CosineAnnealingWarmRestarts(Optimizer* optimizer, int T_0, int T_mult, float eta_min)
     : LRScheduler(optimizer), T_0(T_0), T_mult(T_mult), eta_min(eta_min), T_cur(0), T_i(T_0) {}
 
@@ -231,7 +212,6 @@ void CosineAnnealingWarmRestarts::step() {
     optimizer->lr = get_lr();
 }
 
-// ReduceLROnPlateau: reduce LR when metric stops improving
 ReduceLROnPlateau::ReduceLROnPlateau(Optimizer* optimizer, float factor, int patience,
                                      float min_lr, bool mode_min)
     : optimizer(optimizer), factor(factor), patience(patience), min_lr(min_lr),

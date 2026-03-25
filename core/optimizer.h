@@ -75,30 +75,8 @@ void clip_grad_norm_(std::vector<TensorPtr>& params, float max_norm);
 void clip_grad_value_(std::vector<TensorPtr>& params, float clip_value);
 float get_grad_norm(const std::vector<TensorPtr>& params);
 
-// =============================================================================
-// Gradient Accumulation
-// =============================================================================
-// Enables training with effectively larger batch sizes when memory is limited.
-// Instead of updating weights after every batch, accumulate gradients over
-// multiple mini-batches and then perform a single optimizer step.
-//
-// Example usage:
-//   GradientAccumulator accumulator(4);  // Accumulate over 4 mini-batches
-//   for (auto [x, y] : dataloader) {
-//       auto loss = criterion(model.forward(x), y);
-//       accumulator.backward(loss);  // Scales loss and calls backward
-//
-//       if (accumulator.should_step()) {
-//           optimizer.step();
-//           optimizer.zero_grad();
-//           accumulator.reset();
-//       }
-//   }
-
 class GradientAccumulator {
 public:
-    // Create accumulator with specified number of accumulation steps
-    // effective_batch_size = mini_batch_size * accumulation_steps
     explicit GradientAccumulator(int accumulation_steps)
         : accumulation_steps_(accumulation_steps),
           current_step_(0),
@@ -109,45 +87,33 @@ public:
         }
     }
 
-    // Scale loss for gradient accumulation (divides by accumulation_steps)
-    // Use this before calling backward() manually
     TensorPtr scale(const TensorPtr& loss) const {
         if (accumulation_steps_ == 1) return loss;
         return loss->mul(scale_factor_);
     }
 
-    // Convenience method: scale loss and call backward in one step
     void backward(const TensorPtr& loss) {
         auto scaled_loss = scale(loss);
         scaled_loss->backward();
         current_step_++;
     }
 
-    // Check if we've accumulated enough gradients and should step the optimizer
     bool should_step() const {
         return current_step_ >= accumulation_steps_;
     }
 
-    // Increment step counter (use if calling backward manually)
     void increment() {
         current_step_++;
     }
 
-    // Reset counter after optimizer step (call after optimizer.step() and zero_grad())
     void reset() {
         current_step_ = 0;
     }
 
-    // Get current micro-batch index within accumulation window
     int current_step() const { return current_step_; }
-
-    // Get total number of accumulation steps
     int get_accumulation_steps() const { return accumulation_steps_; }
-
-    // Get the loss scaling factor (1 / accumulation_steps)
     float get_scale_factor() const { return scale_factor_; }
 
-    // Check if this is the last step before optimizer update
     bool is_last_step() const {
         return current_step_ == accumulation_steps_ - 1;
     }
@@ -233,30 +199,8 @@ public:
     void step(float metric);
 };
 
-// =============================================================================
-// Early Stopping
-// =============================================================================
-// Stops training when a monitored metric stops improving.
-// Prevents overfitting by halting training at the optimal point.
-//
-// Example usage:
-//   EarlyStopping early_stopping(10);  // patience = 10 epochs
-//   for (int epoch = 0; epoch < max_epochs; epoch++) {
-//       train_one_epoch();
-//       float val_loss = evaluate();
-//       if (early_stopping.step(val_loss)) {
-//           printf("Early stopping at epoch %d\n", epoch);
-//           break;
-//       }
-//   }
-
 class EarlyStopping {
 public:
-    // Create early stopping monitor
-    // patience: epochs to wait after last improvement before stopping
-    // min_delta: minimum change to qualify as improvement
-    // mode_min: true = lower is better (loss), false = higher is better (accuracy)
-    // baseline: optional; if not provided, first step() sets best from first metric
     EarlyStopping(int patience = 10, float min_delta = 0.0f, bool mode_min = true)
         : patience_(patience),
           min_delta_(min_delta),
@@ -286,12 +230,9 @@ public:
         }
     }
 
-    // Check metric and return true if training should stop
-    // Call this at the end of each epoch with validation metric
     bool step(float metric) {
         if (should_stop_) return true;
 
-        // Initialize best on first call when no baseline was provided (avoids NaN check under -ffast-math)
         if (first_step_) {
             first_step_ = false;
             best_ = metric;
@@ -299,7 +240,6 @@ public:
             return false;
         }
 
-        // Check for improvement
         bool improved = false;
         if (mode_min_) {
             improved = metric < best_ - min_delta_;
@@ -322,7 +262,6 @@ public:
         return should_stop_;
     }
 
-    // Reset early stopping state
     void reset() {
         counter_ = 0;
         best_ = std::numeric_limits<float>::quiet_NaN();
@@ -332,15 +271,12 @@ public:
         first_step_ = true;
     }
 
-    // Getters
     bool should_stop() const { return should_stop_; }
     float best_metric() const { return best_; }
     int best_epoch() const { return best_epoch_; }
     int stopped_epoch() const { return stopped_epoch_; }
     int patience() const { return patience_; }
     int epochs_without_improvement() const { return counter_; }
-
-    // Set patience dynamically
     void set_patience(int p) { patience_ = p; }
 
 private:
@@ -355,27 +291,8 @@ private:
     bool first_step_;  // true until first step() when no baseline was provided
 };
 
-// =============================================================================
-// ModelCheckpoint - Save best model during training
-// =============================================================================
-// Works with EarlyStopping to save model at best validation metric.
-//
-// Example usage:
-//   EarlyStopping early_stopping(10);
-//   ModelCheckpoint checkpoint("best_model.bin");
-//   for (int epoch = 0; epoch < max_epochs; epoch++) {
-//       train_one_epoch();
-//       float val_loss = evaluate();
-//       checkpoint.step(val_loss, &model);  // Saves if improved
-//       if (early_stopping.step(val_loss)) break;
-//   }
-//   checkpoint.restore(&model);  // Load best weights
-
 class ModelCheckpoint {
 public:
-    // Create checkpoint monitor
-    // filepath: where to save the best model
-    // mode_min: true = lower is better (loss), false = higher is better (accuracy)
     ModelCheckpoint(const std::string& filepath, bool mode_min = true, float min_delta = 0.0f)
         : filepath_(filepath),
           mode_min_(mode_min),
@@ -384,8 +301,6 @@ public:
                          : -std::numeric_limits<float>::infinity()),
           saved_(false) {}
 
-    // Check metric and save model if improved
-    // Returns true if model was saved
     bool step(float metric, Module* model) {
         bool improved = false;
         if (mode_min_) {
@@ -403,7 +318,6 @@ public:
         return false;
     }
 
-    // Restore best model weights
     bool restore(Module* model) {
         if (saved_) {
             load_model(model, filepath_);
@@ -412,12 +326,10 @@ public:
         return false;
     }
 
-    // Getters
     float best_metric() const { return best_; }
     bool has_saved() const { return saved_; }
     const std::string& filepath() const { return filepath_; }
 
-    // Reset state
     void reset() {
         best_ = mode_min_ ? std::numeric_limits<float>::infinity()
                           : -std::numeric_limits<float>::infinity();

@@ -1,8 +1,3 @@
-"""
-Training execution: code generation, compilation, training process management,
-and dataset extraction from blob storage.
-"""
-
 import json
 import logging
 import subprocess

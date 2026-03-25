@@ -1,7 +1,3 @@
-"""
-Text model (Transformer) inference code template for text generation.
-"""
-
 import re
 
 
@@ -9,7 +5,6 @@ def generate_text_inference_code(
     layers_code: str,
     dataset_config: dict
 ) -> str:
-    """Generate text generation inference code using Transformer."""
     vocab_size = dataset_config.get("vocab_size", dataset_config.get("num_classes", 100))
     seq_length = dataset_config.get("seq_length", 128)
 

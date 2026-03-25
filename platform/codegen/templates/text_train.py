@@ -1,7 +1,3 @@
-"""
-Text model (Transformer language model) training code template.
-"""
-
 import re
 
 

@@ -1,4 +1,3 @@
-"""Chat conversation and message models."""
 import uuid
 from datetime import datetime
 from sqlalchemy import Boolean, Column, String, Text, DateTime, ForeignKey, JSON

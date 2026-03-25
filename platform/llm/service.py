@@ -1,7 +1,3 @@
-"""
-LLM Service - Claude API integration for architecture design.
-"""
-
 import json
 import logging
 import os
@@ -14,15 +10,12 @@ from .prompts import ARCHITECTURE_SYSTEM_PROMPT, REFINEMENT_PROMPT
 
 
 class LLMService:
-    """Interface to Claude API for architecture suggestions."""
-
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
         self._client = None
 
     @property
     def client(self):
-        """Lazy initialization of Anthropic client."""
         if self._client is None:
             try:
                 import anthropic
@@ -39,18 +32,7 @@ class LLMService:
         user_prompt: str,
         model: str = "claude-sonnet-4-20250514"
     ) -> Dict[str, Any]:
-        """
-        Get architecture suggestion from Claude.
 
-        Args:
-            dataset_info: Dataset metadata (data_type, input_shape, num_classes, etc.)
-            user_prompt: User's description of what they want
-            model: Claude model to use
-
-        Returns:
-            Dict with 'architecture' (JSON) and 'explanation' (text)
-        """
-        # Build user message with dataset context
         user_message = f"""Dataset Information:
 - Data type: {dataset_info.get('data_type', 'unknown')}
 - Input shape: {dataset_info.get('input_shape', [])}
@@ -63,7 +45,6 @@ User Request:
 
 Please design an appropriate neural network architecture for this dataset and task."""
 
-        # Call Claude API
         response = self.client.messages.create(
             model=model,
             max_tokens=4096,
@@ -73,10 +54,7 @@ Please design an appropriate neural network architecture for this dataset and ta
             ]
         )
 
-        # Extract response
         response_text = response.content[0].text
-
-        # Parse JSON from response
         architecture = self._extract_json(response_text)
 
         return {
@@ -91,17 +69,6 @@ Please design an appropriate neural network architecture for this dataset and ta
         feedback: str,
         model: str = "claude-sonnet-4-20250514"
     ) -> Dict[str, Any]:
-        """
-        Refine an existing architecture based on user feedback.
-
-        Args:
-            current_architecture: Current architecture JSON
-            feedback: User's feedback/changes requested
-            model: Claude model to use
-
-        Returns:
-            Dict with 'architecture' (JSON) and 'explanation' (text)
-        """
         user_message = REFINEMENT_PROMPT.format(
             current_architecture=json.dumps(current_architecture, indent=2),
             feedback=feedback
@@ -126,8 +93,6 @@ Please design an appropriate neural network architecture for this dataset and ta
         }
 
     def _extract_json(self, text: str) -> Dict[str, Any]:
-        """Extract JSON from response text."""
-        # Try to find JSON in code blocks
         json_match = re.search(r'```json\s*([\s\S]*?)\s*```', text)
         if json_match:
             try:
@@ -135,7 +100,6 @@ Please design an appropriate neural network architecture for this dataset and ta
             except json.JSONDecodeError:
                 pass
 
-        # Try to find raw JSON
         json_match = re.search(r'\{[\s\S]*\}', text)
         if json_match:
             try:
@@ -146,8 +110,6 @@ Please design an appropriate neural network architecture for this dataset and ta
         raise ValueError("Could not extract valid JSON from response")
 
     def _extract_explanation(self, text: str) -> str:
-        """Extract explanation text (everything before JSON)."""
-        # Find where JSON starts
         json_start = text.find('```json')
         if json_start == -1:
             json_start = text.find('{')
@@ -159,22 +121,18 @@ Please design an appropriate neural network architecture for this dataset and ta
 
 # Fallback for when Claude API is not available
 class MockLLMService:
-    """Mock LLM service for testing without API key."""
-
     def suggest_architecture(
         self,
         dataset_info: Dict[str, Any],
         user_prompt: str,
         model: str = None
     ) -> Dict[str, Any]:
-        """Return a simple default architecture based on data type."""
         data_type = dataset_info.get('data_type', 'image')
         input_shape = dataset_info.get('input_shape', [3, 32, 32])
         num_classes = dataset_info.get('num_classes', 10)
 
         if data_type == 'image':
             c, h, w = input_shape
-            # Simple CNN
             architecture = {
                 "name": "simple_cnn",
                 "description": "Simple CNN for image classification",
@@ -298,7 +256,6 @@ class MockLLMService:
         }
 
     def refine_architecture(self, current_architecture, feedback, model=None):
-        """Just return the current architecture unchanged."""
         return {
             "architecture": current_architecture,
             "explanation": "Mock service: architecture unchanged",
@@ -307,7 +264,6 @@ class MockLLMService:
 
 
 def get_llm_service(api_key: Optional[str] = None) -> LLMService:
-    """Get LLM service, falling back to mock if no API key."""
     key = api_key or os.environ.get("ANTHROPIC_API_KEY")
     if key:
         return LLMService(api_key=key)

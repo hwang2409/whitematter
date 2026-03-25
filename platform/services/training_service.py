@@ -1,6 +1,3 @@
-"""
-Training service - handles training job operations.
-"""
 from typing import Optional, List, Dict, Any
 
 from db import get_db_session, TrainingJob, JobStatus, Model, ModelStatus

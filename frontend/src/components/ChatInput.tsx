@@ -90,7 +90,7 @@ export default function ChatInput({
         component="textarea"
         ref={inputRef}
         value={value}
-        onChange={(e: any) => setValue(e.target.value)}
+        onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder={placeholder ?? "Type a message..."}
         disabled={disabled}

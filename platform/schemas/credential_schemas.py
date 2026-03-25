@@ -1,4 +1,3 @@
-"""AWS and S3-compatible credential schemas."""
 from pydantic import BaseModel, Field
 
 

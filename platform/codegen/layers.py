@@ -1,11 +1,6 @@
-"""
-Layer code generation - templates and generation functions for C++ layer initialization.
-"""
-
 from typing import Dict, Any, List
 
 
-# Whitelist of allowed layer types and their C++ constructors
 LAYER_TEMPLATES = {
     "conv2d": "new Conv2d({in_channels}, {out_channels}, {kernel_size}, {stride}, {padding})",
     "batchnorm2d": "new BatchNorm2d({num_features})",
@@ -27,7 +22,6 @@ LAYER_TEMPLATES = {
 
 
 def fill_template(template: str, params: dict, layer_type: str) -> str:
-    """Fill template with parameters, using defaults where needed."""
     defaults = {
         "stride": 1,
         "padding": 0,
@@ -58,7 +52,6 @@ def fill_template(template: str, params: dict, layer_type: str) -> str:
 
 
 def generate_layers(layers: List[Dict[str, Any]]) -> str:
-    """Generate C++ layer initialization code."""
     lines = []
     for layer in layers:
         layer_type = layer["type"].lower()

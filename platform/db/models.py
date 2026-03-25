@@ -1,6 +1,3 @@
-"""
-SQLAlchemy database models for whitematter platform.
-"""
 from datetime import datetime
 from typing import Optional
 from sqlalchemy import (
@@ -53,7 +50,6 @@ class ModelStatus(str, enum.Enum):
 
 
 class Dataset(Base):
-    """Dataset metadata and configuration."""
     __tablename__ = "datasets"
 
     id = Column(String(32), primary_key=True)
@@ -64,34 +60,27 @@ class Dataset(Base):
     status = Column(String(20), default=DatasetStatus.CREATED.value)
     error_message = Column(Text, nullable=True)
 
-    # Dataset statistics
     num_classes = Column(Integer, default=0)
     total_samples = Column(Integer, default=0)
     train_samples = Column(Integer, default=0)
     test_samples = Column(Integer, default=0)
 
-    # Shape and class info stored as JSON
     input_shape = Column(JSON, default=list)
     class_names = Column(JSON, default=list)
     samples_per_class = Column(JSON, default=dict)
 
-    # Preprocessing config
     preprocessing_config = Column(JSON, nullable=True)
 
-    # Blob references
     raw_blob_key = Column(String(255), nullable=True)  # Key to raw uploaded file
     processed_blob_prefix = Column(String(255), nullable=True)  # Prefix for processed files
 
-    # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # Relationships
     models = relationship("Model", back_populates="dataset_rel")
 
 
 class Model(Base):
-    """Trained model metadata."""
     __tablename__ = "models"
 
     id = Column(String(32), primary_key=True)
@@ -102,30 +91,24 @@ class Model(Base):
     architecture_name = Column(String(255), nullable=True)
     status = Column(String(20), default=ModelStatus.TRAINING.value)
 
-    # Training results
     epochs_trained = Column(Integer, default=0)
     best_accuracy = Column(Float, default=0.0)
     final_loss = Column(Float, nullable=True)
 
-    # Configuration stored as JSON
     architecture_config = Column(JSON, nullable=True)
     training_config = Column(JSON, nullable=True)
 
-    # Blob references
     weights_blob_key = Column(String(255), nullable=True)
 
-    # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # Relationships
     dataset_rel = relationship("Dataset", back_populates="models")
     training_jobs = relationship("TrainingJob", back_populates="model")
     training_history = relationship("TrainingHistory", back_populates="model", order_by="TrainingHistory.epoch")
 
 
 class TrainingJob(Base):
-    """Training job tracking."""
     __tablename__ = "training_jobs"
 
     id = Column(String(32), primary_key=True)
@@ -140,26 +123,21 @@ class TrainingJob(Base):
     current_accuracy = Column(Float, nullable=True)
     message = Column(Text, nullable=True)
 
-    # Error tracking
     error_message = Column(Text, nullable=True)
 
-    # Blob references for artifacts
     generated_code_blob_key = Column(String(255), nullable=True)
     build_log_blob_key = Column(String(255), nullable=True)
     training_log_blob_key = Column(String(255), nullable=True)
 
-    # Timestamps
     created_at = Column(DateTime, default=datetime.utcnow)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # Relationships
     model = relationship("Model", back_populates="training_jobs")
 
 
 class TrainingHistory(Base):
-    """Per-epoch training metrics."""
     __tablename__ = "training_history"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
@@ -173,12 +151,10 @@ class TrainingHistory(Base):
 
     recorded_at = Column(DateTime, default=datetime.utcnow)
 
-    # Relationships
     model = relationship("Model", back_populates="training_history")
 
 
 class BlobMetadata(Base):
-    """Metadata and storage for blob objects - everything in the database."""
     __tablename__ = "blob_metadata"
 
     key = Column(String(255), primary_key=True)
@@ -186,10 +162,8 @@ class BlobMetadata(Base):
     size_bytes = Column(Integer, default=0)
     checksum = Column(String(64), nullable=True)  # SHA256
 
-    # Actual binary data stored in database
     data = Column(LargeBinary, nullable=True)
 
-    # For cleanup
     reference_count = Column(Integer, default=1)
 
     created_at = Column(DateTime, default=datetime.utcnow)

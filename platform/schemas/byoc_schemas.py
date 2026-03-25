@@ -1,4 +1,3 @@
-"""BYOC training schemas."""
 from pydantic import BaseModel
 
 

@@ -1,4 +1,3 @@
-"""BYOC EC2 instance provisioner."""
 import hashlib
 import secrets
 from datetime import datetime
@@ -36,13 +35,11 @@ class ByocProvisioner:
         """Launch a GPU EC2 instance for training. Returns instance ID."""
         ec2 = self._get_ec2_client(cred)
 
-        # Generate one-time job token
         job_token = secrets.token_urlsafe(48)
         job.job_token_hash = hashlib.sha256(job_token.encode()).hexdigest()
         job.status = ByocJobStatus.LAUNCHING.value
         db.commit()
 
-        # Generate user-data script
         user_data = generate_user_data(
             platform_url=self.platform_url,
             job_id=job.id,
@@ -56,7 +53,6 @@ class ByocProvisioner:
 
         ami = DEEP_LEARNING_AMIS.get(cred.default_region, DEFAULT_AMI)
 
-        # Launch instance
         resp = ec2.run_instances(
             ImageId=ami,
             InstanceType=job.instance_type or cred.default_instance_type,

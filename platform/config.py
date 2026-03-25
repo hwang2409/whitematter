@@ -1,10 +1,5 @@
-"""
-Configuration constants for the Whitematter Model Server.
-"""
-
 from pathlib import Path
 
-# Paths relative to project root (parent of platform/)
 PROJECT_ROOT = Path(__file__).parent.parent
 MODELS_DIR = PROJECT_ROOT / "models"
 DATA_DIR = PROJECT_ROOT / "data"
@@ -56,7 +51,6 @@ SCHEDULERS = {
 }
 
 def ensure_dirs():
-    """Create required directories if they don't exist."""
     MODELS_DIR.mkdir(exist_ok=True)
     UPLOADS_DIR.mkdir(exist_ok=True)
     GENERATED_DIR.mkdir(exist_ok=True)

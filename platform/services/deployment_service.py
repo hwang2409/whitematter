@@ -1,7 +1,3 @@
-"""
-Deployment service: build artifact tarball and manage deployment state for one-click Deploy to API.
-"""
-
 import io
 import json
 import logging

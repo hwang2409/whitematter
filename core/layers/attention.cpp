@@ -248,7 +248,6 @@ TensorPtr MultiHeadAttention::forward(const TensorPtr& query, const TensorPtr& k
             for (size_t b = 0; b < batch; b++) {
                 for (size_t h = 0; h < nh; h++) {
                     for (size_t i = 0; i < seq_q; i++) {
-                        // softmax gradient: d_score[j] = attn[j] * (d_attn[j] - sum(attn * d_attn))
                         float dot_sum = 0.0f;
                         for (size_t j = 0; j < seq_k; j++) {
                             size_t idx = b * nh * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j;
@@ -342,16 +341,13 @@ std::vector<TensorPtr> MultiHeadAttention::parameters() {
 }
 
 TensorPtr MultiHeadAttention::causal_mask(size_t seq_len) {
-    // Create a causal mask: positions can only attend to previous positions
-    // Shape: [1, 1, seq_len, seq_len]
-    // Upper triangular (above diagonal) = -inf, lower triangular (including diagonal) = 0
     auto mask = Tensor::create({1, 1, seq_len, seq_len}, false);
 
     for (size_t i = 0; i < seq_len; i++) {
         for (size_t j = 0; j < seq_len; j++) {
             size_t idx = i * seq_len + j;
             if (j > i) {
-                mask->data()[idx] = -1e9f;  // Large negative value (effectively -inf for softmax)
+                mask->data()[idx] = -1e9f;
             } else {
                 mask->data()[idx] = 0.0f;
             }

@@ -23,7 +23,6 @@ export default function InlinePredictWidget({ modelId }: InlinePredictWidgetProp
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const prevUrlRef = useRef<string | null>(null);
 
-  // Cleanup object URLs to prevent memory leaks
   useEffect(() => {
     return () => {
       if (prevUrlRef.current) URL.revokeObjectURL(prevUrlRef.current);
@@ -61,7 +60,6 @@ export default function InlinePredictWidget({ modelId }: InlinePredictWidgetProp
 
   return (
     <Box>
-      {/* Drop zone */}
       <Box
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
@@ -106,7 +104,6 @@ export default function InlinePredictWidget({ modelId }: InlinePredictWidgetProp
         </Typography>
       </Box>
 
-      {/* Preview + Results */}
       {(previewUrl || loading || predictions || error) && (
         <Box sx={{ mt: 2, display: "flex", gap: 2, alignItems: "flex-start" }}>
           {previewUrl && (

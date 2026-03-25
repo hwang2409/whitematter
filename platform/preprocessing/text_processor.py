@@ -1,7 +1,3 @@
-"""
-Text preprocessing for language model training.
-Supports character-level and word-level tokenization.
-"""
 import json
 import struct
 import numpy as np

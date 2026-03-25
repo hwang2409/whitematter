@@ -1,4 +1,3 @@
-"""Chat conversation routes with SSE streaming."""
 import asyncio
 import json
 import logging

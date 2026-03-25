@@ -1,7 +1,5 @@
-// frontend/src/components/training/StageIndicator.tsx
 'use client';
 
-import React from 'react';
 import { Box, Typography } from '@mui/material';
 import CheckIcon from '@mui/icons-material/Check';
 import { themeTokens } from '../../theme';

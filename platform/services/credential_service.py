@@ -1,4 +1,3 @@
-"""AWS credential encryption service."""
 import os
 from cryptography.fernet import Fernet
 

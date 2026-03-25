@@ -1,7 +1,3 @@
-"""
-Compiler - handles compilation of generated training code.
-"""
-
 import subprocess
 from pathlib import Path
 from typing import Tuple
@@ -11,18 +7,7 @@ def compile_training_code(
     generated_dir: Path,
     timeout: int = 300
 ) -> Tuple[bool, str]:
-    """
-    Compile generated training code.
-
-    Args:
-        generated_dir: Directory containing train.cpp and Makefile
-        timeout: Max compilation time in seconds
-
-    Returns:
-        Tuple of (success, output_message)
-    """
     try:
-        # Run make to build both train and infer
         result = subprocess.run(
             ["make", "all"],
             cwd=generated_dir,
@@ -31,7 +16,6 @@ def compile_training_code(
             timeout=timeout
         )
 
-        # Save build log
         with open(generated_dir / "build.log", 'w') as f:
             f.write("=== STDOUT ===\n")
             f.write(result.stdout)
@@ -55,22 +39,8 @@ def run_training(
     output_model: Path,
     resume_weights: Path = None,
     start_epoch: int = 0,
-    timeout: int = 3600  # 1 hour default
+    timeout: int = 3600
 ) -> subprocess.Popen:
-    """
-    Start training process.
-
-    Args:
-        generated_dir: Directory containing compiled 'train' executable
-        data_dir: Directory containing processed dataset
-        output_model: Path for output model file
-        resume_weights: Optional path to weights file to resume from
-        start_epoch: Epoch to start from (for resume)
-        timeout: Not enforced here (handled by caller)
-
-    Returns:
-        Popen object for the training process
-    """
     train_exe = generated_dir / "train"
 
     if not train_exe.exists():

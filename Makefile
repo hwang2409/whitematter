@@ -1,12 +1,10 @@
 CXX = g++
 
-# Directories
 CORE_DIR = core
 DATASETS_DIR = datasets
 EXAMPLES_DIR = examples
 BUILD_DIR = build
 
-# Detect architecture for SIMD flags
 UNAME_M := $(shell uname -m)
 ifeq ($(UNAME_M),arm64)
     SIMD_FLAGS = -mcpu=apple-m1
@@ -30,13 +28,9 @@ CXXFLAGS = -std=c++17 -O3 -Wall -Wextra $(SIMD_FLAGS) -ffast-math -funroll-loops
 CXXFLAGS += -I$(CORE_DIR) -I$(DATASETS_DIR)
 LDFLAGS = $(OPENMP_LIBS)
 
-# Metal backend: METAL=1 on macOS enables Metal; default is CPU-only (Linux-friendly)
 METAL ?= 0
-
-# CUDA backend: CUDA=1 enables CUDA/cuBLAS for cloud/Linux GPU; default is CPU-only
 CUDA ?= 0
 
-# Core library objects
 LAYERS_DIR = $(CORE_DIR)/layers
 SERIAL_DIR = $(CORE_DIR)/serialization
 CORE_SRCS = $(CORE_DIR)/memory_pool.cpp $(CORE_DIR)/autograd.cpp $(CORE_DIR)/broadcast.cpp \
@@ -60,7 +54,6 @@ CORE_OBJS = $(BUILD_DIR)/memory_pool.o $(BUILD_DIR)/autograd.o $(BUILD_DIR)/broa
             $(BUILD_DIR)/matmul_cpu.o $(BUILD_DIR)/im2col.o \
             $(BUILD_DIR)/conv_ops.o $(BUILD_DIR)/augmentation.o
 
-# Metal: use stub (returns false) unless METAL=1 on Darwin
 ifeq ($(METAL),1)
   ifeq ($(UNAME_S),Darwin)
     CORE_OBJS += $(BUILD_DIR)/metal_backend.o
@@ -73,7 +66,6 @@ else
   CORE_OBJS += $(BUILD_DIR)/metal_stub.o
 endif
 
-# CUDA: use stub (returns false) unless CUDA=1 and nvcc available
 ifeq ($(CUDA),1)
   CORE_OBJS += $(BUILD_DIR)/cuda_backend.o
   CXXFLAGS += -DWHITEMATTER_CUDA
@@ -87,20 +79,15 @@ else
   CORE_OBJS += $(BUILD_DIR)/cuda_stub.o
 endif
 
-# Dataset objects
 DATASET_SRCS = $(DATASETS_DIR)/mnist.cpp $(DATASETS_DIR)/cifar10.cpp
 DATASET_OBJS = $(BUILD_DIR)/mnist.o $(BUILD_DIR)/cifar10.o
 
-# All library objects
 LIB_OBJS = $(CORE_OBJS) $(DATASET_OBJS)
 
-# Static library
 STATIC_LIB = $(BUILD_DIR)/libwhitematter.a
 
-# Test directory
 TESTS_DIR = tests
 
-# Example targets
 ML_TARGET = $(BUILD_DIR)/ml
 CNN_MNIST_TARGET = $(BUILD_DIR)/cnn_mnist
 CNN_CIFAR10_TARGET = $(BUILD_DIR)/cnn_cifar10
@@ -110,7 +97,6 @@ GAN_TARGET = $(BUILD_DIR)/gan
 RNN_TEXT_GEN_TARGET = $(BUILD_DIR)/rnn_text_gen
 TESTS_TARGET = $(BUILD_DIR)/run_tests
 
-# Test source files
 TEST_SRCS = $(TESTS_DIR)/test_tensor.cpp $(TESTS_DIR)/test_autograd.cpp \
             $(TESTS_DIR)/test_layers.cpp $(TESTS_DIR)/test_loss.cpp \
             $(TESTS_DIR)/test_optimizer.cpp $(TESTS_DIR)/run_tests.cpp
@@ -120,11 +106,9 @@ TEST_OBJS = $(BUILD_DIR)/test_tensor.o $(BUILD_DIR)/test_autograd.o \
 
 all: $(STATIC_LIB) $(ML_TARGET) $(CNN_MNIST_TARGET) $(CNN_CIFAR10_TARGET) $(TRANSFORMER_TARGET) $(AUTOENCODER_TARGET) $(GAN_TARGET) $(RNN_TEXT_GEN_TARGET)
 
-# Ensure build directory exists
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-# Core library compilation
 $(BUILD_DIR)/memory_pool.o: $(CORE_DIR)/memory_pool.cpp $(CORE_DIR)/memory_pool.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
@@ -217,14 +201,12 @@ $(BUILD_DIR)/cuda_stub.o: $(CORE_DIR)/cuda/cuda_stub.cpp $(CORE_DIR)/device.h | 
 
 $(BUILD_DIR)/cuda_backend.o: $(CORE_DIR)/cuda/cuda_backend.cu $(CORE_DIR)/cuda/cuda_backend.h $(CORE_DIR)/device.h | $(BUILD_DIR)
 	$(NVCC) -std=c++17 -O3 -I$(CORE_DIR) -I$(CORE_DIR)/cuda -c -o $@ $<
-# Dataset compilation
 $(BUILD_DIR)/mnist.o: $(DATASETS_DIR)/mnist.cpp $(DATASETS_DIR)/mnist.h $(CORE_DIR)/tensor.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/cifar10.o: $(DATASETS_DIR)/cifar10.cpp $(DATASETS_DIR)/cifar10.h $(CORE_DIR)/tensor.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-# Example compilation
 $(BUILD_DIR)/ml.o: $(EXAMPLES_DIR)/ml.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
@@ -246,11 +228,9 @@ $(BUILD_DIR)/gan.o: $(EXAMPLES_DIR)/gan.cpp | $(BUILD_DIR)
 $(BUILD_DIR)/rnn_text_gen.o: $(EXAMPLES_DIR)/rnn_text_gen.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-# Static library archive
 $(STATIC_LIB): $(LIB_OBJS)
 	ar rcs $@ $^
 
-# Link examples
 $(ML_TARGET): $(BUILD_DIR)/ml.o $(STATIC_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $< -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
 
@@ -272,7 +252,6 @@ $(GAN_TARGET): $(BUILD_DIR)/gan.o $(STATIC_LIB)
 $(RNN_TEXT_GEN_TARGET): $(BUILD_DIR)/rnn_text_gen.o $(STATIC_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $< -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
 
-# Test compilation
 $(BUILD_DIR)/test_tensor.o: $(TESTS_DIR)/test_tensor.cpp $(TESTS_DIR)/test_framework.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -I$(TESTS_DIR) -c -o $@ $<
 
@@ -291,11 +270,9 @@ $(BUILD_DIR)/test_optimizer.o: $(TESTS_DIR)/test_optimizer.cpp $(TESTS_DIR)/test
 $(BUILD_DIR)/run_tests.o: $(TESTS_DIR)/run_tests.cpp $(TESTS_DIR)/test_framework.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -I$(TESTS_DIR) -c -o $@ $<
 
-# Link tests
 $(TESTS_TARGET): $(TEST_OBJS) $(STATIC_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $(TEST_OBJS) -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
 
-# Test targets
 test: $(TESTS_TARGET)
 	./$(TESTS_TARGET)
 
@@ -346,8 +323,6 @@ rnn: $(RNN_TEXT_GEN_TARGET)
 
 debug: CXXFLAGS = -std=c++17 -O0 -g -Wall -Wextra -I$(CORE_DIR) -I$(DATASETS_DIR)
 debug: clean $(ML_TARGET)
-
-# ── Platform targets ──────────────────────────────────────────────────────────
 
 dev:
 	@echo "Starting backend and frontend..."

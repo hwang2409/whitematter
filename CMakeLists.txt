@@ -1,19 +1,12 @@
-# Whitematter: lightweight C++ neural network framework
-# FetchContent-friendly: add_subdirectory(whitematter) then target_link_libraries(your_app whitematter)
-
 cmake_minimum_required(VERSION 3.14)
 project(whitematter VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Options (OFF by default for portability)
 option(WHITEMATTER_METAL "Build with Metal backend (macOS only)" OFF)
 option(WHITEMATTER_CUDA "Build with CUDA backend" OFF)
 
-# ------------------------------------------------------------------------------
-# Core library sources (match Makefile)
-# ------------------------------------------------------------------------------
 set(CORE_SRCS
   core/memory_pool.cpp
   core/autograd.cpp
@@ -44,7 +37,6 @@ set(CORE_SRCS
   core/ops/augmentation.cpp
 )
 
-# Metal: stub (default) or backend on macOS
 if(WHITEMATTER_METAL AND CMAKE_SYSTEM_NAME STREQUAL "Darwin")
   enable_language(OBJCXX)
   list(APPEND CORE_SRCS core/metal/metal_backend.mm)
@@ -57,7 +49,6 @@ else()
   list(APPEND CORE_SRCS core/metal/metal_stub.cpp)
 endif()
 
-# CUDA: stub (default) or backend
 if(WHITEMATTER_CUDA)
   enable_language(CUDA)
   list(APPEND CORE_SRCS core/cuda/cuda_backend.cu)
@@ -67,17 +58,11 @@ else()
   list(APPEND CORE_SRCS core/cuda/cuda_stub.cpp)
 endif()
 
-# ------------------------------------------------------------------------------
-# Dataset sources
-# ------------------------------------------------------------------------------
 set(DATASET_SRCS
   datasets/mnist.cpp
   datasets/cifar10.cpp
 )
 
-# ------------------------------------------------------------------------------
-# Compiler flags (portable)
-# ------------------------------------------------------------------------------
 add_compile_options(-O3 -Wall -Wextra -ffast-math -funroll-loops)
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm64|aarch64")
   if(APPLE)
@@ -89,7 +74,6 @@ elseif(NOT APPLE)
   add_compile_options(-mavx -mfma)
 endif()
 
-# OpenMP (optional so Linux CI works without extra config)
 set(EXTRA_LIBS "")
 find_package(OpenMP)
 if(OpenMP_CXX_FOUND)
@@ -98,9 +82,6 @@ else()
   set(OPENMP_FOUND FALSE)
 endif()
 
-# ------------------------------------------------------------------------------
-# Library target (consumers link this)
-# ------------------------------------------------------------------------------
 add_library(whitematter STATIC
   ${CORE_SRCS}
   ${DATASET_SRCS}
@@ -122,7 +103,6 @@ if(OPENMP_FOUND)
 endif()
 target_link_libraries(whitematter PUBLIC ${EXTRA_LIBS})
 
-# Export for FetchContent consumers
 include(GNUInstallDirs)
 install(TARGETS whitematter
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}

@@ -1,8 +1,3 @@
-"""
-Image model training code template.
-"""
-
-
 def generate_image_training_code(
     layers_code: str,
     optimizer_code: str,
@@ -11,7 +6,6 @@ def generate_image_training_code(
     batch_size: int,
     dataset_config: dict
 ) -> str:
-    """Generate complete training code."""
 
     has_scheduler = bool(scheduler_code)
     scheduler_step = "scheduler.step();" if has_scheduler else ""

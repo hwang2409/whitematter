@@ -1,4 +1,3 @@
-"""Authentication service: password hashing and JWT tokens."""
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional

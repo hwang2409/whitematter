@@ -1,7 +1,3 @@
-"""
-Parse training process stdout lines into structured metrics.
-"""
-
 import logging
 from typing import Optional, Dict, Any
 

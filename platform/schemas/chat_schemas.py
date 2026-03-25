@@ -1,4 +1,3 @@
-"""Pydantic schemas for chat endpoints."""
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 

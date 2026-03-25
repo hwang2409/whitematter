@@ -1,13 +1,7 @@
-"""
-Image model inference code template.
-"""
-
-
 def generate_image_inference_code(
     layers_code: str,
     dataset_config: dict
 ) -> str:
-    """Generate inference-only code for the model."""
     num_classes = dataset_config.get("num_classes", 10)
 
     code = f'''// Auto-generated inference code
