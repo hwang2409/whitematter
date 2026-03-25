@@ -20,9 +20,7 @@ export function ThemeContextProvider({ children }: { children: React.ReactNode }
     try {
       const stored = localStorage.getItem(STORAGE_KEY) as ThemeMode | null;
       if (stored === "light" || stored === "dark") setModeState(stored);
-    } catch {
-      // ignore
-    }
+    } catch {}
     setMounted(true);
   }, []);
 
@@ -32,9 +30,7 @@ export function ThemeContextProvider({ children }: { children: React.ReactNode }
         setModeState(next);
         try {
           localStorage.setItem(STORAGE_KEY, next);
-        } catch {
-          // ignore
-        }
+        } catch {}
       },
     []
   );

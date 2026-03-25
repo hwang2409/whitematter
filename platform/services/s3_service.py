@@ -1,4 +1,3 @@
-"""S3 and S3-compatible object storage (AWS S3, Cloudflare R2, Backblaze B2)."""
 import boto3
 from typing import BinaryIO
 from services.credential_service import CredentialService

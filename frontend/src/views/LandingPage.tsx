@@ -31,7 +31,6 @@ const FEATURES = [
 export default function LandingPage() {
   return (
     <Box sx={{ minHeight: "100vh", bgcolor: "background.default" }}>
-      {/* Hero */}
       <Container
         maxWidth="md"
         sx={{ pt: { xs: 8, md: 14 }, pb: 8, textAlign: "center" }}
@@ -107,7 +106,6 @@ export default function LandingPage() {
           </Button>
         </Box>
 
-        {/* Demo GIF placeholder */}
         <Box
           sx={{
             width: "100%",
@@ -129,7 +127,6 @@ export default function LandingPage() {
         </Box>
       </Container>
 
-      {/* Features */}
       <Container maxWidth="md" sx={{ pb: 10 }}>
         <Box
           sx={{
@@ -152,7 +149,6 @@ export default function LandingPage() {
         </Box>
       </Container>
 
-      {/* Footer */}
       <Box
         component="footer"
         sx={{

@@ -15,17 +15,11 @@
 #include <cstring>
 #include <limits>
 
-// ============================================================================
-// Tensor implementation
-// ============================================================================
-
 static std::mt19937 rng(42);
 
 Tensor::Tensor() : requires_grad(false), data_size_(0), grad_size_(0) {}
 
-Tensor::~Tensor() {
-    // shared_ptr deleters return memory to pool when last owner is destroyed
-}
+Tensor::~Tensor() {}
 
 Tensor::Tensor(const std::vector<size_t>& shape, bool requires_grad)
     : shape(shape), requires_grad(requires_grad) {
@@ -415,7 +409,6 @@ void Tensor::backward() {
         if ((*it)->grad_fn) (*it)->grad_fn();
     }
 
-    // Clear computation graph to free memory (like PyTorch's default behavior)
     for (auto* t : topo) {
         t->grad_fn = nullptr;
         t->parents.clear();

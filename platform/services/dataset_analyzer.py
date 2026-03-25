@@ -1,7 +1,3 @@
-"""
-Dataset format detection and analysis - stateless utility functions.
-"""
-
 import logging
 import struct
 from pathlib import Path

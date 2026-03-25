@@ -1,6 +1,3 @@
-"""
-Dataset service - handles dataset CRUD, upload orchestration, and processing.
-"""
 import json
 import logging
 import struct

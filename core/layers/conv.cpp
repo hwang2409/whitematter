@@ -33,7 +33,6 @@ ConvTranspose2d::ConvTranspose2d(size_t in_channels, size_t out_channels, size_t
     float std = std::sqrt(2.0f / (in_channels * kernel_size * kernel_size));
     std::normal_distribution<float> dist(0.0f, std);
 
-    // Transposed compared to Conv2d
     weight = Tensor::create({in_channels, out_channels, kernel_size, kernel_size}, true);
     for (size_t i = 0; i < weight->size(); i++) weight->data()[i] = dist(conv_rng);
 
@@ -98,7 +97,6 @@ std::vector<size_t> Conv2d::compute_output_shape(const std::vector<size_t>& inpu
 }
 
 std::vector<size_t> ConvTranspose2d::compute_output_shape(const std::vector<size_t>& input_shape) const {
-    // [N, C_in, H, W] -> [N, C_out, H', W']
     if (input_shape.size() != 4) return input_shape;
     size_t N = input_shape[0];
     size_t H = input_shape[2];

@@ -1,4 +1,3 @@
-"""GPU provisioner — manages on-demand GPU instances for Scale tier users."""
 import logging
 import os
 import time
@@ -28,7 +27,6 @@ class GpuProvisioner:
 
     @property
     def ec2(self):
-        """Lazy EC2 client initialization."""
         if self._ec2_client is None and self.enabled:
             import boto3
             self._ec2_client = boto3.client(
@@ -258,7 +256,6 @@ _gpu_provisioner: Optional[GpuProvisioner] = None
 
 
 def get_gpu_provisioner() -> GpuProvisioner:
-    """Get the global GPU provisioner instance."""
     global _gpu_provisioner
     if _gpu_provisioner is None:
         _gpu_provisioner = GpuProvisioner()

@@ -1,10 +1,4 @@
-"""
-Makefile template for compiling training and inference code.
-"""
-
-
 def generate_makefile() -> str:
-    """Generate Makefile for compiling training and inference code."""
     return '''# Auto-generated Makefile
 CXX = g++
 CXXFLAGS = -std=c++17 -O3 -Wall -Wextra -ffast-math -funroll-loops

@@ -1,7 +1,3 @@
-"""
-Model registry - file-based model management operations.
-"""
-
 import json
 import logging
 from pathlib import Path

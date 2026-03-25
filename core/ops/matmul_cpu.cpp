@@ -7,7 +7,6 @@
 #include <omp.h>
 #endif
 
-// SIMD / NEON detection (for inner kernel)
 #if defined(__x86_64__) || defined(_M_X64) || defined(__i386__) || defined(_M_IX86)
     #include <immintrin.h>
     #define USE_SIMD 1
@@ -22,7 +21,6 @@ void matmul_blocked(float* C, const float* A, const float* B,
                     size_t M, size_t K, size_t N) {
     std::memset(C, 0, M * N * sizeof(float));
 
-    // Parallelize over row blocks - each thread handles different output rows
     #pragma omp parallel for schedule(static)
     for (size_t i0 = 0; i0 < M; i0 += BLOCK_SIZE) {
         size_t imax = std::min(i0 + BLOCK_SIZE, M);

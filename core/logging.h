@@ -12,10 +12,6 @@
 #include <sstream>
 #include <algorithm>
 
-// =============================================================================
-// MetricTracker - Track running statistics for a single metric
-// =============================================================================
-
 class MetricTracker {
 public:
     MetricTracker() { reset(); }
@@ -71,10 +67,6 @@ private:
     float m2_;  // For Welford's variance algorithm
 };
 
-// =============================================================================
-// LogEntry - Single log entry with step, timestamp, and metrics
-// =============================================================================
-
 struct LogEntry {
     int step;
     int epoch;
@@ -82,14 +74,8 @@ struct LogEntry {
     std::map<std::string, float> metrics;
 };
 
-// =============================================================================
-// TrainingLogger - TensorBoard-style logging for training metrics
-// =============================================================================
-
 class TrainingLogger {
 public:
-    // Create logger with optional log directory
-    // If log_dir is empty, only console output is used
     explicit TrainingLogger(const std::string& log_dir = "",
                            const std::string& experiment_name = "run")
         : log_dir_(log_dir),
@@ -109,34 +95,26 @@ public:
         }
     }
 
-    // Set total steps/epochs for progress display
     void set_total_steps(int total) { total_steps_ = total; }
     void set_total_epochs(int total) { total_epochs_ = total; }
-
-    // Set verbosity
     void set_verbose(bool v) { verbose_ = v; }
 
-    // Log a scalar metric at current step
     void log(const std::string& name, float value) {
-        // Update tracker
         if (trackers_.find(name) == trackers_.end()) {
             trackers_[name] = MetricTracker();
             metric_names_.push_back(name);
         }
         trackers_[name].update(value);
 
-        // Add to pending metrics for current step
         pending_metrics_[name] = value;
     }
 
-    // Log multiple metrics at once
     void log(const std::map<std::string, float>& metrics) {
         for (const auto& [name, value] : metrics) {
             log(name, value);
         }
     }
 
-    // Commit pending metrics as a log entry and advance step
     void step() {
         if (!pending_metrics_.empty()) {
             LogEntry entry;
@@ -150,16 +128,13 @@ public:
         current_step_++;
     }
 
-    // Start a new epoch
     void new_epoch() {
-        // Reset epoch trackers
         for (auto& [name, tracker] : epoch_trackers_) {
             tracker.reset();
         }
         current_epoch_++;
     }
 
-    // Log metric for epoch-level aggregation
     void log_batch(const std::string& name, float value) {
         if (epoch_trackers_.find(name) == epoch_trackers_.end()) {
             epoch_trackers_[name] = MetricTracker();
@@ -167,25 +142,21 @@ public:
         epoch_trackers_[name].update(value);
     }
 
-    // Get epoch average for a metric
     float epoch_mean(const std::string& name) const {
         auto it = epoch_trackers_.find(name);
         return it != epoch_trackers_.end() ? it->second.mean() : 0.0f;
     }
 
-    // Print progress bar with current metrics
     void print_progress(const std::string& prefix = "") {
         if (!verbose_) return;
 
         std::string line = prefix;
 
-        // Add epoch/step info
         if (total_epochs_ > 0) {
             line += "Epoch " + std::to_string(current_epoch_) + "/" +
                     std::to_string(total_epochs_) + " ";
         }
 
-        // Add progress bar if total_steps known
         if (total_steps_ > 0) {
             int progress = (current_step_ % total_steps_);
             if (progress == 0 && current_step_ > 0) progress = total_steps_;
@@ -200,22 +171,18 @@ public:
             line += std::to_string(static_cast<int>(pct * 100)) + "% ";
         }
 
-        // Add metrics
         for (const auto& [name, tracker] : epoch_trackers_) {
             char buf[64];
             snprintf(buf, sizeof(buf), "%s: %.4f ", name.c_str(), tracker.mean());
             line += buf;
         }
 
-        // Add elapsed time
         line += "(" + format_time(elapsed_seconds()) + ")";
 
-        // Print with carriage return for in-place update
         printf("\r%-*s", console_width_, line.c_str());
         fflush(stdout);
     }
 
-    // Print epoch summary
     void print_epoch_summary() {
         if (!verbose_) return;
         printf("\n");
@@ -236,27 +203,21 @@ public:
         printf("%s\n", line.c_str());
     }
 
-    // Get metric tracker
     const MetricTracker& get_tracker(const std::string& name) const {
         static MetricTracker empty;
         auto it = trackers_.find(name);
         return it != trackers_.end() ? it->second : empty;
     }
 
-    // Get all history
     const std::vector<LogEntry>& history() const { return history_; }
-
-    // Get current step/epoch
     int current_step() const { return current_step_; }
     int current_epoch() const { return current_epoch_; }
 
-    // Get elapsed time in seconds
     double elapsed_seconds() const {
         auto now = std::chrono::steady_clock::now();
         return std::chrono::duration<double>(now - start_time_).count();
     }
 
-    // Save logs to CSV file
     bool save_csv(const std::string& path = "") const {
         std::string filepath = path.empty() ? csv_path_ : path;
         if (filepath.empty()) return false;
@@ -264,14 +225,12 @@ public:
         std::ofstream out(filepath);
         if (!out) return false;
 
-        // Write header
         out << "step,epoch,timestamp";
         for (const auto& name : metric_names_) {
             out << "," << name;
         }
         out << "\n";
 
-        // Write data
         for (const auto& entry : history_) {
             out << entry.step << "," << entry.epoch << ","
                 << std::fixed << std::setprecision(4) << entry.timestamp;
@@ -288,7 +247,6 @@ public:
         return true;
     }
 
-    // Save logs to JSON file
     bool save_json(const std::string& path = "") const {
         std::string filepath = path.empty() ? json_path_ : path;
         if (filepath.empty()) return false;
@@ -303,7 +261,6 @@ public:
         out << "  \"elapsed_seconds\": " << std::fixed << std::setprecision(2)
             << elapsed_seconds() << ",\n";
 
-        // Write summary statistics
         out << "  \"summary\": {\n";
         bool first_metric = true;
         for (const auto& name : metric_names_) {
@@ -320,7 +277,6 @@ public:
         }
         out << "\n  },\n";
 
-        // Write history
         out << "  \"history\": [\n";
         for (size_t i = 0; i < history_.size(); i++) {
             const auto& entry = history_[i];
@@ -339,7 +295,6 @@ public:
         return true;
     }
 
-    // Print final summary
     void print_summary() const {
         printf("\n");
         printf("==============================================================================\n");
@@ -359,7 +314,6 @@ public:
         printf("==============================================================================\n");
     }
 
-    // Reset logger
     void reset() {
         trackers_.clear();
         epoch_trackers_.clear();
@@ -408,10 +362,6 @@ private:
     std::vector<LogEntry> history_;
     std::map<std::string, float> pending_metrics_;
 };
-
-// =============================================================================
-// ProgressBar - Simple progress bar for loops
-// =============================================================================
 
 class ProgressBar {
 public:
@@ -462,10 +412,6 @@ private:
     std::string prefix_;
     std::chrono::steady_clock::time_point start_time_;
 };
-
-// =============================================================================
-// Convenience function for quick logging setup
-// =============================================================================
 
 inline TrainingLogger create_logger(const std::string& experiment_name,
                                     const std::string& log_dir = "logs") {

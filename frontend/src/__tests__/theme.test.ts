@@ -2,37 +2,35 @@ import { describe, it, expect } from 'vitest';
 import { getTheme, themeTokens } from '../theme';
 
 describe('theme color tokens', () => {
-  it('dark theme uses violet as primary', () => {
+  it('dark theme uses orange as primary', () => {
     const theme = getTheme('dark');
-    expect(theme.palette.primary.main).toBe('#8B5CF6');
-    expect(theme.palette.primary.light).toBe('#A78BFA');
-    expect(theme.palette.primary.dark).toBe('#7C3AED');
+    expect(theme.palette.primary.main).toBe('#F97316');
+    expect(theme.palette.primary.light).toBe('#F97316');
+    expect(theme.palette.primary.dark).toBe('#EA580C');
   });
 
-  it('light theme uses darker violet for contrast', () => {
+  it('light theme uses darker orange for contrast', () => {
     const theme = getTheme('light');
-    expect(theme.palette.primary.main).toBe('#7C3AED');
-    expect(theme.palette.primary.light).toBe('#8B5CF6');
-    expect(theme.palette.primary.dark).toBe('#6D28D9');
+    expect(theme.palette.primary.main).toBe('#EA580C');
+    expect(theme.palette.primary.light).toBe('#F97316');
+    expect(theme.palette.primary.dark).toBe('#EA580C');
   });
 
-  it('success stays green (not amber)', () => {
+  it('success stays green', () => {
     const darkTheme = getTheme('dark');
-    expect(darkTheme.palette.success.main).toBe('#22c55e');
+    expect(darkTheme.palette.success.main).toBe('#22C55E');
   });
 
   it('themeTokens exports correct accent and completion values', () => {
-    expect(themeTokens.accent).toBe('#8B5CF6');
-    expect(themeTokens.accentLight).toBe('#A78BFA');
-    expect(themeTokens.accentMuted).toBe('rgba(139, 92, 246, 0.15)');
-    expect(themeTokens.completion).toBe('#F59E0B');
-    expect(themeTokens.completionLight).toBe('#FBBF24');
-    expect(themeTokens.completionMuted).toBe('rgba(245, 158, 11, 0.12)');
-    expect(themeTokens.fontMono).toBe("'DM Mono', monospace");
+    expect(themeTokens.accent).toBe('#F97316');
+    expect(themeTokens.accentHover).toBe('#EA580C');
+    expect(themeTokens.accentMuted).toBe('rgba(249, 115, 22, 0.35)');
+    expect(themeTokens.completion).toBe('#22C55E');
+    expect(themeTokens.completionMuted).toBe('rgba(34, 197, 94, 0.12)');
+    expect(themeTokens.fontMono).toBe("'JetBrains Mono', monospace");
   });
 
-  it('dark card background is warm-tinted', () => {
-    const theme = getTheme('dark');
-    expect(themeTokens.card).toBe('#1C1A18');
+  it('dark card background matches surface', () => {
+    expect(themeTokens.card).toBe('#18181B');
   });
 });

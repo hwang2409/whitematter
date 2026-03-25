@@ -110,13 +110,11 @@ Sequential* ModelZoo::create(const std::string& name) const {
 }
 
 Sequential* ModelZoo::load_pretrained(const std::string& name) const {
-    // First create the architecture
     Sequential* model = create(name);
     if (!model) {
         return nullptr;
     }
 
-    // Try to load weights
     std::string path = weights_dir_ + "/" + name + ".bin";
     if (!has_weights(name)) {
         fprintf(stderr, "ModelZoo: Weights not found at '%s'\n", path.c_str());
@@ -125,7 +123,6 @@ Sequential* ModelZoo::load_pretrained(const std::string& name) const {
         return model;
     }
 
-    // Load the weights
     if (!load_model(model, path)) {
         fprintf(stderr, "ModelZoo: Failed to load weights from '%s'\n", path.c_str());
         delete model;
@@ -137,7 +134,6 @@ Sequential* ModelZoo::load_pretrained(const std::string& name) const {
 }
 
 void ModelZoo::save_to_zoo(const std::string& name, Sequential* model) {
-    // Create weights directory if it doesn't exist
     struct stat st;
     if (stat(weights_dir_.c_str(), &st) != 0) {
         #ifdef _WIN32
@@ -156,10 +152,6 @@ void ModelZoo::set_weights_dir(const std::string& dir) {
     weights_dir_ = dir;
 }
 
-// =============================================================================
-// Built-in model architectures
-// =============================================================================
-
 namespace models {
 
 Sequential* mnist_mlp() {
@@ -175,20 +167,17 @@ Sequential* mnist_mlp() {
 
 Sequential* mnist_cnn() {
     return new Sequential({
-        // Block 1: 1 -> 16 channels
         new Conv2d(1, 16, 3, 1, 1),
         new BatchNorm2d(16),
         new ReLU(),
-        new MaxPool2d(2),  // 28x28 -> 14x14
+        new MaxPool2d(2),
 
-        // Block 2: 16 -> 32 channels
         new Conv2d(16, 32, 3, 1, 1),
         new BatchNorm2d(32),
         new ReLU(),
-        new MaxPool2d(2),  // 14x14 -> 7x7
+        new MaxPool2d(2),
 
-        // Classifier
-        new Flatten(),  // 32*7*7 = 1568
+        new Flatten(),
         new Linear(32 * 7 * 7, 128),
         new ReLU(),
         new Linear(128, 10)
@@ -197,26 +186,23 @@ Sequential* mnist_cnn() {
 
 Sequential* cifar10_simple() {
     return new Sequential({
-        // Block 1: 3 -> 32 channels
         new Conv2d(3, 32, 3, 1, 1),
         new BatchNorm2d(32),
         new ReLU(),
         new Conv2d(32, 32, 3, 1, 1),
         new BatchNorm2d(32),
         new ReLU(),
-        new MaxPool2d(2),  // 32x32 -> 16x16
+        new MaxPool2d(2),
 
-        // Block 2: 32 -> 64 channels
         new Conv2d(32, 64, 3, 1, 1),
         new BatchNorm2d(64),
         new ReLU(),
         new Conv2d(64, 64, 3, 1, 1),
         new BatchNorm2d(64),
         new ReLU(),
-        new MaxPool2d(2),  // 16x16 -> 8x8
+        new MaxPool2d(2),
 
-        // Classifier
-        new Flatten(),  // 64*8*8 = 4096
+        new Flatten(),
         new Linear(64 * 8 * 8, 256),
         new ReLU(),
         new Dropout(0.5),
@@ -226,35 +212,31 @@ Sequential* cifar10_simple() {
 
 Sequential* cifar10_vgg() {
     return new Sequential({
-        // Block 1: 3 -> 64 channels
         new Conv2d(3, 64, 3, 1, 1),
         new BatchNorm2d(64),
         new ReLU(),
         new Conv2d(64, 64, 3, 1, 1),
         new BatchNorm2d(64),
         new ReLU(),
-        new MaxPool2d(2),  // 32x32 -> 16x16
+        new MaxPool2d(2),
 
-        // Block 2: 64 -> 128 channels
         new Conv2d(64, 128, 3, 1, 1),
         new BatchNorm2d(128),
         new ReLU(),
         new Conv2d(128, 128, 3, 1, 1),
         new BatchNorm2d(128),
         new ReLU(),
-        new MaxPool2d(2),  // 16x16 -> 8x8
+        new MaxPool2d(2),
 
-        // Block 3: 128 -> 256 channels
         new Conv2d(128, 256, 3, 1, 1),
         new BatchNorm2d(256),
         new ReLU(),
         new Conv2d(256, 256, 3, 1, 1),
         new BatchNorm2d(256),
         new ReLU(),
-        new MaxPool2d(2),  // 8x8 -> 4x4
+        new MaxPool2d(2),
 
-        // Classifier
-        new Flatten(),  // 256*4*4 = 4096
+        new Flatten(),
         new Linear(256 * 4 * 4, 512),
         new ReLU(),
         new Dropout(0.5),

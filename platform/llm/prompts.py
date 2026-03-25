@@ -1,7 +1,3 @@
-"""
-LLM Prompts for architecture design.
-"""
-
 ARCHITECTURE_SYSTEM_PROMPT = '''You are an ML architecture design assistant for the Whitematter framework.
 
 Your task is to design neural network architectures based on user requirements and dataset characteristics.

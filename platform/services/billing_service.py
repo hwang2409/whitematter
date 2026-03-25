@@ -1,4 +1,3 @@
-"""Stripe billing service."""
 import logging
 import os
 from typing import Optional

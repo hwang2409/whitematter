@@ -1,7 +1,3 @@
-"""
-Dataset preview generation - produces sample images/text for dataset inspection.
-"""
-
 import base64
 import json
 import logging

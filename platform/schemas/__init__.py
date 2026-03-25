@@ -1,7 +1,3 @@
-"""
-Pydantic request/response models for the Whitematter Model Server.
-"""
-
 from enum import Enum
 from typing import Optional, List, Dict, Any
 
@@ -99,10 +95,6 @@ class GenerateRequest(BaseModel):
     max_tokens: int = Field(100, ge=1, le=10_000)
     temperature: float = Field(0.8, ge=0.0, le=2.0)
 
-
-# ---------------------------------------------------------------------------
-# Response models
-# ---------------------------------------------------------------------------
 
 class DetailResponse(BaseModel):
     detail: str

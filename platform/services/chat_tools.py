@@ -1,4 +1,3 @@
-"""Chat tool definitions and executors for Claude tool use."""
 import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor

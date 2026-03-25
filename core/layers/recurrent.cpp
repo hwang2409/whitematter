@@ -20,7 +20,6 @@ LSTM::LSTM(size_t input_size, size_t hidden_size, bool batch_first)
     for (size_t i = 0; i < weight_ih->size(); i++) weight_ih->data()[i] = dist_ih(recurrent_rng);
     for (size_t i = 0; i < weight_hh->size(); i++) weight_hh->data()[i] = dist_hh(recurrent_rng);
 
-    // Initialize forget gate bias to 1.0 for better gradient flow
     for (size_t i = hidden_size; i < 2 * hidden_size; i++) {
         bias_ih->data()[i] = 1.0f;
     }
@@ -100,10 +99,10 @@ TensorPtr LSTM::forward(const TensorPtr& input, const TensorPtr& h0, const Tenso
 
             for (size_t h = 0; h < hidden_size; h++) {
                 size_t idx = b * hidden_size + h;
-                float i_gate = 1.0f / (1.0f + std::exp(-gates[h]));                      // sigmoid
-                float f_gate = 1.0f / (1.0f + std::exp(-gates[hidden_size + h]));        // sigmoid
-                float g_gate = std::tanh(gates[2 * hidden_size + h]);                     // tanh
-                float o_gate = 1.0f / (1.0f + std::exp(-gates[3 * hidden_size + h]));    // sigmoid
+                float i_gate = 1.0f / (1.0f + std::exp(-gates[h]));
+                float f_gate = 1.0f / (1.0f + std::exp(-gates[hidden_size + h]));
+                float g_gate = std::tanh(gates[2 * hidden_size + h]);
+                float o_gate = 1.0f / (1.0f + std::exp(-gates[3 * hidden_size + h]));
 
                 all_i[t][idx] = i_gate;
                 all_f[t][idx] = f_gate;
@@ -161,7 +160,6 @@ TensorPtr LSTM::forward(const TensorPtr& input, const TensorPtr& h0, const Tenso
                         float do_gate = dh * all_tanh_c[t][idx];
                         float dtanh_c = dh * all_o[t][idx];
 
-                        // tanh'(c_t) = 1 - tanh^2(c_t)
                         float dc = dtanh_c * (1.0f - all_tanh_c[t][idx] * all_tanh_c[t][idx]) + dc_next[idx];
 
                         float di_gate = dc * all_g[t][idx];
@@ -370,12 +368,10 @@ TensorPtr GRU::forward(const TensorPtr& input, const TensorPtr& h0) {
 
                         float dh = output->grad()[out_offset] + dh_next[idx];
 
-                        // h_t = (1 - z_t) * n_t + z_t * h_{t-1}
                         float dz = dh * (all_h[t][idx] - all_n[t][idx]);
                         float dn = dh * (1.0f - all_z[t][idx]);
                         dh_next[idx] = dh * all_z[t][idx];
 
-                        // n_t = tanh(...), so dn_pre = dn * (1 - n^2)
                         float dn_pre = dn * (1.0f - all_n[t][idx] * all_n[t][idx]);
 
                         float dr_from_n = dn_pre * all_hh_n[t][idx];
@@ -447,16 +443,13 @@ std::string GRU::extra_repr() const {
 }
 
 std::vector<size_t> LSTM::compute_output_shape(const std::vector<size_t>& input_shape) const {
-    // [N, seq, input_size] -> [N, seq, hidden_size] (batch_first)
-    // [seq, N, input_size] -> [seq, N, hidden_size] (!batch_first)
     if (input_shape.size() != 3) return input_shape;
     std::vector<size_t> output_shape = input_shape;
-    output_shape[2] = hidden_size;  // last dim becomes hidden_size
+    output_shape[2] = hidden_size;
     return output_shape;
 }
 
 std::vector<size_t> GRU::compute_output_shape(const std::vector<size_t>& input_shape) const {
-    // [N, seq, input_size] -> [N, seq, hidden_size] (batch_first)
     if (input_shape.size() != 3) return input_shape;
     std::vector<size_t> output_shape = input_shape;
     output_shape[2] = hidden_size;

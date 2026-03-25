@@ -89,7 +89,6 @@ export default function PricingPage() {
 
   return (
     <Box sx={{ pt: { xs: 1, sm: 1.5 }, px: { xs: 2, sm: 3 }, pb: { xs: 2, sm: 3 }, maxWidth: 900, mx: "auto", width: "100%" }}>
-      {/* Header */}
       <Box sx={{ textAlign: "center", mb: 5 }}>
         <Typography
           variant="h1"
@@ -107,7 +106,6 @@ export default function PricingPage() {
           Scale your ML workflow with the right plan for your team.
         </Typography>
 
-        {/* Billing toggle */}
         <Box sx={{ display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
           <ToggleButtonGroup
             value={interval}
@@ -145,7 +143,6 @@ export default function PricingPage() {
         </Alert>
       )}
 
-      {/* Pricing cards */}
       <Box
         sx={{
           display: "grid",
@@ -182,7 +179,6 @@ export default function PricingPage() {
                 }),
               })}
             >
-              {/* Recommended badge */}
               {plan.recommended && (
                 <Chip
                   label="Recommended"
@@ -200,12 +196,10 @@ export default function PricingPage() {
                 />
               )}
 
-              {/* Plan name */}
               <Typography variant="h3" sx={{ fontWeight: 600, fontSize: "1.1rem", mb: 1.5 }}>
                 {plan.name}
               </Typography>
 
-              {/* Price */}
               <Box sx={{ mb: 0.5 }}>
                 <Typography
                   component="span"
@@ -240,7 +234,6 @@ export default function PricingPage() {
                 Billed ${price * 12}/year
               </Typography>
 
-              {/* Features */}
               <Box sx={{ flex: 1, mb: 3 }}>
                 {plan.features.map((feature) => (
                   <Box
@@ -253,7 +246,6 @@ export default function PricingPage() {
                 ))}
               </Box>
 
-              {/* CTA */}
               {isCurrentPlan ? (
                 <Button
                   variant="outlined"

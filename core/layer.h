@@ -12,15 +12,12 @@ public:
     virtual TensorPtr forward(const TensorPtr& input) = 0;
     virtual std::vector<TensorPtr> parameters() { return {}; }
 
-    // Parameter counting
     virtual size_t num_parameters() const;
     virtual size_t num_trainable_parameters() const;
 
-    // Layer info for summary
     virtual std::string name() const { return "Module"; }
     virtual std::string extra_repr() const { return ""; }
 
-    // Output shape computation for summary (default: pass-through)
     virtual std::vector<size_t> compute_output_shape(const std::vector<size_t>& input_shape) const {
         return input_shape;
     }
@@ -344,11 +341,6 @@ public:
     void summary(const std::vector<size_t>& input_shape = {}) const;
 };
 
-// =============================================================================
-// Model Summary Utilities
-// =============================================================================
-
-// Information about a model's parameters and memory usage
 struct ModelSummary {
     size_t total_params;
     size_t trainable_params;
@@ -360,10 +352,8 @@ struct ModelSummary {
     size_t num_layers;
 };
 
-// Get detailed model information
 ModelSummary get_model_summary(Module* model);
 
-// Convenience functions
 inline size_t count_parameters(Module* model) {
     return model->num_parameters();
 }
@@ -372,13 +362,8 @@ inline size_t count_trainable_parameters(Module* model) {
     return model->num_trainable_parameters();
 }
 
-// Format bytes as human-readable string (e.g., "1.23 MB")
 std::string format_memory(size_t bytes);
-
-// Format number with commas (e.g., "1,234,567")
 std::string format_number(size_t n);
-
-// Print model summary for any Module (not just Sequential)
 void print_model_info(Module* model, const std::string& name = "Model");
 
 #endif

@@ -44,7 +44,6 @@ function AiAvatar() {
 export default function ChatMessageBubble({ message, onRetry, onTrainingComplete, onSend }: ChatMessageBubbleProps) {
   const isUser = message.role === "user";
 
-  // Architecture type: render ModelCard
   if (message.type === "architecture" && message.metadata) {
     const arch = (message.metadata.architecture ?? message.metadata) as Record<string, unknown>;
     return (
@@ -66,7 +65,6 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
     );
   }
 
-  // Training progress
   if (message.type === "training_progress" && message.metadata) {
     const jobId = message.metadata.job_id as string;
     const convId = message.metadata.conversation_id as string;
@@ -107,7 +105,6 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
     );
   }
 
-  // Training error
   if (message.type === "training_error") {
     const errorMsg = (message.metadata?.friendlyMessage as string) || message.content;
     const suggestion = message.metadata?.suggestion as string | undefined;
@@ -163,7 +160,6 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
     );
   }
 
-  // Training complete
   if (message.type === "training_complete") {
     const meta = message.metadata || {};
     return (
@@ -185,7 +181,6 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
     );
   }
 
-  // File upload
   if (message.type === "file_upload") {
     return (
       <Box sx={{ px: 4, mb: 3 }}>
@@ -214,7 +209,6 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
     );
   }
 
-  // Prediction placeholder
   if (message.type === "prediction") {
     return (
       <Box sx={{ px: 4, mb: 3 }}>
@@ -241,7 +235,6 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
     );
   }
 
-  // User message
   if (isUser) {
     return (
       <Box sx={{ px: 4, mb: 3 }}>
@@ -274,7 +267,6 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
     );
   }
 
-  // Assistant text message
   return (
     <Box sx={{ px: 4, mb: 3 }}>
       <Box sx={{ display: "flex", gap: 1.5, alignItems: "flex-start" }}>

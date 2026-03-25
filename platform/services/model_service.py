@@ -1,6 +1,3 @@
-"""
-Model service - handles model operations using database and blob storage.
-"""
 import uuid
 from datetime import datetime
 from typing import Optional, List, Dict, Any

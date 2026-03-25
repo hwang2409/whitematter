@@ -1,6 +1,5 @@
 "use client";
 import {
-  LineChart,
   Line,
   XAxis,
   YAxis,
@@ -36,8 +35,7 @@ export default function TrainingChart({ data, singleAccent = true }: TrainingCha
   }
 
   const accent = themeTokens.accent;
-  const accentLight = themeTokens.accentMuted;  // violet at 0.15 opacity
-  const accentLighter = themeTokens.completion;  // #F59E0B amber for accuracy line
+  const accentLighter = themeTokens.completion;
 
   return (
     <Box

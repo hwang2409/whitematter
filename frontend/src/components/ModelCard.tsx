@@ -29,11 +29,10 @@ export default function ModelCard({
 }: ModelCardProps) {
   const [compute, setCompute] = useState<"cpu" | "gpu">("gpu");
 
-  // Parse layers into individual chips
   const layerChips: string[] = typeof layers === "string"
     ? layers.split(/\s*->\s*|\s*→\s*|\s*,\s*/).map((l) => l.trim()).filter(Boolean)
     : Array.isArray(layers)
-      ? layers.map((l) => typeof l === "string" ? l : (l as any).type ?? JSON.stringify(l))
+      ? layers.map((l) => typeof l === "string" ? l : (l as Record<string, string>).type ?? JSON.stringify(l))
       : [];
 
   return (
@@ -50,7 +49,6 @@ export default function ModelCard({
         },
       }}
     >
-      {/* Header */}
       <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", mb: 1.5 }}>
         <Typography
           sx={{
@@ -78,7 +76,6 @@ export default function ModelCard({
         </Box>
       </Box>
 
-      {/* Description */}
       <Typography
         variant="body2"
         sx={{
@@ -91,7 +88,6 @@ export default function ModelCard({
         {description}
       </Typography>
 
-      {/* Layer chips */}
       <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.75, mb: 2 }}>
         {layerChips.map((layer, i) => (
           <Box
@@ -112,7 +108,6 @@ export default function ModelCard({
         ))}
       </Box>
 
-      {/* Training config */}
       <Typography
         sx={{
           fontSize: "0.8125rem",
@@ -128,7 +123,6 @@ export default function ModelCard({
         {trainingConfig}
       </Typography>
 
-      {/* CPU/GPU selector (Scale users only) */}
       {userPlan === "scale" && (
         <Box sx={{ display: "flex", gap: 1, mb: 2 }}>
           <Chip
@@ -166,7 +160,6 @@ export default function ModelCard({
         </Box>
       )}
 
-      {/* Actions */}
       <Box sx={{ display: "flex", gap: 1 }}>
         <Button
           size="small"

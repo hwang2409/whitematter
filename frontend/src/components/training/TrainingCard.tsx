@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Box, Typography, Button, Collapse } from '@mui/material';
 import { themeTokens } from '../../theme';
 import ProgressRing from './ProgressRing';
@@ -101,7 +101,6 @@ export default function TrainingCard({
         },
       }}
     >
-      {/* Header */}
       <Typography
         sx={{
           fontFamily: "'DM Serif Display', Georgia, serif",
@@ -114,12 +113,10 @@ export default function TrainingCard({
         {isError ? 'Training Failed' : isCompleted ? 'Training Complete' : 'Training'}: {modelName}
       </Typography>
 
-      {/* Stage Indicator */}
       <Box sx={{ mb: 2 }}>
         <StageIndicator currentStage={stage} />
       </Box>
 
-      {/* Error state */}
       {isError && (
         <Box sx={{ mb: 2 }}>
           <Typography sx={{ color: themeTokens.error, fontSize: '0.875rem', mb: 1 }}>
@@ -133,7 +130,6 @@ export default function TrainingCard({
         </Box>
       )}
 
-      {/* Progress section — hidden on error */}
       {!isError && (
         <>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2.5, mb: 2 }}>
@@ -151,7 +147,6 @@ export default function TrainingCard({
             </Box>
           </Box>
 
-          {/* Sparkline */}
           {lossHistory.length > 1 && (
             <Box sx={{ mb: 2 }}>
               <SparklineChart data={lossHistory} />
@@ -160,7 +155,6 @@ export default function TrainingCard({
         </>
       )}
 
-      {/* Actions */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Button
           size="small"
@@ -180,7 +174,6 @@ export default function TrainingCard({
         )}
       </Box>
 
-      {/* Expanded details */}
       <Collapse in={expanded} timeout={200} easing="ease-out">
         <Box
           sx={{
@@ -189,7 +182,6 @@ export default function TrainingCard({
             borderTop: `1px solid ${themeTokens.border}`,
           }}
         >
-          {/* Hyperparameters */}
           {(learningRate || batchSize || optimizer) && (
             <Box sx={{ mb: 2 }}>
               <Typography sx={{ fontSize: '0.75rem', color: themeTokens.textMuted, mb: 0.5, textTransform: 'uppercase', letterSpacing: '0.08em' }}>

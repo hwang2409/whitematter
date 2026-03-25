@@ -1,9 +1,7 @@
-// frontend/src/components/training/SparklineChart.tsx
 'use client';
 
-import React from 'react';
 import { Box } from '@mui/material';
-import { LineChart, Line, ResponsiveContainer } from 'recharts';
+import { LineChart, Line } from 'recharts';
 import { themeTokens } from '../../theme';
 
 interface SparklineDataPoint {

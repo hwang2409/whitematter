@@ -1,4 +1,3 @@
-"""Billing routes for Stripe integration."""
 import logging
 import os
 from fastapi import APIRouter, Depends, HTTPException, Request

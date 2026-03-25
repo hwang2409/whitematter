@@ -91,12 +91,6 @@ TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
 
         result->grad_fn = [input_ptr, gamma_ptr, beta_ptr, result,
                            mean, inv_std, batch, channels, height, width, spatial_size, n]() {
-            // Gradients for BatchNorm
-            // dx_norm = dout * gamma
-            // dvar = sum(dx_norm * (x - mean) * -0.5 * (var + eps)^(-1.5))
-            // dmean = sum(dx_norm * -inv_std) + dvar * sum(-2 * (x - mean)) / n
-            // dx = dx_norm * inv_std + dvar * 2 * (x - mean) / n + dmean / n
-
             std::vector<float> dgamma(channels, 0.0f);
             std::vector<float> dbeta(channels, 0.0f);
             std::vector<float> dmean(channels, 0.0f);
@@ -252,8 +246,6 @@ TensorPtr LayerNorm::forward(const TensorPtr& input) {
                     dbeta[i] += result->grad()[n * norm_size + i];
                 }
 
-                // Compute dx using the LayerNorm backward formula
-                // dx = (1/std) * (dout * gamma - mean(dout * gamma) - x_norm * mean(dout * gamma * x_norm))
                 float sum_dy_gamma = 0.0f;
                 float sum_dy_gamma_xnorm = 0.0f;
 

@@ -1,4 +1,3 @@
-"""EC2 user-data script generation for BYOC training."""
 import json
 
 
@@ -9,7 +8,6 @@ def generate_user_data(
     whitematter_version: str,
     training_config: dict,
 ) -> str:
-    """Generate bash user-data script for EC2 instance."""
     config_json = json.dumps(training_config).replace("\\", "\\\\").replace("'", "\\'")
     return f"""#!/bin/bash
 set -e

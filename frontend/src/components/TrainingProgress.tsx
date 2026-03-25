@@ -89,7 +89,6 @@ export default function TrainingProgress({ conversationId, jobId, onComplete }: 
         mt: 1,
       }}
     >
-      {/* Header */}
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1.5 }}>
         <Typography
           sx={{
@@ -113,7 +112,6 @@ export default function TrainingProgress({ conversationId, jobId, onComplete }: 
         </Typography>
       </Box>
 
-      {/* Progress bar */}
       <Box
         sx={{
           height: 4,
@@ -134,7 +132,6 @@ export default function TrainingProgress({ conversationId, jobId, onComplete }: 
         />
       </Box>
 
-      {/* Epoch list */}
       {history.length > 0 && (
         <Box sx={{ display: "flex", flexDirection: "column" }}>
           {history.map((entry, i) => {
@@ -166,7 +163,6 @@ export default function TrainingProgress({ conversationId, jobId, onComplete }: 
         </Box>
       )}
 
-      {/* Status message */}
       {status?.message && (
         <Typography
           sx={{

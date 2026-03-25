@@ -1,4 +1,3 @@
-"""Build the whitematter C++ extension from repo root. Use from root: pip install ."""
 from setuptools import setup, Extension
 from setuptools.command.build_ext import build_ext
 import re
@@ -9,7 +8,6 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
 def _read_version():
-    """Read version from pyproject.toml to avoid duplication."""
     pyproject = os.path.join(ROOT, "pyproject.toml")
     with open(pyproject, encoding="utf-8") as f:
         for line in f:

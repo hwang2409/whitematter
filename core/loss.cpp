@@ -10,7 +10,6 @@ TensorPtr MSELoss::forward(const TensorPtr& prediction, const TensorPtr& target)
 }
 
 TensorPtr L1Loss::forward(const TensorPtr& prediction, const TensorPtr& target) {
-    // L1 Loss (Mean Absolute Error): mean(|prediction - target|)
     assert(prediction->size() == target->size());
 
     auto diff = prediction->sub(target);
@@ -19,10 +18,6 @@ TensorPtr L1Loss::forward(const TensorPtr& prediction, const TensorPtr& target) 
 }
 
 TensorPtr SmoothL1Loss::forward(const TensorPtr& prediction, const TensorPtr& target) {
-    // Smooth L1 Loss (Huber Loss):
-    // If |x| < beta: 0.5 * x^2 / beta
-    // Otherwise: |x| - 0.5 * beta
-    // Where x = prediction - target
     assert(prediction->size() == target->size());
 
     size_t n = prediction->size();
@@ -51,10 +46,8 @@ TensorPtr SmoothL1Loss::forward(const TensorPtr& prediction, const TensorPtr& ta
                 float diff = pred_ptr->data()[i] - target_ptr->data()[i];
                 float abs_diff = std::fabs(diff);
                 if (abs_diff < beta_val) {
-                    // Gradient: x / beta
                     pred_ptr->grad()[i] += scale * diff / beta_val;
                 } else {
-                    // Gradient: sign(x)
                     pred_ptr->grad()[i] += scale * (diff > 0 ? 1.0f : -1.0f);
                 }
             }
@@ -128,12 +121,10 @@ TensorPtr NLLLoss::forward(const TensorPtr& prediction, const TensorPtr& target)
 }
 
 TensorPtr BCELoss::forward(const TensorPtr& prediction, const TensorPtr& target) {
-    // Binary Cross Entropy: -[y * log(p) + (1-y) * log(1-p)]
-    // Prediction should already be probabilities (e.g., after sigmoid)
     assert(prediction->size() == target->size());
 
     size_t n = prediction->size();
-    float eps = 1e-7f;  // For numerical stability
+    float eps = 1e-7f;
 
     auto result = Tensor::create({1}, prediction->requires_grad);
     result->data()[0] = 0.0f;
@@ -154,7 +145,6 @@ TensorPtr BCELoss::forward(const TensorPtr& prediction, const TensorPtr& target)
             for (size_t i = 0; i < n; i++) {
                 float p = std::max(std::min(pred_ptr->data()[i], 1.0f - eps), eps);
                 float y = target_ptr->data()[i];
-                // d/dp[-y*log(p) - (1-y)*log(1-p)] = -y/p + (1-y)/(1-p)
                 pred_ptr->grad()[i] += scale * (-y / p + (1.0f - y) / (1.0f - p));
             }
         };
@@ -164,8 +154,6 @@ TensorPtr BCELoss::forward(const TensorPtr& prediction, const TensorPtr& target)
 }
 
 TensorPtr BCEWithLogitsLoss::forward(const TensorPtr& prediction, const TensorPtr& target) {
-    // Numerically stable BCE with built-in sigmoid
-    // loss = max(x, 0) - x*y + log(1 + exp(-|x|))
     assert(prediction->size() == target->size());
 
     size_t n = prediction->size();
@@ -176,7 +164,6 @@ TensorPtr BCEWithLogitsLoss::forward(const TensorPtr& prediction, const TensorPt
     for (size_t i = 0; i < n; i++) {
         float x = prediction->data()[i];
         float y = target->data()[i];
-        // Numerically stable formulation
         float max_val = std::max(x, 0.0f);
         result->data()[0] += max_val - x * y + std::log(1.0f + std::exp(-std::abs(x)));
     }
@@ -191,7 +178,6 @@ TensorPtr BCEWithLogitsLoss::forward(const TensorPtr& prediction, const TensorPt
             for (size_t i = 0; i < n; i++) {
                 float x = pred_ptr->data()[i];
                 float y = target_ptr->data()[i];
-                // Gradient: sigmoid(x) - y
                 float sigmoid_x = 1.0f / (1.0f + std::exp(-x));
                 pred_ptr->grad()[i] += scale * (sigmoid_x - y);
             }
@@ -202,10 +188,6 @@ TensorPtr BCEWithLogitsLoss::forward(const TensorPtr& prediction, const TensorPt
 }
 
 TensorPtr KLDivLoss::forward(const TensorPtr& prediction, const TensorPtr& target) {
-    // KL Divergence: KL(target || prediction)
-    // prediction: log probabilities (e.g., output of log_softmax)
-    // target: probabilities (or log probabilities if log_target=true)
-    // loss = sum(target * (log(target) - prediction)) / batch_size
     assert(prediction->size() == target->size());
     assert(prediction->shape.size() >= 1);
 
@@ -220,14 +202,12 @@ TensorPtr KLDivLoss::forward(const TensorPtr& prediction, const TensorPtr& targe
         float log_p = prediction->data()[i];
 
         if (log_target) {
-            // target is already log probabilities
             float log_t = t;
             float t_prob = std::exp(log_t);
             if (t_prob > 0) {
                 result->data()[0] += t_prob * (log_t - log_p);
             }
         } else {
-            // target is probabilities
             if (t > 0) {
                 result->data()[0] += t * (std::log(t) - log_p);
             }
@@ -244,7 +224,6 @@ TensorPtr KLDivLoss::forward(const TensorPtr& prediction, const TensorPtr& targe
             float scale = result->grad()[0] / static_cast<float>(batch_size);
             for (size_t i = 0; i < n; i++) {
                 float t = target_ptr->data()[i];
-                // Gradient: -target (or -exp(target) if log_target)
                 if (log_t) {
                     pred_ptr->grad()[i] += scale * (-std::exp(t));
                 } else {
@@ -258,16 +237,12 @@ TensorPtr KLDivLoss::forward(const TensorPtr& prediction, const TensorPtr& targe
 }
 
 TensorPtr FocalLoss::forward(const TensorPtr& prediction, const TensorPtr& target) {
-    // Focal Loss for multi-class classification
-    // FL(p_t) = -alpha * (1 - p_t)^gamma * log(p_t)
-    // Reduces impact of easy examples, focuses on hard ones
     assert(prediction->shape.size() == 2);
     assert(target->shape.size() == 1 || (target->shape.size() == 2 && target->shape[1] == 1));
 
     size_t batch_size = prediction->shape[0];
     size_t num_classes = prediction->shape[1];
 
-    // Compute softmax probabilities
     auto probs = prediction->softmax(-1);
 
     auto result = Tensor::create({1}, prediction->requires_grad);
@@ -305,15 +280,10 @@ TensorPtr FocalLoss::forward(const TensorPtr& prediction, const TensorPtr& targe
                     float grad_val;
 
                     if (c == label) {
-                        // Gradient for correct class
-                        // d/dx_c FL = p_c * (gamma * (1-p_t)^(gamma-1) * p_t * log(p_t) - (1-p_t)^gamma)
-                        //           = (1-p_t)^(gamma-1) * p_t * (gamma * log(p_t) + p_t - 1)
                         float term1 = gamma_val * std::log(p_t) * std::pow(one_minus_pt, gamma_val);
                         float term2 = -std::pow(one_minus_pt, gamma_val);
                         grad_val = p_c * (term1 + term2) + std::pow(one_minus_pt, gamma_val);
                     } else {
-                        // Gradient for incorrect class
-                        // Uses softmax Jacobian: d(p_t)/d(x_c) = -p_t * p_c for c != t
                         float focal_term = std::pow(one_minus_pt, gamma_val - 1.0f);
                         grad_val = -p_c * (focal_term * (gamma_val * p_t * std::log(p_t) + one_minus_pt));
                     }
@@ -331,10 +301,6 @@ TensorPtr FocalLoss::forward(const TensorPtr& prediction, const TensorPtr& targe
 }
 
 TensorPtr BinaryFocalLoss::forward(const TensorPtr& prediction, const TensorPtr& target) {
-    // Binary Focal Loss
-    // FL(p_t) = -alpha_t * (1 - p_t)^gamma * log(p_t)
-    // prediction: logits (will apply sigmoid internally)
-    // target: binary labels (0 or 1)
     assert(prediction->size() == target->size());
 
     size_t n = prediction->size();
@@ -347,15 +313,12 @@ TensorPtr BinaryFocalLoss::forward(const TensorPtr& prediction, const TensorPtr&
         float x = prediction->data()[i];
         float y = target->data()[i];
 
-        // Numerically stable sigmoid
         float p = 1.0f / (1.0f + std::exp(-x));
         p = std::max(std::min(p, 1.0f - eps), eps);
 
-        // p_t = p if y=1, (1-p) if y=0
         float p_t = y * p + (1.0f - y) * (1.0f - p);
         float focal_weight = std::pow(1.0f - p_t, gamma);
 
-        // alpha_t = alpha if y=1, (1-alpha) if y=0
         float alpha_t = 1.0f;
         if (alpha >= 0) {
             alpha_t = y * alpha + (1.0f - y) * (1.0f - alpha);
@@ -388,23 +351,14 @@ TensorPtr BinaryFocalLoss::forward(const TensorPtr& prediction, const TensorPtr&
                     alpha_t = y * alpha_val + (1.0f - y) * (1.0f - alpha_val);
                 }
 
-                // Gradient of focal loss w.r.t. logit x
-                // FL = -alpha_t * (1-p_t)^gamma * log(p_t)
-                // d(FL)/dx = -alpha_t * d/dx[(1-p_t)^gamma * log(p_t)]
-                // Using product rule and chain rule
-                float dp_dx = p * (1.0f - p);  // sigmoid derivative
-                float dp_t_dx = (2.0f * y - 1.0f) * dp_dx;  // p_t = p if y=1, (1-p) if y=0
+                float dp_dx = p * (1.0f - p);
+                float dp_t_dx = (2.0f * y - 1.0f) * dp_dx;
 
                 float focal_grad;
                 if (gamma_val == 0) {
-                    // Standard BCE gradient: d/dx[-alpha_t * log(p_t)] = -alpha_t / p_t * dp_t_dx
                     focal_grad = -alpha_t / p_t * dp_t_dx;
                 } else {
-                    // Full focal loss gradient
                     float log_pt = std::log(p_t);
-                    // d/dx[(1-p_t)^gamma * log(p_t)]
-                    // = (1-p_t)^gamma * (1/p_t) * dp_t_dx + log(p_t) * gamma * (1-p_t)^(gamma-1) * (-dp_t_dx)
-                    // = dp_t_dx * (1-p_t)^(gamma-1) * [(1-p_t)/p_t - gamma * log(p_t)]
                     float bracket = one_minus_pt / p_t - gamma_val * log_pt;
                     focal_grad = -alpha_t * dp_t_dx * std::pow(one_minus_pt, gamma_val - 1.0f) * bracket;
                 }

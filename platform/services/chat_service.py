@@ -1,4 +1,3 @@
-"""Chat service — conversation state machine and orchestrator."""
 import asyncio
 import json
 import logging

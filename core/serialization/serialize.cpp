@@ -35,16 +35,13 @@ static bool read_int(std::ifstream& in, int& val) {
 bool save_tensor(const TensorPtr& tensor, std::ofstream& out) {
     if (!tensor || !out.good()) return false;
 
-    // Write number of dimensions
     uint32_t ndim = static_cast<uint32_t>(tensor->shape.size());
     if (!write_uint32(out, ndim)) return false;
 
-    // Write shape
     for (size_t dim : tensor->shape) {
         if (!write_uint32(out, static_cast<uint32_t>(dim))) return false;
     }
 
-    // Write data
     size_t size = tensor->size();
     out.write(reinterpret_cast<const char*>(tensor->data()), size * sizeof(float));
 
@@ -58,20 +55,16 @@ bool save_tensor(const TensorPtr& tensor, const std::string& path) {
         return false;
     }
 
-    // Write magic number
     if (!write_uint32(out, TENSOR_MAGIC)) return false;
-
     return save_tensor(tensor, out);
 }
 
 TensorPtr load_tensor(std::ifstream& in) {
     if (!in.good()) return nullptr;
 
-    // Read number of dimensions
     uint32_t ndim;
     if (!read_uint32(in, ndim)) return nullptr;
 
-    // Read shape
     std::vector<size_t> shape(ndim);
     size_t total_size = 1;
     for (uint32_t i = 0; i < ndim; i++) {
@@ -81,7 +74,6 @@ TensorPtr load_tensor(std::ifstream& in) {
         total_size *= dim;
     }
 
-    // Read data
     std::vector<float> data(total_size);
     in.read(reinterpret_cast<char*>(data.data()), total_size * sizeof(float));
     if (!in.good()) return nullptr;
@@ -96,13 +88,11 @@ TensorPtr load_tensor(const std::string& path) {
         return nullptr;
     }
 
-    // Verify magic number
     uint32_t magic;
     if (!read_uint32(in, magic) || magic != TENSOR_MAGIC) {
         fprintf(stderr, "Error: Invalid tensor file format: %s\n", path.c_str());
         return nullptr;
     }
-
     return load_tensor(in);
 }
 
@@ -115,16 +105,11 @@ bool save_model(Module* module, const std::string& path) {
         return false;
     }
 
-    // Write magic number
     if (!write_uint32(out, MODEL_MAGIC)) return false;
 
-    // Get all parameters
     auto params = module->parameters();
-
-    // Write number of parameters
     if (!write_uint32(out, static_cast<uint32_t>(params.size()))) return false;
 
-    // Write each parameter tensor
     for (const auto& param : params) {
         if (!save_tensor(param, out)) return false;
     }
@@ -142,18 +127,15 @@ bool load_model(Module* module, const std::string& path) {
         return false;
     }
 
-    // Verify magic number
     uint32_t magic;
     if (!read_uint32(in, magic) || magic != MODEL_MAGIC) {
         fprintf(stderr, "Error: Invalid model file format: %s\n", path.c_str());
         return false;
     }
 
-    // Read number of parameters
     uint32_t num_params;
     if (!read_uint32(in, num_params)) return false;
 
-    // Get model's parameters
     auto params = module->parameters();
     if (params.size() != num_params) {
         fprintf(stderr, "Error: Parameter count mismatch. File has %u, model has %zu\n",
@@ -161,18 +143,15 @@ bool load_model(Module* module, const std::string& path) {
         return false;
     }
 
-    // Load each parameter tensor
     for (size_t i = 0; i < num_params; i++) {
         TensorPtr loaded = load_tensor(in);
         if (!loaded) return false;
 
-        // Verify shape matches
         if (loaded->shape != params[i]->shape) {
             fprintf(stderr, "Error: Shape mismatch for parameter %zu\n", i);
             return false;
         }
 
-        // Copy data into existing parameter
         std::memcpy(params[i]->data(), loaded->data(), loaded->size() * sizeof(float));
     }
 
@@ -189,24 +168,19 @@ bool save_optimizer(Optimizer* optimizer, const std::string& path) {
         return false;
     }
 
-    // Write magic number
     if (!write_uint32(out, OPTIM_MAGIC)) return false;
 
-    // Try to cast to specific optimizer types
     if (auto* sgd = dynamic_cast<SGD*>(optimizer)) {
-        // Type identifier: 1 = SGD
         if (!write_uint32(out, 1)) return false;
         if (!write_float(out, sgd->lr)) return false;
         if (!write_float(out, sgd->momentum)) return false;
 
-        // Write velocity buffers
         if (!write_uint32(out, static_cast<uint32_t>(sgd->velocity.size()))) return false;
         for (const auto& vel : sgd->velocity) {
             if (!write_uint32(out, static_cast<uint32_t>(vel.size()))) return false;
             out.write(reinterpret_cast<const char*>(vel.data()), vel.size() * sizeof(float));
         }
     } else if (auto* adam = dynamic_cast<Adam*>(optimizer)) {
-        // Type identifier: 2 = Adam
         if (!write_uint32(out, 2)) return false;
         if (!write_float(out, adam->lr)) return false;
         if (!write_float(out, adam->beta1)) return false;
@@ -214,14 +188,12 @@ bool save_optimizer(Optimizer* optimizer, const std::string& path) {
         if (!write_float(out, adam->eps)) return false;
         if (!write_int(out, adam->t)) return false;
 
-        // Write m buffers
         if (!write_uint32(out, static_cast<uint32_t>(adam->m.size()))) return false;
         for (const auto& m_buf : adam->m) {
             if (!write_uint32(out, static_cast<uint32_t>(m_buf.size()))) return false;
             out.write(reinterpret_cast<const char*>(m_buf.data()), m_buf.size() * sizeof(float));
         }
 
-        // Write v buffers
         for (const auto& v_buf : adam->v) {
             if (!write_uint32(out, static_cast<uint32_t>(v_buf.size()))) return false;
             out.write(reinterpret_cast<const char*>(v_buf.data()), v_buf.size() * sizeof(float));
@@ -244,14 +216,12 @@ bool load_optimizer(Optimizer* optimizer, const std::string& path) {
         return false;
     }
 
-    // Verify magic number
     uint32_t magic;
     if (!read_uint32(in, magic) || magic != OPTIM_MAGIC) {
         fprintf(stderr, "Error: Invalid optimizer file format: %s\n", path.c_str());
         return false;
     }
 
-    // Read optimizer type
     uint32_t opt_type;
     if (!read_uint32(in, opt_type)) return false;
 
@@ -303,7 +273,6 @@ bool load_optimizer(Optimizer* optimizer, const std::string& path) {
             return false;
         }
 
-        // Read m buffers
         for (auto& m_buf : adam->m) {
             uint32_t buf_size;
             if (!read_uint32(in, buf_size)) return false;
@@ -314,7 +283,6 @@ bool load_optimizer(Optimizer* optimizer, const std::string& path) {
             in.read(reinterpret_cast<char*>(m_buf.data()), m_buf.size() * sizeof(float));
         }
 
-        // Read v buffers
         for (auto& v_buf : adam->v) {
             uint32_t buf_size;
             if (!read_uint32(in, buf_size)) return false;
@@ -341,26 +309,23 @@ bool save_checkpoint(const std::string& path, Module* model, Optimizer* optimize
         return false;
     }
 
-    // Write checkpoint header
     if (!write_uint32(out, MODEL_MAGIC)) return false;
-    if (!write_uint32(out, 1)) return false;  // Version number
+    if (!write_uint32(out, 1)) return false;
     if (!write_int(out, epoch)) return false;
     if (!write_float(out, loss)) return false;
     if (!write_float(out, accuracy)) return false;
 
-    // Write model parameters
     auto params = model->parameters();
     if (!write_uint32(out, static_cast<uint32_t>(params.size()))) return false;
     for (const auto& param : params) {
         if (!save_tensor(param, out)) return false;
     }
 
-    // Write optimizer state
     if (optimizer) {
-        if (!write_uint32(out, 1)) return false;  // Has optimizer
+        if (!write_uint32(out, 1)) return false;
 
         if (auto* sgd = dynamic_cast<SGD*>(optimizer)) {
-            if (!write_uint32(out, 1)) return false;  // SGD type
+            if (!write_uint32(out, 1)) return false;
             if (!write_float(out, sgd->lr)) return false;
             if (!write_float(out, sgd->momentum)) return false;
 
@@ -370,7 +335,7 @@ bool save_checkpoint(const std::string& path, Module* model, Optimizer* optimize
                 out.write(reinterpret_cast<const char*>(vel.data()), vel.size() * sizeof(float));
             }
         } else if (auto* adam = dynamic_cast<Adam*>(optimizer)) {
-            if (!write_uint32(out, 2)) return false;  // Adam type
+            if (!write_uint32(out, 2)) return false;
             if (!write_float(out, adam->lr)) return false;
             if (!write_float(out, adam->beta1)) return false;
             if (!write_float(out, adam->beta2)) return false;
@@ -388,7 +353,7 @@ bool save_checkpoint(const std::string& path, Module* model, Optimizer* optimize
             }
         }
     } else {
-        if (!write_uint32(out, 0)) return false;  // No optimizer
+        if (!write_uint32(out, 0)) return false;
     }
 
     printf("Checkpoint saved: epoch=%d, loss=%.4f, accuracy=%.2f%% to %s\n",
@@ -404,7 +369,6 @@ bool load_checkpoint(const std::string& path, Module* model, Optimizer* optimize
         return false;
     }
 
-    // Read and verify header
     uint32_t magic, version;
     if (!read_uint32(in, magic) || magic != MODEL_MAGIC) {
         fprintf(stderr, "Error: Invalid checkpoint file format: %s\n", path.c_str());
@@ -415,12 +379,10 @@ bool load_checkpoint(const std::string& path, Module* model, Optimizer* optimize
         return false;
     }
 
-    // Read checkpoint info
     if (!read_int(in, info.epoch)) return false;
     if (!read_float(in, info.loss)) return false;
     if (!read_float(in, info.accuracy)) return false;
 
-    // Read model parameters
     uint32_t num_params;
     if (!read_uint32(in, num_params)) return false;
 
@@ -443,7 +405,6 @@ bool load_checkpoint(const std::string& path, Module* model, Optimizer* optimize
         std::memcpy(params[i]->data(), loaded->data(), loaded->size() * sizeof(float));
     }
 
-    // Read optimizer state if present
     uint32_t has_optimizer;
     if (!read_uint32(in, has_optimizer)) return false;
 
