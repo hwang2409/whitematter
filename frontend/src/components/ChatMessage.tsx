@@ -5,7 +5,7 @@ import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { ChatMessage } from "@/api";
+import type { ChatMessage, TrainingStatus } from "@/api";
 import ModelCard from "@/components/ModelCard";
 import TrainingProgress from "@/components/TrainingProgress";
 import CompletedModelCard from "./CompletedModelCard";
@@ -13,7 +13,7 @@ import CompletedModelCard from "./CompletedModelCard";
 interface ChatMessageBubbleProps {
   message: ChatMessage;
   onRetry?: () => void;
-  onTrainingComplete?: (status: any) => void;
+  onTrainingComplete?: (status: TrainingStatus) => void;
   onSend?: (text: string) => void;
 }
 

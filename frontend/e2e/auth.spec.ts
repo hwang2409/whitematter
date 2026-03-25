@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 test.describe("Authentication flow", () => {
   test("login page renders", async ({ page }) => {
     await page.goto("/login");
-    await expect(page.getByText("Sign in to your account")).toBeVisible();
+    await expect(page.getByText("Welcome back")).toBeVisible();
   });
 
   test("register page renders", async ({ page }) => {
@@ -20,12 +20,12 @@ test.describe("Authentication flow", () => {
 
     await page.goto("/chat");
     await page.waitForURL("**/login");
-    await expect(page.getByText("Sign in to your account")).toBeVisible();
+    await expect(page.getByText("Welcome back")).toBeVisible();
   });
 
   test("navigate between login and register pages", async ({ page }) => {
     await page.goto("/login");
-    await expect(page.getByText("Sign in to your account")).toBeVisible();
+    await expect(page.getByText("Welcome back")).toBeVisible();
 
     await page.getByRole("link", { name: /sign up/i }).click();
     await page.waitForURL("**/register");
@@ -33,6 +33,6 @@ test.describe("Authentication flow", () => {
 
     await page.getByRole("link", { name: /sign in/i }).click();
     await page.waitForURL("**/login");
-    await expect(page.getByText("Sign in to your account")).toBeVisible();
+    await expect(page.getByText("Welcome back")).toBeVisible();
   });
 });
