@@ -28,7 +28,7 @@ void im2col(const float* input, float* col,
                         iw >= 0 && iw < static_cast<int>(in_w)) {
                         col[col_idx] = input[c * in_h * in_w + ih * in_w + iw];
                     } else {
-                        col[col_idx] = 0.0f;  // padding
+                        col[col_idx] = 0.0f;
                     }
                 }
             }
@@ -44,7 +44,6 @@ void col2im(const float* col, float* input,
     size_t col_w = out_h * out_w;
     size_t kernel_size = kernel_h * kernel_w;
 
-    // Parallelize over channels (each channel writes to independent memory)
     #pragma omp parallel for schedule(static)
     for (size_t c = 0; c < in_channels; c++) {
         for (size_t k = 0; k < kernel_size; k++) {

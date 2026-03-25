@@ -46,22 +46,17 @@ class CodeGenerator:
         """
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Detect data type
         data_type = dataset_config.get("data_type", "image")
 
-        # Generate layer code
         layers_code = self._generate_layers(architecture["layers"])
 
-        # Generate optimizer code
         training = architecture.get("training", {})
         optimizer_code = self._generate_optimizer(training.get("optimizer", {}))
         scheduler_code = self._generate_scheduler(training.get("scheduler", {}))
 
-        # Get training params
         epochs = training.get("epochs", 10)
         batch_size = training.get("batch_size", 64)
 
-        # Generate full training code based on data type
         if data_type == "text":
             train_code = self._generate_text_training_code(
                 layers_code=layers_code,
@@ -81,12 +76,10 @@ class CodeGenerator:
                 dataset_config=dataset_config
             )
 
-        # Write files
         train_cpp = output_dir / "train.cpp"
         with open(train_cpp, 'w') as f:
             f.write(train_code)
 
-        # Generate inference code
         if data_type == "text":
             infer_code = self._generate_text_inference_code(
                 layers_code=layers_code,
@@ -101,12 +94,10 @@ class CodeGenerator:
         with open(infer_cpp, 'w') as f:
             f.write(infer_code)
 
-        # Generate Makefile
         makefile = output_dir / "Makefile"
         with open(makefile, 'w') as f:
             f.write(self._generate_makefile())
 
-        # Copy architecture for reference
         with open(output_dir / "architecture.json", 'w') as f:
             json.dump(architecture, f, indent=2)
 

@@ -47,7 +47,6 @@ class TrainingWorker:
         self._stop_event = threading.Event()
         self._current_process: Optional[subprocess.Popen] = None
 
-        # Project paths (for finding C++ headers)
         self.project_root = project_root or Path(__file__).parent.parent.parent
         self.executor = TrainingExecutor(self.blob_store, self.project_root)
 
@@ -125,7 +124,6 @@ class TrainingWorker:
                 )
                 self.executor.generate_code(job_dir, dataset_info, arch_config, train_config)
 
-                # Compile
                 self.queue.update_status(
                     job.job_id, JobStatus.COMPILING, message="Compiling..."
                 )
@@ -133,21 +131,17 @@ class TrainingWorker:
                 if not success:
                     raise RuntimeError(f"Compilation failed: {compile_msg}")
 
-                # Run training
                 self.queue.update_status(
                     job.job_id, JobStatus.TRAINING, message="Training started"
                 )
                 self._run_training(job, job_dir, dataset_info)
 
-                # Check if cancelled
                 job_info = self.queue.get_job(job.job_id)
                 if job_info and job_info['status'] == JobStatus.CANCELLED.value:
                     return
 
-                # Store model weights
                 self._store_artifacts(job, job_dir)
 
-                # Mark as completed
                 self.queue.update_status(
                     job.job_id, JobStatus.COMPLETED, message="Training complete"
                 )
@@ -171,7 +165,6 @@ class TrainingWorker:
 
     def _run_training(self, job: JobMessage, job_dir: Path, dataset_info: Optional[dict]):
         """Run the training process and stream progress."""
-        # Get data directory
         blob_prefix = dataset_info.get("processed_blob_prefix") if dataset_info else None
         if blob_prefix:
             data_dir = job_dir / "data"

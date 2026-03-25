@@ -32,7 +32,6 @@ export async function resumeTraining(modelId: string): Promise<{
   return res.json();
 }
 
-// Custom training API
 export async function startCustomTraining(
   datasetId: string,
   architecture: Architecture

@@ -23,10 +23,6 @@ static uint16_t float_to_half(float f) {
     return sign | (static_cast<uint32_t>(exponent) << 10) | (mantissa >> 13);
 }
 
-// =============================================================================
-// Protobuf wire format helpers (no protobuf dependency needed)
-// =============================================================================
-
 class ProtobufWriter {
 public:
     std::vector<uint8_t> data;
@@ -98,10 +94,6 @@ public:
     }
 };
 
-// =============================================================================
-// ONNX protobuf message builders
-// =============================================================================
-
 // ONNX TensorProto data types
 enum ONNXDataType {
     ONNX_FLOAT = 1,
@@ -109,7 +101,6 @@ enum ONNXDataType {
     ONNX_FLOAT16 = 10,
 };
 
-// Build TensorProto (fp32)
 ProtobufWriter build_tensor_proto(const std::string& name, const std::vector<int64_t>& dims,
                                    const float* data, size_t data_size) {
     ProtobufWriter tensor;
@@ -120,7 +111,6 @@ ProtobufWriter build_tensor_proto(const std::string& name, const std::vector<int
     return tensor;
 }
 
-// Build TensorProto (fp16, for smaller export / edge deployment)
 ProtobufWriter build_tensor_proto_fp16(const std::string& name, const std::vector<int64_t>& dims,
                                        const float* data, size_t data_size) {
     ProtobufWriter tensor;
@@ -137,7 +127,6 @@ ProtobufWriter build_tensor_proto_fp16(const std::string& name, const std::vecto
     return tensor;
 }
 
-// Build TensorShapeProto
 ProtobufWriter build_tensor_shape(const std::vector<int64_t>& dims) {
     ProtobufWriter shape;
     for (auto d : dims) {
@@ -148,7 +137,6 @@ ProtobufWriter build_tensor_shape(const std::vector<int64_t>& dims) {
     return shape;
 }
 
-// Build TypeProto for tensor
 ProtobufWriter build_type_proto(int elem_type, const std::vector<int64_t>& dims) {
     ProtobufWriter tensor_type;
     tensor_type.write_int64(1, elem_type);  // elem_type
@@ -160,7 +148,6 @@ ProtobufWriter build_type_proto(int elem_type, const std::vector<int64_t>& dims)
     return type_proto;
 }
 
-// Build ValueInfoProto
 ProtobufWriter build_value_info(const std::string& name, const std::vector<int64_t>& dims) {
     ProtobufWriter value_info;
     value_info.write_string(1, name);  // name
@@ -169,9 +156,6 @@ ProtobufWriter build_value_info(const std::string& name, const std::vector<int64
     return value_info;
 }
 
-// Build AttributeProto
-// ONNX AttributeProto fields: name=1, f=2, i=3, ints=8, type=20
-// AttributeType enum: FLOAT=1, INT=2, INTS=7
 ProtobufWriter build_attr_int(const std::string& name, int64_t value) {
     ProtobufWriter attr;
     attr.write_string(1, name);   // name (field 1)
@@ -198,7 +182,6 @@ ProtobufWriter build_attr_float(const std::string& name, float value) {
     return attr;
 }
 
-// Build NodeProto
 ProtobufWriter build_node(const std::string& op_type,
                           const std::vector<std::string>& inputs,
                           const std::vector<std::string>& outputs,
@@ -221,7 +204,6 @@ ProtobufWriter build_node(const std::string& op_type,
     return node;
 }
 
-// Build OpsetIdProto
 ProtobufWriter build_opset(const std::string& domain, int64_t version) {
     ProtobufWriter opset;
     if (!domain.empty()) {
@@ -230,10 +212,6 @@ ProtobufWriter build_opset(const std::string& domain, int64_t version) {
     opset.write_int64(2, version);  // version
     return opset;
 }
-
-// =============================================================================
-// Layer-specific ONNX conversion
-// =============================================================================
 
 struct ONNXContext {
     std::vector<ProtobufWriter> nodes;
@@ -260,39 +238,30 @@ bool convert_linear(Linear* layer, ONNXContext& ctx) {
     std::string bias_name = ctx.new_weight("linear_bias");
     std::string output_name = ctx.new_name("linear_out");
 
-    // Get weight and bias
-    // Our Linear stores weight as [in_features, out_features]
-    // forward: Y = X @ W + b  where X is [batch, in], W is [in, out]
     auto& W = layer->weight;
     auto& b = layer->bias;
 
     size_t in_features = W->shape[0];
     size_t out_features = W->shape[1];
 
-    // Add weight initializer [in_features, out_features]
     std::vector<int64_t> weight_dims = {static_cast<int64_t>(in_features), static_cast<int64_t>(out_features)};
     if (ctx.export_fp16)
         ctx.initializers.push_back(build_tensor_proto_fp16(weight_name, weight_dims, W->data(), W->size()));
     else
         ctx.initializers.push_back(build_tensor_proto(weight_name, weight_dims, W->data(), W->size()));
 
-    // Add bias initializer [out_features]
     std::vector<int64_t> bias_dims = {static_cast<int64_t>(out_features)};
     if (ctx.export_fp16)
         ctx.initializers.push_back(build_tensor_proto_fp16(bias_name, bias_dims, b->data(), b->size()));
     else
         ctx.initializers.push_back(build_tensor_proto(bias_name, bias_dims, b->data(), b->size()));
 
-    // Create Gemm node: Y = alpha * A @ B + beta * C
-    // A = input [batch, in], B = weight [in, out], C = bias [out]
-    // No transpose needed since our weight is already [in, out]
     std::vector<ProtobufWriter> attrs;
     attrs.push_back(build_attr_float("alpha", 1.0f));
     attrs.push_back(build_attr_float("beta", 1.0f));
 
     ctx.nodes.push_back(build_node("Gemm", {ctx.current_input, weight_name, bias_name}, {output_name}, "", attrs));
 
-    // Update shape: batch dims + [out_features]
     ctx.current_shape.back() = static_cast<int64_t>(out_features);
     ctx.current_input = output_name;
 
@@ -308,7 +277,6 @@ bool convert_conv2d(Conv2d* layer, ONNXContext& ctx) {
     auto& W = layer->weight;
     auto& b = layer->bias;
 
-    // Weight shape: [out_channels, in_channels, kH, kW]
     std::vector<int64_t> weight_dims;
     for (auto d : W->shape) weight_dims.push_back(static_cast<int64_t>(d));
     if (ctx.export_fp16)
@@ -316,14 +284,12 @@ bool convert_conv2d(Conv2d* layer, ONNXContext& ctx) {
     else
         ctx.initializers.push_back(build_tensor_proto(weight_name, weight_dims, W->data(), W->size()));
 
-    // Bias shape: [out_channels]
     std::vector<int64_t> bias_dims = {static_cast<int64_t>(b->shape[0])};
     if (ctx.export_fp16)
         ctx.initializers.push_back(build_tensor_proto_fp16(bias_name, bias_dims, b->data(), b->size()));
     else
         ctx.initializers.push_back(build_tensor_proto(bias_name, bias_dims, b->data(), b->size()));
 
-    // Conv attributes
     std::vector<ProtobufWriter> attrs;
     attrs.push_back(build_attr_ints("kernel_shape", {static_cast<int64_t>(layer->kernel_size), static_cast<int64_t>(layer->kernel_size)}));
     attrs.push_back(build_attr_ints("strides", {static_cast<int64_t>(layer->stride), static_cast<int64_t>(layer->stride)}));
@@ -332,7 +298,6 @@ bool convert_conv2d(Conv2d* layer, ONNXContext& ctx) {
 
     ctx.nodes.push_back(build_node("Conv", {ctx.current_input, weight_name, bias_name}, {output_name}, "", attrs));
 
-    // Update shape: [N, out_channels, H_out, W_out]
     int64_t out_channels = static_cast<int64_t>(layer->out_channels);
     int64_t H_in = ctx.current_shape[2];
     int64_t W_in = ctx.current_shape[3];
@@ -385,7 +350,6 @@ bool convert_flatten(ONNXContext& ctx) {
     attrs.push_back(build_attr_int("axis", 1));  // Flatten from dim 1 (keep batch)
     ctx.nodes.push_back(build_node("Flatten", {ctx.current_input}, {output_name}, "", attrs));
 
-    // Compute flattened size
     int64_t flat_size = 1;
     for (size_t i = 1; i < ctx.current_shape.size(); i++) {
         flat_size *= ctx.current_shape[i];
@@ -406,7 +370,6 @@ bool convert_maxpool2d(MaxPool2d* layer, ONNXContext& ctx) {
 
     ctx.nodes.push_back(build_node("MaxPool", {ctx.current_input}, {output_name}, "", attrs));
 
-    // Update shape
     int64_t H_out = ctx.current_shape[2] / static_cast<int64_t>(layer->stride);
     int64_t W_out = ctx.current_shape[3] / static_cast<int64_t>(layer->stride);
     ctx.current_shape = {ctx.current_shape[0], ctx.current_shape[1], H_out, W_out};
@@ -477,10 +440,6 @@ bool convert_dropout(ONNXContext& ctx) {
     return true;
 }
 
-// =============================================================================
-// Main export function
-// =============================================================================
-
 bool export_onnx(Sequential* model, const std::string& filepath, const ONNXExportOptions& options) {
     if (options.input_shape.empty()) {
         fprintf(stderr, "ONNX export error: input_shape is required\n");
@@ -492,7 +451,6 @@ bool export_onnx(Sequential* model, const std::string& filepath, const ONNXExpor
     ctx.export_fp16 = options.export_fp16;
     ctx.current_input = "input";
 
-    // Convert input shape to int64
     for (auto d : options.input_shape) {
         ctx.current_shape.push_back(static_cast<int64_t>(d));
     }
@@ -507,7 +465,6 @@ bool export_onnx(Sequential* model, const std::string& filepath, const ONNXExpor
         printf("Converting layers:\n");
     }
 
-    // Convert each layer
     for (const auto& ptr : model->layers) {
         Module* layer = ptr.get();
         if (auto* l = dynamic_cast<Linear*>(layer)) {
@@ -538,42 +495,33 @@ bool export_onnx(Sequential* model, const std::string& filepath, const ONNXExpor
         }
     }
 
-    // Build graph
     ProtobufWriter graph;
 
-    // Add nodes
     for (const auto& node : ctx.nodes) {
         graph.write_submessage(1, node);  // node (field 1)
     }
 
-    // Add graph name
     graph.write_string(2, options.model_name);  // name (field 2)
 
-    // Add initializers (weights)
     for (const auto& init : ctx.initializers) {
         graph.write_submessage(5, init);  // initializer (field 5)
     }
 
-    // Add input
     std::vector<int64_t> input_dims;
     for (auto d : options.input_shape) input_dims.push_back(static_cast<int64_t>(d));
     graph.write_submessage(11, build_value_info("input", input_dims));  // input (field 11)
 
-    // Add output
     graph.write_submessage(12, build_value_info(ctx.current_input, ctx.current_shape));  // output (field 12)
 
-    // Build model
     ProtobufWriter model_proto;
     model_proto.write_int64(1, 8);  // ir_version (field 1) = 8
 
-    // Opset import
     model_proto.write_submessage(8, build_opset("", ONNX_OPSET_VERSION));  // opset_import (field 8)
 
     model_proto.write_string(2, options.producer_name);     // producer_name (field 2)
     model_proto.write_string(3, options.producer_version);  // producer_version (field 3)
     model_proto.write_submessage(7, graph);                 // graph (field 7)
 
-    // Write to file
     std::ofstream file(filepath, std::ios::binary);
     if (!file) {
         fprintf(stderr, "ONNX export error: Cannot open file '%s'\n", filepath.c_str());

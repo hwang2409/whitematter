@@ -24,7 +24,6 @@ def generate_optimizer(optimizer_config: dict) -> str:
     if opt_type not in OPTIMIZER_TEMPLATES:
         raise ValueError(f"Unknown optimizer: {opt_type}")
 
-    # Defaults
     defaults = {
         "learning_rate": 0.01,
         "momentum": 0.9,

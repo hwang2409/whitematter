@@ -29,7 +29,7 @@ export default function ModelCard({
 }: ModelCardProps) {
   const [compute, setCompute] = useState<"cpu" | "gpu">("gpu");
 
-  // Parse layers into individual chips — handles string or array
+  // Parse layers into individual chips
   const layerChips: string[] = typeof layers === "string"
     ? layers.split(/\s*->\s*|\s*→\s*|\s*,\s*/).map((l) => l.trim()).filter(Boolean)
     : Array.isArray(layers)

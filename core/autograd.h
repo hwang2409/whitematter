@@ -1,7 +1,6 @@
 #ifndef AUTOGRAD_H
 #define AUTOGRAD_H
 
-// Global gradient computation flag
 class GradMode {
 public:
     static bool is_enabled();
@@ -10,7 +9,6 @@ private:
     static bool enabled_;
 };
 
-// RAII guard for disabling gradients (like PyTorch's torch.no_grad())
 class NoGradGuard {
 public:
     NoGradGuard();

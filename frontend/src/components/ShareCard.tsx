@@ -62,7 +62,6 @@ export default function ShareCard({ model }: Props) {
 
   return (
     <>
-      {/* Offscreen card for capture */}
       <Box
         ref={cardRef}
         sx={{
@@ -79,7 +78,6 @@ export default function ShareCard({ model }: Props) {
           borderRadius: "12px",
         }}
       >
-        {/* Top section */}
         <Box>
           <Typography
             sx={{
@@ -118,7 +116,6 @@ export default function ShareCard({ model }: Props) {
           </Typography>
         </Box>
 
-        {/* Bottom section */}
         <Box>
           <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.5, mb: 2 }}>
             {archParts.slice(0, 8).map((part, i) => (
@@ -158,7 +155,6 @@ export default function ShareCard({ model }: Props) {
           </Box>
         </Box>
 
-        {/* Footer */}
         <Typography
           sx={{
             fontSize: "0.6875rem",
@@ -170,7 +166,6 @@ export default function ShareCard({ model }: Props) {
         </Typography>
       </Box>
 
-      {/* Share button */}
       <Button
         variant="outlined"
         size="small"

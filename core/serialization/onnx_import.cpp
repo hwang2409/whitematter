@@ -8,11 +8,6 @@
 
 namespace {
 
-// =============================================================================
-// Protobuf wire format reader (mirrors export; no protobuf dependency)
-// =============================================================================
-// Wire types: 0=varint, 1=64-bit, 2=length-delimited, 5=32-bit
-
 class ProtobufReader {
 public:
     const uint8_t* data = nullptr;
@@ -91,10 +86,6 @@ public:
         return false;
     }
 };
-
-// =============================================================================
-// ONNX structures (minimal for our export format)
-// =============================================================================
 
 struct TensorInit {
     std::string name;
@@ -338,10 +329,6 @@ bool parse_model_proto(const uint8_t* buf, size_t len, GraphState& g) {
     return false;
 }
 
-// =============================================================================
-// Build Sequential from GraphState (same op set as export)
-// =============================================================================
-
 bool build_sequential(const GraphState& g, Sequential* model) {
     std::vector<int64_t> current_shape = g.input_shape;
     if (current_shape.empty()) return false;
@@ -455,10 +442,6 @@ bool build_sequential(const GraphState& g, Sequential* model) {
 }
 
 }  // namespace
-
-// =============================================================================
-// Public API
-// =============================================================================
 
 std::unique_ptr<Sequential> load_onnx(const std::string& filepath) {
     std::ifstream file(filepath, std::ios::binary | std::ios::ate);

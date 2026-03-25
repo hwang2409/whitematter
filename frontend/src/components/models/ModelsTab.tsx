@@ -28,7 +28,6 @@ import ModelGrid from "./ModelGrid";
 import useModelList, { formatModelName, formatDate, getModelLoss, isTextModel } from "./useModelList";
 import useDeployPolling from "./useDeployPolling";
 
-/* ── PHOSPHOR design tokens ─────────────────────────────────── */
 const P = {
   fontDisplay: "'Instrument Serif', Georgia, serif",
   fontBody: "'Outfit', sans-serif",
@@ -47,7 +46,6 @@ const P = {
   warning: "#EAB308",
 } as const;
 
-/* ── Shared button styles ───────────────────────────────────── */
 const btnBase = {
   fontFamily: P.fontBody,
   fontSize: "0.8125rem",
@@ -81,8 +79,6 @@ const btnDanger = {
   border: `1px solid rgba(239,68,68,0.25)`,
   "&:hover": { borderColor: P.error, bgcolor: "rgba(239,68,68,0.06)" },
 };
-
-/* ── Component ──────────────────────────────────────────────── */
 
 interface Props {
   onModelSelect?: (id: string | null) => void;
@@ -179,13 +175,10 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
     }
   }
 
-  /* ── Expanded row content ───────────────────────────────── */
-
   function renderExpandedContent(model: api.Model) {
     const loss = getModelLoss(model);
     return (
       <Box sx={{ py: 3, px: 3 }}>
-        {/* Header: name + accuracy */}
         <Box
           sx={{
             display: "flex",
@@ -223,7 +216,6 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
           )}
         </Box>
 
-        {/* Architecture chips */}
         <Box sx={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 0.75, mb: 2.5 }}>
           {model.architecture
             .replace(/_/g, " ")
@@ -258,7 +250,6 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
             ))}
         </Box>
 
-        {/* Stats row */}
         <Box
           sx={{
             display: "flex",
@@ -280,7 +271,6 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
           <span>{formatDate(model.created_at)}</span>
         </Box>
 
-        {/* Training history table */}
         {model.training_history.length > 0 && (
           <Box id="training-history-table" sx={{ mb: 3 }}>
             <Typography
@@ -376,7 +366,6 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
           </Box>
         )}
 
-        {/* Text generation UI (text models) */}
         {model.status === "completed" && isTextModel(model) && (
           <Box
             sx={{
@@ -531,7 +520,6 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
           </Box>
         )}
 
-        {/* API endpoint + cURL (non-text models) */}
         {model.status === "completed" && !isTextModel(model) && (
           <>
             <Box sx={{ mt: 2, pt: 2.5, borderTop: `1px solid ${P.border}` }}>
@@ -635,7 +623,6 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
           </>
         )}
 
-        {/* Action buttons */}
         <Box
           sx={{
             mt: 3,
@@ -685,8 +672,6 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
     );
   }
 
-  /* ── Loading state ──────────────────────────────────────── */
-
   if (modelList.loading) {
     return (
       <Box sx={{ py: 6, textAlign: "center" }}>
@@ -702,8 +687,6 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
       </Box>
     );
   }
-
-  /* ── Main render ────────────────────────────────────────── */
 
   return (
     <Box sx={{ px: { xs: 2, sm: 3 }, py: 3, maxWidth: 960, mx: "auto", width: "100%" }}>
@@ -772,7 +755,6 @@ export default function ModelsTab({ onModelSelect, onUpdate }: Props) {
         />
       )}
 
-      {/* ── Deploy dialog ──────────────────────────────────── */}
       <Dialog
         open={deployModalOpen && !!selectedModel}
         onClose={() => !deploy.deploying && setDeployModalOpen(false)}

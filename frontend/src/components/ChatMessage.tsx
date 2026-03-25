@@ -46,7 +46,6 @@ export default function ChatMessageBubble({ message, onRetry, onTrainingComplete
 
   // Architecture type: render ModelCard
   if (message.type === "architecture" && message.metadata) {
-    // Metadata may be the architecture directly or wrapped in {"architecture": ...}
     const arch = (message.metadata.architecture ?? message.metadata) as Record<string, unknown>;
     return (
       <Box sx={{ px: 4, mb: 3 }}>

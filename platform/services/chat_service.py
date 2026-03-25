@@ -213,7 +213,6 @@ class ChatService:
         model_service = ModelService()
 
         try:
-            # Create model entry
             arch = conv.architecture
             training_config = {}
             if isinstance(arch.get("trainingConfig"), str):
@@ -238,7 +237,6 @@ class ChatService:
             )
             model_id = model_info["id"]
 
-            # Start training job
             result = training_service.start_training(
                 model_id=model_id,
                 total_epochs=total_epochs,
@@ -250,7 +248,6 @@ class ChatService:
             conv.phase = ConversationPhase.TRAINING.value
             db.commit()
 
-            # Add training-started message
             msg = ConversationMessage(
                 conversation_id=conv.id,
                 role="assistant",
@@ -488,7 +485,6 @@ class ChatService:
                     for tool_block in tool_blocks:
                         yield f"data: {json.dumps({'type': 'tool_use', 'name': tool_block.name})}\n\n"
 
-                        # Run tool in thread, send heartbeats while waiting
                         task = asyncio.ensure_future(
                             execute_tool_async(tool_block.name, tool_block.input)
                         )

@@ -39,10 +39,6 @@ from services.dataset_validation import (
 )
 
 
-# =============================================================================
-# ZIP Validation Tests
-# =============================================================================
-
 class TestZIPValidation:
     """Tests for ZIP file security validation."""
 
@@ -111,10 +107,6 @@ class TestZIPValidation:
         with pytest.raises(FileNotFoundError):
             validate_file_size(non_existent)
 
-
-# =============================================================================
-# Class Folder Structure Validation Tests
-# =============================================================================
 
 class TestClassFolderStructureValidation:
 
@@ -206,10 +198,6 @@ class TestClassFolderStructureValidation:
         assert result["total_samples"] == 1
 
 
-# =============================================================================
-# Image Validation Tests
-# =============================================================================
-
 class TestImageValidation:
 
     def test_valid_png_magic_bytes(self, temp_dir: Path):
@@ -276,10 +264,6 @@ class TestImageValidation:
         assert is_valid is True
         assert format_name == 'webp'
 
-
-# =============================================================================
-# Exception Hierarchy Tests
-# =============================================================================
 
 class TestExceptionHierarchy:
 

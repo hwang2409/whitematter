@@ -13,10 +13,6 @@ from typing import Any, Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
-# =============================================================================
-# Constants
-# =============================================================================
-
 MAX_UPLOAD_SIZE_BYTES = 1 * 1024 * 1024 * 1024  # 1 GB
 MAX_EXTRACTED_SIZE_BYTES = 5 * 1024 * 1024 * 1024  # 5 GB
 MAX_FILES_IN_ZIP = 100_000
@@ -35,10 +31,6 @@ IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.gif', '.webp'}
 MIN_SAMPLES_PER_CLASS = 1
 MAX_CLASS_IMBALANCE_RATIO = 100
 
-
-# =============================================================================
-# Exceptions
-# =============================================================================
 
 class DatasetValidationError(Exception):
     """Base exception for dataset validation errors."""
@@ -74,10 +66,6 @@ class ZipBombError(DatasetValidationError):
     """Raised when a potential zip bomb is detected."""
     pass
 
-
-# =============================================================================
-# Validation Functions
-# =============================================================================
 
 def validate_file_size(file_path: Path, max_size: int = MAX_UPLOAD_SIZE_BYTES) -> None:
     """Validate that a file does not exceed the maximum allowed size."""
@@ -120,7 +108,6 @@ def validate_zip_safety(zip_path: Path) -> Dict[str, Any]:
             for file_info in zf.infolist():
                 filename = file_info.filename
 
-                # Path traversal checks
                 normalized = os.path.normpath(filename)
 
                 if os.path.isabs(normalized):
@@ -143,7 +130,6 @@ def validate_zip_safety(zip_path: Path) -> Dict[str, Any]:
 
                 total_uncompressed_size += file_info.file_size
 
-                # Zip bomb: high compression ratio on large files
                 if file_info.compress_size > 0:
                     compression_ratio = file_info.file_size / file_info.compress_size
                     if compression_ratio > 100 and file_info.file_size > 10 * 1024 * 1024:

@@ -1,17 +1,12 @@
 #include "../layer.h"
 #include <cassert>
 
-// Embedding implementation
 Embedding::Embedding(size_t num_embeddings, size_t embedding_dim)
     : num_embeddings(num_embeddings), embedding_dim(embedding_dim) {
-    // Initialize with normal distribution (like PyTorch)
     weight = Tensor::randn({num_embeddings, embedding_dim}, true);
 }
 
 TensorPtr Embedding::forward(const TensorPtr& indices) {
-    // Input: indices of shape [batch_size, seq_len] or [seq_len]
-    // Output: embeddings of shape [batch_size, seq_len, embedding_dim] or [seq_len, embedding_dim]
-
     std::vector<size_t> out_shape;
     for (size_t dim : indices->shape) {
         out_shape.push_back(dim);
@@ -22,7 +17,6 @@ TensorPtr Embedding::forward(const TensorPtr& indices) {
     bool track = weight->requires_grad && GradMode::is_enabled();
     auto result = Tensor::create(out_shape, track);
 
-    // Forward: lookup embeddings
     for (size_t i = 0; i < num_indices; i++) {
         size_t idx = static_cast<size_t>(indices->data()[i]);
         assert(idx < num_embeddings);
@@ -36,7 +30,6 @@ TensorPtr Embedding::forward(const TensorPtr& indices) {
         auto indices_ptr = indices;
         result->parents = {weight_ptr};
         result->grad_fn = [weight_ptr, indices_ptr, result, num_indices, this]() {
-            // Backward: accumulate gradients for each embedding
             for (size_t i = 0; i < num_indices; i++) {
                 size_t idx = static_cast<size_t>(indices_ptr->data()[i]);
                 for (size_t j = 0; j < embedding_dim; j++) {
@@ -58,7 +51,6 @@ std::string Embedding::extra_repr() const {
 }
 
 std::vector<size_t> Embedding::compute_output_shape(const std::vector<size_t>& input_shape) const {
-    // [...] -> [..., embedding_dim]
     std::vector<size_t> output_shape = input_shape;
     output_shape.push_back(embedding_dim);
     return output_shape;

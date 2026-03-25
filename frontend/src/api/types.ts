@@ -98,7 +98,6 @@ export interface PredictResult {
   probabilities: Record<string, number>;
 }
 
-// Custom dataset types
 export interface CustomDataset {
   id: string;
   name: string;
@@ -156,7 +155,6 @@ export interface DatasetPreviewSample {
   label: string;
 }
 
-// Text dataset upload
 export interface TextDatasetOptions {
   tokenizer_type?: 'character' | 'word';
   seq_length?: number;
@@ -176,7 +174,6 @@ export interface GenerateResult {
   temperature: number;
 }
 
-// Text dataset preview
 export interface TextPreview {
   vocab_size: number;
   sample_text: string;
@@ -194,7 +191,6 @@ export interface PreviewCodeResponse {
   infer_cpp: string;
 }
 
-// Design helper chat
 export interface DesignMessage {
   role: 'user' | 'assistant';
   content: string;

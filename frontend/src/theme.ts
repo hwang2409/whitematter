@@ -2,8 +2,6 @@
 
 import { createTheme } from "@mui/material/styles";
 
-// ── Design Tokens ──────────────────────────────────────────────────────────
-
 const ACCENT = "#F97316";
 const ACCENT_HOVER = "#EA580C";
 const ACCENT_SUBTLE = "rgba(249, 115, 22, 0.08)";

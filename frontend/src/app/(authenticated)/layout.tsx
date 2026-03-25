@@ -231,7 +231,6 @@ export default function AuthenticatedLayout({
   return (
     <ErrorBoundary>
       <Box sx={{ display: "flex", height: "100dvh", overflow: "hidden", bgcolor: "#09090B" }}>
-        {/* ── Sidebar ─────────────────────────────────────────────── */}
         <Box
           component="nav"
           sx={{
@@ -246,7 +245,6 @@ export default function AuthenticatedLayout({
             transition: "width 0.2s cubic-bezier(0.4, 0, 0.2, 1)",
           }}
         >
-          {/* Logo + toggle */}
           <Box
             sx={{
               px: collapsed ? 0 : 1.5,
@@ -288,7 +286,6 @@ export default function AuthenticatedLayout({
             </Tooltip>
           </Box>
 
-          {/* New chat */}
           <Box
             sx={{
               px: collapsed ? 0 : 1.5,
@@ -346,7 +343,6 @@ export default function AuthenticatedLayout({
             )}
           </Box>
 
-          {/* Models nav */}
           <Box
             sx={{
               px: collapsed ? 0 : 1.5,
@@ -395,7 +391,6 @@ export default function AuthenticatedLayout({
             )}
           </Box>
 
-          {/* Settings nav */}
           <Box
             sx={{
               px: collapsed ? 0 : 1.5,
@@ -444,7 +439,6 @@ export default function AuthenticatedLayout({
             )}
           </Box>
 
-          {/* Search */}
           {!collapsed && (
             <Box sx={{ px: 1.5, mb: 1 }}>
               <TextField
@@ -474,7 +468,6 @@ export default function AuthenticatedLayout({
             </Box>
           )}
 
-          {/* Conversation list */}
           {!collapsed && (
             <Box sx={{ flex: 1, overflowY: "auto", px: 1 }}>
               {grouped.map(({ label, items }) => (
@@ -597,7 +590,6 @@ export default function AuthenticatedLayout({
             </Box>
           )}
 
-          {/* ── Profile ─────────────────────── */}
           <Box
             sx={{
               borderTop: "1px solid #1F1F23",
@@ -680,9 +672,7 @@ export default function AuthenticatedLayout({
           </Box>
         </Box>
 
-        {/* ── Main ────────────────────────────────────────────────── */}
         <Box sx={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden" }}>
-          {/* Content */}
           <Box
             component="main"
             sx={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}
@@ -692,7 +682,6 @@ export default function AuthenticatedLayout({
         </Box>
       </Box>
 
-      {/* ── Context menu ──────────────────────────────────────────── */}
       <Menu
         anchorEl={menuAnchorEl}
         open={Boolean(menuAnchorEl)}
@@ -727,7 +716,6 @@ export default function AuthenticatedLayout({
         </MenuItem>
       </Menu>
 
-      {/* ── Profile menu ──────────────────────────────────────────── */}
       <Menu
         anchorEl={profileAnchorEl}
         open={Boolean(profileAnchorEl)}
@@ -789,7 +777,6 @@ export default function AuthenticatedLayout({
         </MenuItem>
       </Menu>
 
-      {/* ── Delete confirmation ───────────────────────────────────── */}
       <ConfirmDialog
         isOpen={deleteConfirmId !== null}
         title="Delete Conversation"

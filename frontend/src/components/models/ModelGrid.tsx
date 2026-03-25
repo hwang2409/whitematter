@@ -11,7 +11,6 @@ import TableSortLabel from "@mui/material/TableSortLabel";
 import Collapse from "@mui/material/Collapse";
 import IconButton from "@mui/material/IconButton";
 import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown";
-import KeyboardArrowUpIcon from "@mui/icons-material/KeyboardArrowUp";
 import * as api from "@/api";
 import ModelStatusBadge from "./ModelStatusBadge";
 import { SortColumn, SortDirection, formatModelName, formatDate, getModelLoss } from "./useModelList";

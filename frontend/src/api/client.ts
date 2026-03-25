@@ -1,11 +1,6 @@
-// API base URL - empty string uses relative URLs (Next.js rewrites to backend)
-// Set NEXT_PUBLIC_API_BASE environment variable to override
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "";
-
-// Request timeout in milliseconds (30 seconds)
 export const REQUEST_TIMEOUT = 30000;
 
-// Error types for better error handling
 export type ApiErrorType = 'timeout' | 'network' | 'server' | 'unknown';
 
 export class ApiError extends Error {
@@ -20,7 +15,6 @@ export class ApiError extends Error {
   }
 }
 
-// Helper to create fetch with timeout
 export async function fetchWithTimeout(
   url: string,
   options?: RequestInit,
@@ -60,7 +54,6 @@ export async function fetchWithTimeout(
         );
       }
 
-      // Network errors (no internet, server unreachable, etc.)
       if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
         throw new ApiError(
           'Network error. Please check your connection and try again.',
@@ -76,7 +69,6 @@ export async function fetchWithTimeout(
   }
 }
 
-// Helper to get user-friendly error message
 export function getErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
     return error.message;
@@ -87,7 +79,6 @@ export function getErrorMessage(error: unknown): string {
   return 'An unexpected error occurred';
 }
 
-// Helper to check if error is retryable
 export function isRetryableError(error: unknown): boolean {
   if (error instanceof ApiError) {
     return error.type === 'timeout' || error.type === 'network';

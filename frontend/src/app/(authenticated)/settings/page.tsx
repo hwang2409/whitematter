@@ -20,7 +20,6 @@ export default function SettingsRoute() {
         width: "100%",
       }}
     >
-      {/* Tab bar */}
       <Box
         sx={{
           display: "flex",
@@ -56,7 +55,6 @@ export default function SettingsRoute() {
         ))}
       </Box>
 
-      {/* Content */}
       <Box
         sx={{
           animation: "settingsFadeIn 0.2s ease-out",

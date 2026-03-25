@@ -95,7 +95,6 @@ function ToastItem({
         },
       }}
     >
-      {/* Colored dot indicator */}
       <Box
         sx={{
           width: 6,

@@ -20,7 +20,6 @@ std::string Linear::extra_repr() const {
 }
 
 std::vector<size_t> Linear::compute_output_shape(const std::vector<size_t>& input_shape) const {
-    // [..., in_features] -> [..., out_features]
     if (input_shape.empty()) return {};
     std::vector<size_t> output_shape = input_shape;
     output_shape.back() = out_features;

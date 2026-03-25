@@ -72,7 +72,6 @@ export default function LoginPage() {
         overflow: "hidden",
       }}
     >
-      {/* Atmospheric glow */}
       <Box
         sx={{
           position: "absolute",
@@ -96,7 +95,6 @@ export default function LoginPage() {
           animation: "fadeIn 0.5s ease-out",
         }}
       >
-        {/* Brand mark */}
         <Box sx={{ textAlign: "center", mb: 5 }}>
           <Typography
             sx={{
@@ -121,7 +119,6 @@ export default function LoginPage() {
           />
         </Box>
 
-        {/* Heading */}
         <Typography
           sx={{
             fontFamily: "'Outfit', sans-serif",
@@ -168,7 +165,6 @@ export default function LoginPage() {
 
           <GoogleSignInButton />
 
-          {/* Divider */}
           <Box sx={{ display: "flex", alignItems: "center", my: 2.5 }}>
             <Box sx={{ flex: 1, height: "1px", bgcolor: "#1F1F23" }} />
             <Typography

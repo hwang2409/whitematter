@@ -12,7 +12,6 @@ export async function predict(modelId: string, file: File): Promise<PredictResul
   return res.json();
 }
 
-// Model inference API (for custom models)
 export async function predictCustom(modelId: string, file: File): Promise<PredictResult> {
   const formData = new FormData();
   formData.append('file', file);

@@ -1,21 +1,6 @@
 "use client";
 import Box from "@mui/material/Box";
 
-function getStatusColor(status: string): "success" | "error" | "default" | "warning" {
-  switch (status) {
-    case "completed":
-      return "success";
-    case "running":
-      return "warning";
-    case "failed":
-      return "error";
-    case "cancelled":
-      return "default";
-    default:
-      return "default";
-  }
-}
-
 const STATUS_STYLES: Record<string, { color: string; bg: string; pulse?: boolean }> = {
   completed: { color: "#22C55E", bg: "rgba(34,197,94,0.10)" },
   running: { color: "#F97316", bg: "rgba(249,115,22,0.10)", pulse: true },
@@ -76,5 +61,3 @@ export default function ModelStatusBadge({ status }: ModelStatusBadgeProps) {
     </Box>
   );
 }
-
-export { getStatusColor };

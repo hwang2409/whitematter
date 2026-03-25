@@ -107,7 +107,6 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
         minHeight: 0,
       }}
     >
-      {/* Messages area */}
       <Box
         ref={messagesContainerRef}
         onDragOver={handleDragOver}
@@ -190,7 +189,6 @@ export default function ChatPage({ conversationId }: ChatPageProps) {
         )}
       </Box>
 
-      {/* Input bar */}
       {!showEmptyState && (
         <Box
           sx={{

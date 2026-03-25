@@ -5,7 +5,6 @@ export async function suggestArchitecture(
   datasetId: string,
   prompt: string
 ): Promise<DesignSuggestion> {
-  // Use longer timeout for AI suggestions (60 seconds)
   const res = await fetchWithTimeout(`${API_BASE}/design/suggest`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -29,7 +28,6 @@ export async function refineArchitecture(
   architecture: Architecture,
   feedback: string
 ): Promise<DesignSuggestion> {
-  // Use longer timeout for AI refinements (60 seconds)
   const res = await fetchWithTimeout(`${API_BASE}/design/refine`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

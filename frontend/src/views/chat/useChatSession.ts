@@ -42,10 +42,8 @@ export function useChatSession({
   const scrollRafRef = useRef<number>(0);
   const streamingRef = useRef(false);
 
-  // Keep ref in sync so scroll callback can read it without deps
   streamingRef.current = streaming;
 
-  // Scroll to bottom whenever messages change, coalesced via rAF
   useEffect(() => {
     if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
     scrollRafRef.current = requestAnimationFrame(() => {
@@ -55,7 +53,6 @@ export function useChatSession({
     });
   }, [messages]);
 
-  // Create or load conversation on mount
   useEffect(() => {
     if (!token) return;
 
@@ -104,7 +101,6 @@ export function useChatSession({
     };
   }, [token, conversationId]);
 
-  // Cleanup SSE abort on unmount
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
@@ -155,10 +151,7 @@ export function useChatSession({
             updated[updated.length - 1] = {
               ...doneMessage,
               id: doneMessage.id || assistantPlaceholderId,
-              type:
-                doneMessage.type ??
-                (doneMessage as any).message_type ??
-                "text",
+              type: doneMessage.type ?? "text",
               createdAt:
                 doneMessage.createdAt ?? new Date().toISOString(),
             };

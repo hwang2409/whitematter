@@ -2,7 +2,6 @@ import { fetchWithTimeout, API_BASE } from './client';
 import type { Conversation, ChatMessage, TrainingStatus } from './types';
 import { getStoredToken } from '@/services/auth';
 
-/** Map a raw API conversation (snake_case) to frontend Conversation (camelCase). */
 function mapConversation(raw: any): Conversation {
   return {
     id: raw.id,
@@ -14,7 +13,6 @@ function mapConversation(raw: any): Conversation {
   };
 }
 
-/** Map a raw API message (snake_case) to frontend ChatMessage (camelCase). */
 function mapMessage(raw: any): ChatMessage {
   return {
     id: raw.id ?? crypto.randomUUID(),

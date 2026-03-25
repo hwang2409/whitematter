@@ -69,13 +69,11 @@ std::string Dropout::extra_repr() const {
     return "p=" + std::to_string(p);
 }
 
-// Flatten implementation
 TensorPtr Flatten::forward(const TensorPtr& input) {
     return input->flatten(1);
 }
 
 std::vector<size_t> Flatten::compute_output_shape(const std::vector<size_t>& input_shape) const {
-    // [N, ...] -> [N, product of rest]
     if (input_shape.size() < 2) return input_shape;
     size_t N = input_shape[0];
     size_t flat_size = 1;

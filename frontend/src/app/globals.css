@@ -21,7 +21,6 @@ body {
   font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
-/* Scrollbar */
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
@@ -40,19 +39,16 @@ body {
   background: rgba(255, 255, 255, 0.14);
 }
 
-/* Selection */
 ::selection {
   background: rgba(249, 115, 22, 0.25);
   color: #FAFAFA;
 }
 
-/* Focus visible */
 :focus-visible {
   outline: 2px solid rgba(249, 115, 22, 0.5);
   outline-offset: 2px;
 }
 
-/* Subtle noise overlay for depth */
 body::before {
   content: '';
   position: fixed;
@@ -65,7 +61,6 @@ body::before {
   background-size: 256px 256px;
 }
 
-/* Animations */
 @keyframes fadeInUp {
   from {
     opacity: 0;
@@ -107,7 +102,6 @@ body::before {
   from { width: 0; }
 }
 
-/* Utility classes for staggered animations */
 .stagger-1 { animation-delay: 0.05s; }
 .stagger-2 { animation-delay: 0.1s; }
 .stagger-3 { animation-delay: 0.15s; }

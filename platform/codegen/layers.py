@@ -28,7 +28,6 @@ LAYER_TEMPLATES = {
 
 def fill_template(template: str, params: dict, layer_type: str) -> str:
     """Fill template with parameters, using defaults where needed."""
-    # Default values for common parameters
     defaults = {
         "stride": 1,
         "padding": 0,
@@ -40,13 +39,11 @@ def fill_template(template: str, params: dict, layer_type: str) -> str:
         "dim": -1,
     }
 
-    # Parameter aliases (allow different names for the same parameter)
     aliases = {
         "vocab_size": "num_embeddings",
         "embed_dim": "embedding_dim",
     }
 
-    # Apply aliases
     aliased_params = {}
     for key, value in params.items():
         if key in aliases:
@@ -75,7 +72,6 @@ def generate_layers(layers: List[Dict[str, Any]]) -> str:
             raise ValueError(f"Unknown layer type: {layer_type}")
 
         template = LAYER_TEMPLATES[layer_type]
-        # Fill in parameters with defaults
         filled = fill_template(template, params, layer_type)
         lines.append(f"        {filled}")
 

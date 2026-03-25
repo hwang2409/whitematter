@@ -189,7 +189,6 @@ export default function ConnectTab() {
         Cloud credentials for storage and deployment.
       </Typography>
 
-      {/* Viewing state */}
       {viewState === "viewing" && stored && (
         <Box>
           <Typography sx={labelSx}>Credentials</Typography>
@@ -331,7 +330,6 @@ export default function ConnectTab() {
         </Box>
       )}
 
-      {/* Form state */}
       {(viewState === "empty" || viewState === "editing") && (
         <Box sx={{ display: "flex", flexDirection: "column", gap: 1.5, maxWidth: 400 }}>
           <TextField

@@ -121,7 +121,6 @@ export default function BillingTab() {
 
   return (
     <Box>
-      {/* Usage row */}
       {usage && (
         <Box sx={{ mb: 5 }}>
           <Typography sx={labelSx}>Usage</Typography>
@@ -159,7 +158,6 @@ export default function BillingTab() {
         </Box>
       )}
 
-      {/* Plans */}
       <Box sx={{ mb: 5 }}>
         <Typography sx={labelSx}>Plan</Typography>
         <Box sx={{ display: "flex", gap: 1.5, flexWrap: "wrap" }}>
@@ -281,7 +279,6 @@ export default function BillingTab() {
         </Box>
       </Box>
 
-      {/* Manage */}
       {currentPlan !== "free" && (
         <Box sx={{ pt: 4, borderTop: "1px solid #27272A" }}>
           <Button

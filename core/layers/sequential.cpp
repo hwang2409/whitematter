@@ -2,13 +2,8 @@
 #include <cstdio>
 #include <string>
 
-// ============================================================================
-// Parameter counting implementations (Module base class)
-// ============================================================================
-
 size_t Module::num_parameters() const {
     size_t total = 0;
-    // Need to cast away const to call parameters() which isn't const
     auto* self = const_cast<Module*>(this);
     for (const auto& p : self->parameters()) {
         total += p->size();
@@ -26,10 +21,6 @@ size_t Module::num_trainable_parameters() const {
     }
     return total;
 }
-
-// ============================================================================
-// Sequential implementation
-// ============================================================================
 
 Sequential::Sequential(std::initializer_list<Module*> modules) {
     for (Module* m : modules) {
@@ -84,11 +75,6 @@ void Sequential::eval() {
     }
 }
 
-// ============================================================================
-// Sequential summary implementation
-// ============================================================================
-
-// Helper to format shape as string
 static std::string format_shape(const std::vector<size_t>& shape) {
     if (shape.empty()) return "-";
     std::string s = "[";
@@ -108,7 +94,6 @@ void Sequential::summary(const std::vector<size_t>& input_shape) const {
     size_t total_params = 0;
     size_t trainable_params = 0;
 
-    // Track current shape through network
     std::vector<size_t> current_shape = input_shape;
     bool tracking_shapes = !input_shape.empty();
 
@@ -120,14 +105,12 @@ void Sequential::summary(const std::vector<size_t>& input_shape) const {
         total_params += layer_params;
         trainable_params += layer_trainable;
 
-        // Compute output shape if tracking
         std::string shape_str = "-";
         if (tracking_shapes) {
             current_shape = layer->compute_output_shape(current_shape);
             shape_str = format_shape(current_shape);
         }
 
-        // Format layer name with extra_repr
         std::string layer_name = layer->name();
         std::string extra = layer->extra_repr();
         std::string full_name = layer_name;
@@ -135,12 +118,10 @@ void Sequential::summary(const std::vector<size_t>& input_shape) const {
             full_name += "(" + extra + ")";
         }
 
-        // Truncate if too long
         if (full_name.length() > 32) {
             full_name = full_name.substr(0, 29) + "...";
         }
 
-        // Format parameter count with commas
         std::string param_str = std::to_string(layer_params);
         int insert_pos = static_cast<int>(param_str.length()) - 3;
         while (insert_pos > 0) {
@@ -153,7 +134,6 @@ void Sequential::summary(const std::vector<size_t>& input_shape) const {
 
     printf("==============================================================================\n");
 
-    // Format totals with commas
     auto format_with_commas = [](size_t n) -> std::string {
         std::string s = std::to_string(n);
         int pos = static_cast<int>(s.length()) - 3;
@@ -169,10 +149,6 @@ void Sequential::summary(const std::vector<size_t>& input_shape) const {
     printf("Non-trainable params: %s\n", format_with_commas(total_params - trainable_params).c_str());
     printf("==============================================================================\n");
 }
-
-// ============================================================================
-// Model Summary Utilities
-// ============================================================================
 
 std::string format_number(size_t n) {
     std::string s = std::to_string(n);
@@ -210,13 +186,11 @@ ModelSummary get_model_summary(Module* model) {
     info.trainable_params = model->num_trainable_parameters();
     info.non_trainable_params = info.total_params - info.trainable_params;
 
-    // Memory calculations (assuming fp32 = 4 bytes, fp16 = 2 bytes)
     info.param_memory_bytes = info.total_params * sizeof(float);
     info.param_memory_fp16_bytes = info.total_params * sizeof(uint16_t);
     info.grad_memory_bytes = info.trainable_params * sizeof(float);
     info.total_memory_bytes = info.param_memory_bytes + info.grad_memory_bytes;
 
-    // Count layers (for Sequential)
     info.num_layers = 0;
     Sequential* seq = dynamic_cast<Sequential*>(model);
     if (seq) {

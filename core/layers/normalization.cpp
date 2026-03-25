@@ -2,7 +2,6 @@
 #include <cmath>
 #include <cassert>
 
-// BatchNorm2d implementation
 BatchNorm2d::BatchNorm2d(size_t num_features, float eps, float momentum)
     : num_features(num_features), eps(eps), momentum(momentum), training(true) {
     gamma = Tensor::ones({num_features}, true);
@@ -12,7 +11,6 @@ BatchNorm2d::BatchNorm2d(size_t num_features, float eps, float momentum)
 }
 
 TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
-    // Input shape: (batch, channels, height, width)
     assert(input->shape.size() == 4);
     assert(input->shape[1] == num_features);
 
@@ -21,17 +19,15 @@ TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
     size_t height = input->shape[2];
     size_t width = input->shape[3];
     size_t spatial_size = height * width;
-    size_t n = batch * spatial_size;  // number of elements per channel
+    size_t n = batch * spatial_size;
 
     bool track = input->requires_grad && GradMode::is_enabled();
     auto result = Tensor::create(input->shape, track);
 
-    // Store mean and var for backward pass
     std::vector<float> mean(channels, 0.0f);
     std::vector<float> var(channels, 0.0f);
 
     if (training) {
-        // Compute batch mean and variance per channel
         for (size_t c = 0; c < channels; c++) {
             float sum = 0.0f;
             for (size_t b = 0; b < batch; b++) {
@@ -59,20 +55,17 @@ TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
             var[c] = sum_sq / static_cast<float>(n);
         }
 
-        // Update running statistics
         for (size_t c = 0; c < channels; c++) {
             running_mean->data()[c] = (1.0f - momentum) * running_mean->data()[c] + momentum * mean[c];
             running_var->data()[c] = (1.0f - momentum) * running_var->data()[c] + momentum * var[c];
         }
     } else {
-        // Use running statistics for inference
         for (size_t c = 0; c < channels; c++) {
             mean[c] = running_mean->data()[c];
             var[c] = running_var->data()[c];
         }
     }
 
-    // Normalize and apply scale/shift
     std::vector<float> inv_std(channels);
     for (size_t c = 0; c < channels; c++) {
         inv_std[c] = 1.0f / std::sqrt(var[c] + eps);
@@ -109,7 +102,6 @@ TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
             std::vector<float> dmean(channels, 0.0f);
             std::vector<float> dvar(channels, 0.0f);
 
-            // Compute dgamma, dbeta, and intermediate gradients
             for (size_t c = 0; c < channels; c++) {
                 for (size_t b = 0; b < batch; b++) {
                     for (size_t h = 0; h < height; h++) {
@@ -123,7 +115,6 @@ TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
                 }
             }
 
-            // Compute dvar
             for (size_t c = 0; c < channels; c++) {
                 for (size_t b = 0; b < batch; b++) {
                     for (size_t h = 0; h < height; h++) {
@@ -136,7 +127,6 @@ TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
                 }
             }
 
-            // Compute dmean
             for (size_t c = 0; c < channels; c++) {
                 float sum_dx_norm = 0.0f;
                 float sum_x_diff = 0.0f;
@@ -152,7 +142,6 @@ TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
                 dmean[c] = sum_dx_norm + dvar[c] * sum_x_diff / static_cast<float>(n);
             }
 
-            // Compute dx
             if (input_ptr->requires_grad) {
                 for (size_t b = 0; b < batch; b++) {
                     for (size_t c = 0; c < channels; c++) {
@@ -169,7 +158,6 @@ TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
                 }
             }
 
-            // Apply gradients to gamma and beta
             if (gamma_ptr->requires_grad) {
                 for (size_t c = 0; c < channels; c++) {
                     gamma_ptr->grad()[c] += dgamma[c];
@@ -190,10 +178,8 @@ std::vector<TensorPtr> BatchNorm2d::parameters() {
     return {gamma, beta};
 }
 
-// LayerNorm implementation
 LayerNorm::LayerNorm(std::vector<size_t> normalized_shape, float eps)
     : normalized_shape(normalized_shape), eps(eps) {
-    // Compute total size of normalized dimensions
     size_t size = 1;
     for (auto s : normalized_shape) size *= s;
 
@@ -205,20 +191,15 @@ LayerNorm::LayerNorm(size_t dim, float eps)
     : LayerNorm(std::vector<size_t>{dim}, eps) {}
 
 TensorPtr LayerNorm::forward(const TensorPtr& input) {
-    // LayerNorm normalizes over the last len(normalized_shape) dimensions
-    // Input can be any shape, we normalize over the trailing dimensions
-
     size_t norm_size = 1;
     for (auto s : normalized_shape) norm_size *= s;
 
-    // Verify input shape matches normalized_shape at the end
     size_t ndim = normalized_shape.size();
     assert(input->shape.size() >= ndim);
     for (size_t i = 0; i < ndim; i++) {
         assert(input->shape[input->shape.size() - ndim + i] == normalized_shape[i]);
     }
 
-    // Compute number of instances to normalize (product of leading dimensions)
     size_t num_instances = 1;
     for (size_t i = 0; i < input->shape.size() - ndim; i++) {
         num_instances *= input->shape[i];
@@ -227,11 +208,9 @@ TensorPtr LayerNorm::forward(const TensorPtr& input) {
     bool track = input->requires_grad && GradMode::is_enabled();
     auto result = Tensor::create(input->shape, track);
 
-    // Store mean and inv_std for backward pass
     std::vector<float> mean(num_instances, 0.0f);
     std::vector<float> inv_std(num_instances, 0.0f);
 
-    // Compute mean and variance for each instance
     for (size_t n = 0; n < num_instances; n++) {
         float sum = 0.0f;
         for (size_t i = 0; i < norm_size; i++) {
@@ -248,7 +227,6 @@ TensorPtr LayerNorm::forward(const TensorPtr& input) {
         inv_std[n] = 1.0f / std::sqrt(var + eps);
     }
 
-    // Normalize and apply scale/shift
     for (size_t n = 0; n < num_instances; n++) {
         for (size_t i = 0; i < norm_size; i++) {
             float x_norm = (input->data()[n * norm_size + i] - mean[n]) * inv_std[n];
@@ -268,7 +246,6 @@ TensorPtr LayerNorm::forward(const TensorPtr& input) {
             std::vector<float> dbeta(norm_size, 0.0f);
 
             for (size_t n = 0; n < num_instances; n++) {
-                // Compute dgamma and dbeta
                 for (size_t i = 0; i < norm_size; i++) {
                     float x_norm = (input_ptr->data()[n * norm_size + i] - mean[n]) * inv_std[n];
                     dgamma[i] += result->grad()[n * norm_size + i] * x_norm;
@@ -300,7 +277,6 @@ TensorPtr LayerNorm::forward(const TensorPtr& input) {
                 }
             }
 
-            // Apply gradients to gamma and beta
             if (gamma_ptr->requires_grad) {
                 for (size_t i = 0; i < norm_size; i++) {
                     gamma_ptr->grad()[i] += dgamma[i];

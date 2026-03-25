@@ -86,7 +86,6 @@ export default function AccountTab() {
 
   return (
     <Box>
-      {/* Appearance */}
       <Box sx={{ mb: 5 }}>
         <Typography sx={labelSx}>Appearance</Typography>
         <Box sx={{ display: "flex", gap: 0.5 }}>
@@ -120,7 +119,6 @@ export default function AccountTab() {
         </Box>
       </Box>
 
-      {/* Account Info */}
       <Box sx={{ mb: 5 }}>
         <Typography sx={labelSx}>Account</Typography>
         <Typography
@@ -141,7 +139,6 @@ export default function AccountTab() {
         </Typography>
       </Box>
 
-      {/* Change Password */}
       {!isOAuth && (
         <Box sx={{ mb: 5 }}>
           <Typography sx={labelSx}>Password</Typography>
@@ -214,7 +211,6 @@ export default function AccountTab() {
         </Box>
       )}
 
-      {/* Footer actions */}
       <Box
         sx={{
           display: "flex",

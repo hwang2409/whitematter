@@ -5,7 +5,6 @@ export async function uploadDataset(file: File, name: string): Promise<CustomDat
   const formData = new FormData();
   formData.append('file', file);
   formData.append('name', name);
-  // Use longer timeout for uploads (60 seconds)
   const res = await fetchWithTimeout(`${API_BASE}/datasets/upload`, {
     method: 'POST',
     body: formData,
@@ -58,7 +57,6 @@ export async function uploadTextDataset(
   return res.json();
 }
 
-/** Import a dataset from a public HTTPS URL (ZIP or TXT). */
 export async function importDatasetFromUrl(
   url: string,
   name?: string | null
@@ -75,7 +73,6 @@ export async function importDatasetFromUrl(
   return res.json();
 }
 
-/** Import a dataset from Hugging Face Hub (e.g. "username/dataset-name"). */
 export async function importDatasetFromHuggingFace(
   datasetId: string,
   options?: { name?: string | null; config?: string | null; split?: string }
