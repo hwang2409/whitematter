@@ -13,7 +13,7 @@ import CompletedModelCard from "./CompletedModelCard";
 interface ChatMessageBubbleProps {
   message: ChatMessage;
   onRetry?: () => void;
-  onTrainingComplete?: (status: Record<string, unknown>) => void;
+  onTrainingComplete?: (status: any) => void;
   onSend?: (text: string) => void;
 }
 
