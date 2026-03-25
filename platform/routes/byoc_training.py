@@ -1,12 +1,15 @@
 """BYOC training routes (launch, status, stop) + callback routes."""
 import hashlib
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, Header
+from pathlib import Path
+from fastapi import APIRouter, Depends, HTTPException, Header, Query, Response, File, UploadFile
 from sqlalchemy.orm import Session
 from db.database import get_db
 from db.auth_models import User, AWSCredential, ByocTrainingJob, ByocJobStatus
+from db.blob_store import get_blob_store
 from auth.dependencies import get_current_user
 from byoc.provisioner import ByocProvisioner
+from byoc.artifact_builder import build_training_tarball
 from schemas.byoc_schemas import (
     LaunchRequest, JobStatusResponse, HeartbeatRequest,
     LogRequest, MetricsRequest, CompleteRequest, FailRequest,
@@ -167,6 +170,37 @@ def fail_job(job_id: str, req: FailRequest,
     job.error_message = req.error_message
     db.commit()
     return {"status": "ok"}
+
+
+@router.get("/training/{job_id}/artifacts")
+def get_training_artifacts(job_id: str,
+                           token: str = Query(...),
+                           db: Session = Depends(get_db)):
+    """Download training artifacts tarball (authenticated via query-param token)."""
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    job = db.query(ByocTrainingJob).filter(ByocTrainingJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job.job_token_hash != token_hash:
+        raise HTTPException(status_code=401, detail="Invalid job token")
+
+    project_root = Path(__file__).parent.parent.parent
+    tarball_bytes = build_training_tarball(project_root, job)
+    return Response(content=tarball_bytes, media_type="application/x-tar")
+
+
+@router.post("/training/{job_id}/weights")
+async def upload_weights(job_id: str,
+                         file: UploadFile = File(...),
+                         authorization: str = Header(..., alias="Authorization"),
+                         db: Session = Depends(get_db)):
+    """Upload trained model weights."""
+    job = _verify_job_token(job_id, authorization, db)
+    file_bytes = await file.read()
+    blob_store = get_blob_store()
+    key = f"models/{job.model_config.get('model_id', job.id)}/weights.bin"
+    blob_store.put(key, file_bytes)
+    return {"status": "ok", "blob_key": key}
 
 
 def _job_to_response(job: ByocTrainingJob) -> JobStatusResponse:
