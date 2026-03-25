@@ -3,17 +3,9 @@ import { useState, useEffect } from "react";
 import Box from "@mui/material/Box";
 import Typography from "@mui/material/Typography";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+import type { TrainingStatus } from "@/api";
 
-interface TrainingStatus {
-  job_id: string;
-  status: string;
-  epoch: number;
-  total_epochs: number;
-  loss: number;
-  accuracy: number;
-  message: string;
-}
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 interface Props {
   conversationId: string;

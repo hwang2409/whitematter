@@ -10,7 +10,7 @@ import { test, expect } from "@playwright/test";
 test.describe("Page smoke tests", () => {
   test("login page loads", async ({ page }) => {
     await page.goto("/login");
-    await expect(page.getByText("Sign in to your account")).toBeVisible();
+    await expect(page.getByText("Welcome back")).toBeVisible();
   });
 
   test("register page loads", async ({ page }) => {
@@ -22,18 +22,18 @@ test.describe("Page smoke tests", () => {
     await page.goto("/");
     // Unauthenticated: / -> /chat -> /login
     await page.waitForURL("**/login");
-    await expect(page.getByText("Sign in to your account")).toBeVisible();
+    await expect(page.getByText("Welcome back")).toBeVisible();
   });
 
   test("settings redirects to login when unauthenticated", async ({ page }) => {
     await page.goto("/settings");
     await page.waitForURL("**/login");
-    await expect(page.getByText("Sign in to your account")).toBeVisible();
+    await expect(page.getByText("Welcome back")).toBeVisible();
   });
 
   test("models redirects to login when unauthenticated", async ({ page }) => {
     await page.goto("/models");
     await page.waitForURL("**/login");
-    await expect(page.getByText("Sign in to your account")).toBeVisible();
+    await expect(page.getByText("Welcome back")).toBeVisible();
   });
 });
