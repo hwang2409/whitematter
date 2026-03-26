@@ -1085,6 +1085,90 @@ TensorPtr Tensor::tanh_() const {
     return result;
 }
 
+TensorPtr Tensor::silu() const {
+    bool track = requires_grad && GradMode::is_enabled();
+    auto result = create(shape, track);
+
+    for (size_t i = 0; i < size(); i++) {
+        float x = data()[i];
+        float s = 1.0f / (1.0f + std::exp(-x));
+        result->data()[i] = x * s;
+    }
+
+    if (track) {
+        auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
+        result->parents = {self_ptr};
+        result->grad_fn = [self_ptr, result]() {
+            for (size_t i = 0; i < self_ptr->size(); i++) {
+                float x = self_ptr->data()[i];
+                float s = 1.0f / (1.0f + std::exp(-x));
+                // d/dx[x * sig(x)] = sig(x) * (1 + x * (1 - sig(x)))
+                float grad = s * (1.0f + x * (1.0f - s));
+                self_ptr->grad()[i] += result->grad()[i] * grad;
+            }
+        };
+    }
+    return result;
+}
+
+TensorPtr Tensor::gelu() const {
+    bool track = requires_grad && GradMode::is_enabled();
+    auto result = create(shape, track);
+
+    static const float sqrt2 = std::sqrt(2.0f);
+
+    for (size_t i = 0; i < size(); i++) {
+        float x = data()[i];
+        result->data()[i] = x * 0.5f * (1.0f + std::erf(x / sqrt2));
+    }
+
+    if (track) {
+        auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
+        result->parents = {self_ptr};
+        result->grad_fn = [self_ptr, result]() {
+            static const float sqrt2_l = std::sqrt(2.0f);
+            static const float sqrt2pi_l = std::sqrt(2.0f * static_cast<float>(M_PI));
+            for (size_t i = 0; i < self_ptr->size(); i++) {
+                float x = self_ptr->data()[i];
+                // d/dx = 0.5 * (1 + erf(x/sqrt(2))) + x * exp(-x^2/2) / sqrt(2*pi)
+                float cdf = 0.5f * (1.0f + std::erf(x / sqrt2_l));
+                float pdf = std::exp(-0.5f * x * x) / sqrt2pi_l;
+                self_ptr->grad()[i] += result->grad()[i] * (cdf + x * pdf);
+            }
+        };
+    }
+    return result;
+}
+
+TensorPtr Tensor::mish() const {
+    bool track = requires_grad && GradMode::is_enabled();
+    auto result = create(shape, track);
+
+    for (size_t i = 0; i < size(); i++) {
+        float x = data()[i];
+        // softplus(x) = ln(1 + exp(x)), numerically stable
+        float sp = (x > 20.0f) ? x : std::log1p(std::exp(x));
+        result->data()[i] = x * std::tanh(sp);
+    }
+
+    if (track) {
+        auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
+        result->parents = {self_ptr};
+        result->grad_fn = [self_ptr, result]() {
+            for (size_t i = 0; i < self_ptr->size(); i++) {
+                float x = self_ptr->data()[i];
+                float sp = (x > 20.0f) ? x : std::log1p(std::exp(x));
+                float tanh_sp = std::tanh(sp);
+                float sig = 1.0f / (1.0f + std::exp(-x));
+                // d/dx = tanh(sp) + x * (1 - tanh(sp)^2) * sigmoid(x)
+                float grad = tanh_sp + x * (1.0f - tanh_sp * tanh_sp) * sig;
+                self_ptr->grad()[i] += result->grad()[i] * grad;
+            }
+        };
+    }
+    return result;
+}
+
 TensorPtr Tensor::log_() const {
     bool track = requires_grad && GradMode::is_enabled();
     auto result = create(shape, track);

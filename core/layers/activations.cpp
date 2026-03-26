@@ -15,6 +15,18 @@ TensorPtr Tanh::forward(const TensorPtr& input) {
     return input->tanh_();
 }
 
+TensorPtr SiLU::forward(const TensorPtr& input) {
+    return input->silu();
+}
+
+TensorPtr GELU::forward(const TensorPtr& input) {
+    return input->gelu();
+}
+
+TensorPtr Mish::forward(const TensorPtr& input) {
+    return input->mish();
+}
+
 Softmax::Softmax(int dim) : dim(dim) {}
 
 TensorPtr Softmax::forward(const TensorPtr& input) {

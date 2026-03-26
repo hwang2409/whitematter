@@ -5,20 +5,23 @@
 static thread_local std::mt19937 conv_rng(123);
 
 Conv2d::Conv2d(size_t in_channels, size_t out_channels, size_t kernel_size,
-               size_t stride, size_t padding)
+               size_t stride, size_t padding, size_t groups)
     : in_channels(in_channels), out_channels(out_channels),
-      kernel_size(kernel_size), stride(stride), padding(padding) {
-    float std = std::sqrt(2.0f / (in_channels * kernel_size * kernel_size));
+      kernel_size(kernel_size), stride(stride), padding(padding), groups(groups) {
+    assert(in_channels % groups == 0 && "in_channels must be divisible by groups");
+    assert(out_channels % groups == 0 && "out_channels must be divisible by groups");
+
+    float std = std::sqrt(2.0f / ((in_channels / groups) * kernel_size * kernel_size));
     std::normal_distribution<float> dist(0.0f, std);
 
-    weight = Tensor::create({out_channels, in_channels, kernel_size, kernel_size}, true);
+    weight = Tensor::create({out_channels, in_channels / groups, kernel_size, kernel_size}, true);
     for (size_t i = 0; i < weight->size(); i++) weight->data()[i] = dist(conv_rng);
 
     bias = Tensor::zeros({out_channels}, true);
 }
 
 TensorPtr Conv2d::forward(const TensorPtr& input) {
-    return input->conv2d(weight, bias, stride, padding);
+    return input->conv2d(weight, bias, stride, padding, groups);
 }
 
 std::vector<TensorPtr> Conv2d::parameters() {
@@ -62,10 +65,12 @@ TensorPtr AvgPool2d::forward(const TensorPtr& input) {
 }
 
 std::string Conv2d::extra_repr() const {
-    return std::to_string(in_channels) + ", " + std::to_string(out_channels) +
+    std::string repr = std::to_string(in_channels) + ", " + std::to_string(out_channels) +
            ", kernel_size=" + std::to_string(kernel_size) +
            ", stride=" + std::to_string(stride) +
            ", padding=" + std::to_string(padding);
+    if (groups > 1) repr += ", groups=" + std::to_string(groups);
+    return repr;
 }
 
 std::string ConvTranspose2d::extra_repr() const {

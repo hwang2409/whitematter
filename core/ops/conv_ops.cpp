@@ -236,10 +236,10 @@ static void conv2d_winograd_f2x2_3x3(
 }
 
 TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
-                          size_t stride, size_t padding) const {
+                          size_t stride, size_t padding, size_t groups) const {
     assert(shape.size() == 4);
     assert(weight->shape.size() == 4);
-    assert(shape[1] == weight->shape[1]);
+    assert(groups >= 1);
 
     size_t batch = shape[0];
     size_t in_channels = shape[1];
@@ -250,6 +250,11 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
     size_t kernel_h = weight->shape[2];
     size_t kernel_w = weight->shape[3];
 
+    assert(in_channels % groups == 0);
+    assert(out_channels % groups == 0);
+    // weight->shape[1] should be in_channels / groups
+    assert(weight->shape[1] == in_channels / groups);
+
     size_t out_h = (in_h + 2 * padding - kernel_h) / stride + 1;
     size_t out_w = (in_w + 2 * padding - kernel_w) / stride + 1;
 
@@ -257,34 +262,44 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
                  && GradMode::is_enabled();
     auto result = create({batch, out_channels, out_h, out_w}, track);
 
-    // Winograd F(2x2, 3x3) fast path: kernel=3, stride=1, padding=1
-    if (kernel_h == 3 && kernel_w == 3 && stride == 1 && padding == 1) {
+    size_t in_ch_per_group = in_channels / groups;
+    size_t out_ch_per_group = out_channels / groups;
+
+    // Winograd F(2x2, 3x3) fast path: kernel=3, stride=1, padding=1, groups=1 only
+    if (groups == 1 && kernel_h == 3 && kernel_w == 3 && stride == 1 && padding == 1) {
         conv2d_winograd_f2x2_3x3(result->data(), data(), weight->data(),
                                    bias ? bias->data() : nullptr,
                                    batch, in_channels, out_channels,
                                    in_h, in_w, out_h, out_w);
     } else {
-        // Fallback: im2col + GEMM
-        size_t col_h = in_channels * kernel_h * kernel_w;
+        // im2col + GEMM, per group
+        size_t col_h_per_group = in_ch_per_group * kernel_h * kernel_w;
         size_t col_w = out_h * out_w;
-        float* col_buffer = get_buf(tl_col_buf, col_h * col_w);
+        float* col_buffer = get_buf(tl_col_buf, col_h_per_group * col_w);
 
         for (size_t b = 0; b < batch; b++) {
-            const float* input_ptr = data() + b * in_channels * in_h * in_w;
-            float* output_ptr = result->data() + b * out_channels * out_h * out_w;
+            for (size_t g = 0; g < groups; g++) {
+                const float* input_ptr = data() + b * in_channels * in_h * in_w
+                                        + g * in_ch_per_group * in_h * in_w;
+                float* output_ptr = result->data() + b * out_channels * out_h * out_w
+                                   + g * out_ch_per_group * out_h * out_w;
+                const float* weight_ptr_g = weight->data()
+                                           + g * out_ch_per_group * in_ch_per_group * kernel_h * kernel_w;
 
-            im2col(input_ptr, col_buffer,
-                   in_channels, in_h, in_w,
-                   kernel_h, kernel_w,
-                   out_h, out_w, stride, padding);
+                im2col(input_ptr, col_buffer,
+                       in_ch_per_group, in_h, in_w,
+                       kernel_h, kernel_w,
+                       out_h, out_w, stride, padding);
 
-            matmul_blocked(output_ptr, weight->data(), col_buffer,
-                           out_channels, col_h, col_w);
+                matmul_blocked(output_ptr, weight_ptr_g, col_buffer,
+                               out_ch_per_group, col_h_per_group, col_w);
 
-            if (bias) {
-                for (size_t oc = 0; oc < out_channels; oc++) {
-                    for (size_t i = 0; i < col_w; i++) {
-                        output_ptr[oc * col_w + i] += bias->data()[oc];
+                if (bias) {
+                    for (size_t oc = 0; oc < out_ch_per_group; oc++) {
+                        size_t bias_idx = g * out_ch_per_group + oc;
+                        for (size_t i = 0; i < col_w; i++) {
+                            output_ptr[oc * col_w + i] += bias->data()[bias_idx];
+                        }
                     }
                 }
             }
@@ -301,60 +316,79 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
         result->grad_fn = [self_ptr, weight_ptr, bias_ptr, result,
                            batch, in_channels, in_h, in_w,
                            out_channels, out_h, out_w,
-                           kernel_h, kernel_w, stride, padding]() {
+                           kernel_h, kernel_w, stride, padding, groups]() {
 
-            size_t col_h = in_channels * kernel_h * kernel_w;
+            size_t in_ch_per_group = in_channels / groups;
+            size_t out_ch_per_group = out_channels / groups;
+            size_t col_h_per_group = in_ch_per_group * kernel_h * kernel_w;
             size_t col_w = out_h * out_w;
 
             if (self_ptr->requires_grad) {
-                float* weight_T = get_buf(tl_scratch, col_h * out_channels);
-                for (size_t oc = 0; oc < out_channels; oc++) {
-                    for (size_t k = 0; k < col_h; k++) {
-                        weight_T[k * out_channels + oc] = weight_ptr->data()[oc * col_h + k];
-                    }
-                }
-
-                float* col_grad = get_buf(tl_col_buf, col_h * col_w);
+                float* weight_T = get_buf(tl_scratch, col_h_per_group * out_ch_per_group);
+                float* col_grad = get_buf(tl_col_buf, col_h_per_group * col_w);
 
                 for (size_t b = 0; b < batch; b++) {
-                    const float* grad_out = result->grad() + b * out_channels * col_w;
-                    float* grad_in = self_ptr->grad() + b * in_channels * in_h * in_w;
+                    for (size_t g = 0; g < groups; g++) {
+                        const float* weight_g = weight_ptr->data()
+                                               + g * out_ch_per_group * col_h_per_group;
+                        // Transpose weight for this group: [out_ch_per_group, col_h_per_group] -> [col_h_per_group, out_ch_per_group]
+                        for (size_t oc = 0; oc < out_ch_per_group; oc++) {
+                            for (size_t k = 0; k < col_h_per_group; k++) {
+                                weight_T[k * out_ch_per_group + oc] = weight_g[oc * col_h_per_group + k];
+                            }
+                        }
 
-                    matmul_blocked(col_grad, weight_T, grad_out,
-                                   col_h, out_channels, col_w);
+                        const float* grad_out = result->grad()
+                                               + b * out_channels * col_w
+                                               + g * out_ch_per_group * col_w;
+                        float* grad_in = self_ptr->grad()
+                                        + b * in_channels * in_h * in_w
+                                        + g * in_ch_per_group * in_h * in_w;
 
-                    col2im(col_grad, grad_in,
-                           in_channels, in_h, in_w,
-                           kernel_h, kernel_w,
-                           out_h, out_w, stride, padding);
+                        matmul_blocked(col_grad, weight_T, grad_out,
+                                       col_h_per_group, out_ch_per_group, col_w);
+
+                        col2im(col_grad, grad_in,
+                               in_ch_per_group, in_h, in_w,
+                               kernel_h, kernel_w,
+                               out_h, out_w, stride, padding);
+                    }
                 }
             }
 
             if (weight_ptr->requires_grad) {
-                float* col_buf = get_buf(tl_col_buf, col_h * col_w);
-                float* col_T = get_buf(tl_col_buf2, col_w * col_h);
+                float* col_buf = get_buf(tl_col_buf, col_h_per_group * col_w);
+                float* col_T = get_buf(tl_col_buf2, col_w * col_h_per_group);
 
                 for (size_t b = 0; b < batch; b++) {
-                    const float* input_ptr = self_ptr->data() + b * in_channels * in_h * in_w;
-                    const float* grad_out = result->grad() + b * out_channels * col_w;
+                    for (size_t g = 0; g < groups; g++) {
+                        const float* input_ptr = self_ptr->data()
+                                                + b * in_channels * in_h * in_w
+                                                + g * in_ch_per_group * in_h * in_w;
+                        const float* grad_out = result->grad()
+                                               + b * out_channels * col_w
+                                               + g * out_ch_per_group * col_w;
 
-                    im2col(input_ptr, col_buf,
-                           in_channels, in_h, in_w,
-                           kernel_h, kernel_w,
-                           out_h, out_w, stride, padding);
+                        im2col(input_ptr, col_buf,
+                               in_ch_per_group, in_h, in_w,
+                               kernel_h, kernel_w,
+                               out_h, out_w, stride, padding);
 
-                    for (size_t i = 0; i < col_h; i++) {
-                        for (size_t j = 0; j < col_w; j++) {
-                            col_T[j * col_h + i] = col_buf[i * col_w + j];
+                        for (size_t i = 0; i < col_h_per_group; i++) {
+                            for (size_t j = 0; j < col_w; j++) {
+                                col_T[j * col_h_per_group + i] = col_buf[i * col_w + j];
+                            }
                         }
-                    }
 
-                    float* grad_w_batch = get_buf(tl_scratch, out_channels * col_h);
-                    matmul_blocked(grad_w_batch, grad_out, col_T,
-                                   out_channels, col_w, col_h);
+                        float* grad_w_g = get_buf(tl_scratch, out_ch_per_group * col_h_per_group);
+                        matmul_blocked(grad_w_g, grad_out, col_T,
+                                       out_ch_per_group, col_w, col_h_per_group);
 
-                    for (size_t i = 0; i < out_channels * col_h; i++) {
-                        weight_ptr->grad()[i] += grad_w_batch[i];
+                        float* weight_grad_g = weight_ptr->grad()
+                                              + g * out_ch_per_group * col_h_per_group;
+                        for (size_t i = 0; i < out_ch_per_group * col_h_per_group; i++) {
+                            weight_grad_g[i] += grad_w_g[i];
+                        }
                     }
                 }
             }

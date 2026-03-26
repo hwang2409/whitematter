@@ -62,6 +62,24 @@ public:
     std::string name() const override { return "Tanh"; }
 };
 
+class SiLU : public Module {
+public:
+    TensorPtr forward(const TensorPtr& input) override;
+    std::string name() const override { return "SiLU"; }
+};
+
+class GELU : public Module {
+public:
+    TensorPtr forward(const TensorPtr& input) override;
+    std::string name() const override { return "GELU"; }
+};
+
+class Mish : public Module {
+public:
+    TensorPtr forward(const TensorPtr& input) override;
+    std::string name() const override { return "Mish"; }
+};
+
 class Softmax : public Module {
 public:
     int dim;
@@ -101,9 +119,10 @@ public:
     size_t kernel_size;
     size_t stride;
     size_t padding;
+    size_t groups;
 
     Conv2d(size_t in_channels, size_t out_channels, size_t kernel_size,
-           size_t stride = 1, size_t padding = 0);
+           size_t stride = 1, size_t padding = 0, size_t groups = 1);
 
     TensorPtr forward(const TensorPtr& input) override;
     std::vector<TensorPtr> parameters() override;
@@ -194,6 +213,50 @@ public:
     std::string name() const override { return "LayerNorm"; }
     std::string extra_repr() const override;
 };
+
+class GroupNorm : public Module {
+public:
+    size_t num_groups, num_channels;
+    float eps;
+    TensorPtr gamma, beta;
+
+    GroupNorm(size_t num_groups, size_t num_channels, float eps = 1e-5f);
+
+    TensorPtr forward(const TensorPtr& input) override;
+    std::vector<TensorPtr> parameters() override;
+    std::string name() const override { return "GroupNorm"; }
+    std::string extra_repr() const override;
+};
+
+class RMSNorm : public Module {
+public:
+    size_t dim;
+    float eps;
+    TensorPtr gamma;
+
+    RMSNorm(size_t dim, float eps = 1e-8f);
+
+    TensorPtr forward(const TensorPtr& input) override;
+    std::vector<TensorPtr> parameters() override;
+    std::string name() const override { return "RMSNorm"; }
+    std::string extra_repr() const override;
+};
+
+class SinusoidalPositionalEncoding : public Module {
+public:
+    SinusoidalPositionalEncoding(size_t max_seq_len, size_t embed_dim);
+
+    TensorPtr forward(const TensorPtr& input) override;
+    std::string name() const override { return "SinusoidalPE"; }
+
+private:
+    TensorPtr pe_table;  // [max_seq_len, embed_dim], not learnable
+    size_t max_seq_len_, embed_dim_;
+};
+
+// Apply Rotary Positional Embedding (RoPE) to Q or K tensor
+// qk shape: [batch, seq_len, embed] where embed = num_heads * head_dim
+void apply_rope(TensorPtr& qk, size_t seq_len, size_t num_heads, size_t head_dim);
 
 class Flatten : public Module {
 public:

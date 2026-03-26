@@ -45,7 +45,7 @@ CORE_SRCS = $(CORE_DIR)/memory_pool.cpp $(CORE_DIR)/autograd.cpp $(CORE_DIR)/bro
             $(CORE_DIR)/model_zoo.cpp $(SERIAL_DIR)/onnx_export.cpp $(SERIAL_DIR)/onnx_import.cpp $(CORE_DIR)/device.cpp \
             $(LAYERS_DIR)/linear.cpp $(LAYERS_DIR)/activations.cpp $(LAYERS_DIR)/conv.cpp \
             $(LAYERS_DIR)/normalization.cpp $(LAYERS_DIR)/embedding.cpp $(LAYERS_DIR)/recurrent.cpp \
-            $(LAYERS_DIR)/attention.cpp $(LAYERS_DIR)/sequential.cpp \
+            $(LAYERS_DIR)/attention.cpp $(LAYERS_DIR)/sequential.cpp $(LAYERS_DIR)/positional.cpp \
             $(CORE_DIR)/ops/simd_ops_avx.cpp $(CORE_DIR)/ops/simd_ops_neon.cpp $(CORE_DIR)/ops/simd_ops_fallback.cpp \
             $(CORE_DIR)/ops/matmul_cpu.cpp $(CORE_DIR)/ops/im2col.cpp \
             $(CORE_DIR)/ops/conv_ops.cpp $(CORE_DIR)/ops/augmentation.cpp \
@@ -56,7 +56,7 @@ CORE_OBJS = $(BUILD_DIR)/memory_pool.o $(BUILD_DIR)/autograd.o $(BUILD_DIR)/broa
             $(BUILD_DIR)/model_zoo.o $(BUILD_DIR)/onnx_export.o $(BUILD_DIR)/onnx_import.o $(BUILD_DIR)/device.o \
             $(BUILD_DIR)/layer_linear.o $(BUILD_DIR)/layer_activations.o $(BUILD_DIR)/layer_conv.o \
             $(BUILD_DIR)/layer_normalization.o $(BUILD_DIR)/layer_embedding.o $(BUILD_DIR)/layer_recurrent.o \
-            $(BUILD_DIR)/layer_attention.o $(BUILD_DIR)/layer_sequential.o \
+            $(BUILD_DIR)/layer_attention.o $(BUILD_DIR)/layer_sequential.o $(BUILD_DIR)/layer_positional.o \
             $(BUILD_DIR)/simd_ops_avx.o $(BUILD_DIR)/simd_ops_neon.o $(BUILD_DIR)/simd_ops_fallback.o \
             $(BUILD_DIR)/matmul_cpu.o $(BUILD_DIR)/im2col.o \
             $(BUILD_DIR)/conv_ops.o $(BUILD_DIR)/augmentation.o \
@@ -178,6 +178,9 @@ $(BUILD_DIR)/layer_attention.o: $(LAYERS_DIR)/attention.cpp $(CORE_DIR)/layer.h 
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/layer_sequential.o: $(LAYERS_DIR)/sequential.cpp $(CORE_DIR)/layer.h $(CORE_DIR)/tensor.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/layer_positional.o: $(LAYERS_DIR)/positional.cpp $(CORE_DIR)/layer.h $(CORE_DIR)/tensor.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/loss.o: $(CORE_DIR)/loss.cpp $(CORE_DIR)/loss.h $(CORE_DIR)/tensor.h | $(BUILD_DIR)

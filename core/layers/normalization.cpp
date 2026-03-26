@@ -285,3 +285,253 @@ std::string LayerNorm::extra_repr() const {
     shape_str += "]";
     return shape_str + ", eps=" + std::to_string(eps);
 }
+
+// =============================================================================
+// GroupNorm
+// =============================================================================
+
+GroupNorm::GroupNorm(size_t num_groups, size_t num_channels, float eps)
+    : num_groups(num_groups), num_channels(num_channels), eps(eps) {
+    assert(num_channels % num_groups == 0);
+    gamma = Tensor::ones({num_channels}, true);
+    beta = Tensor::zeros({num_channels}, true);
+}
+
+TensorPtr GroupNorm::forward(const TensorPtr& input) {
+    // Supports 3D [batch, channels, length] or 4D [batch, channels, H, W]
+    assert(input->shape.size() >= 3);
+    assert(input->shape[1] == num_channels);
+
+    size_t batch = input->shape[0];
+    size_t channels = input->shape[1];
+    size_t channels_per_group = channels / num_groups;
+
+    // Compute spatial size (everything after the channel dim)
+    size_t spatial_size = 1;
+    for (size_t d = 2; d < input->shape.size(); d++) {
+        spatial_size *= input->shape[d];
+    }
+
+    size_t group_size = channels_per_group * spatial_size;  // elements per group
+
+    bool track = input->requires_grad && GradMode::is_enabled();
+    auto result = Tensor::create(input->shape, track);
+
+    // Per (batch, group) mean and inv_std
+    size_t num_stats = batch * num_groups;
+    std::vector<float> mean(num_stats, 0.0f);
+    std::vector<float> inv_std(num_stats, 0.0f);
+
+    for (size_t b = 0; b < batch; b++) {
+        for (size_t g = 0; g < num_groups; g++) {
+            size_t stat_idx = b * num_groups + g;
+            float sum = 0.0f;
+            for (size_t c = g * channels_per_group; c < (g + 1) * channels_per_group; c++) {
+                size_t base = b * channels * spatial_size + c * spatial_size;
+                for (size_t i = 0; i < spatial_size; i++) {
+                    sum += input->data()[base + i];
+                }
+            }
+            mean[stat_idx] = sum / static_cast<float>(group_size);
+
+            float var_sum = 0.0f;
+            for (size_t c = g * channels_per_group; c < (g + 1) * channels_per_group; c++) {
+                size_t base = b * channels * spatial_size + c * spatial_size;
+                for (size_t i = 0; i < spatial_size; i++) {
+                    float diff = input->data()[base + i] - mean[stat_idx];
+                    var_sum += diff * diff;
+                }
+            }
+            float var = var_sum / static_cast<float>(group_size);
+            inv_std[stat_idx] = 1.0f / std::sqrt(var + eps);
+        }
+    }
+
+    // Normalize and apply affine
+    for (size_t b = 0; b < batch; b++) {
+        for (size_t c = 0; c < channels; c++) {
+            size_t g = c / channels_per_group;
+            size_t stat_idx = b * num_groups + g;
+            size_t base = b * channels * spatial_size + c * spatial_size;
+            for (size_t i = 0; i < spatial_size; i++) {
+                float x_norm = (input->data()[base + i] - mean[stat_idx]) * inv_std[stat_idx];
+                result->data()[base + i] = gamma->data()[c] * x_norm + beta->data()[c];
+            }
+        }
+    }
+
+    if (track) {
+        auto input_ptr = input;
+        auto gamma_ptr = gamma;
+        auto beta_ptr = beta;
+        result->parents = {input_ptr, gamma_ptr, beta_ptr};
+
+        auto num_groups_ = num_groups;
+        auto channels_per_group_ = channels_per_group;
+
+        result->grad_fn = [input_ptr, gamma_ptr, beta_ptr, result,
+                           mean, inv_std, batch, channels, spatial_size,
+                           num_groups_, channels_per_group_]() {
+            size_t group_size = channels_per_group_ * spatial_size;
+
+            std::vector<float> dgamma(channels, 0.0f);
+            std::vector<float> dbeta(channels, 0.0f);
+
+            for (size_t b = 0; b < batch; b++) {
+                for (size_t g = 0; g < num_groups_; g++) {
+                    size_t stat_idx = b * num_groups_ + g;
+                    float is = inv_std[stat_idx];
+                    float m = mean[stat_idx];
+
+                    // Accumulate sums for efficient backward
+                    float sum_dy_gamma = 0.0f;
+                    float sum_dy_gamma_xnorm = 0.0f;
+
+                    for (size_t c = g * channels_per_group_; c < (g + 1) * channels_per_group_; c++) {
+                        size_t base = b * channels * spatial_size + c * spatial_size;
+                        for (size_t i = 0; i < spatial_size; i++) {
+                            float dy = result->grad()[base + i];
+                            float x_norm = (input_ptr->data()[base + i] - m) * is;
+                            dgamma[c] += dy * x_norm;
+                            dbeta[c] += dy;
+                            sum_dy_gamma += dy * gamma_ptr->data()[c];
+                            sum_dy_gamma_xnorm += dy * gamma_ptr->data()[c] * x_norm;
+                        }
+                    }
+
+                    float mean_dy_gamma = sum_dy_gamma / static_cast<float>(group_size);
+                    float mean_dy_gamma_xnorm = sum_dy_gamma_xnorm / static_cast<float>(group_size);
+
+                    if (input_ptr->requires_grad) {
+                        for (size_t c = g * channels_per_group_; c < (g + 1) * channels_per_group_; c++) {
+                            size_t base = b * channels * spatial_size + c * spatial_size;
+                            for (size_t i = 0; i < spatial_size; i++) {
+                                float dy = result->grad()[base + i];
+                                float x_norm = (input_ptr->data()[base + i] - m) * is;
+                                input_ptr->grad()[base + i] += is *
+                                    (dy * gamma_ptr->data()[c] - mean_dy_gamma - x_norm * mean_dy_gamma_xnorm);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (gamma_ptr->requires_grad) {
+                for (size_t c = 0; c < channels; c++) {
+                    gamma_ptr->grad()[c] += dgamma[c];
+                }
+            }
+            if (beta_ptr->requires_grad) {
+                for (size_t c = 0; c < channels; c++) {
+                    beta_ptr->grad()[c] += dbeta[c];
+                }
+            }
+        };
+    }
+
+    return result;
+}
+
+std::vector<TensorPtr> GroupNorm::parameters() {
+    return {gamma, beta};
+}
+
+std::string GroupNorm::extra_repr() const {
+    return std::to_string(num_groups) + ", " + std::to_string(num_channels) +
+           ", eps=" + std::to_string(eps);
+}
+
+// =============================================================================
+// RMSNorm
+// =============================================================================
+
+RMSNorm::RMSNorm(size_t dim, float eps)
+    : dim(dim), eps(eps) {
+    gamma = Tensor::ones({dim}, true);
+}
+
+TensorPtr RMSNorm::forward(const TensorPtr& input) {
+    // Normalizes over the last dimension
+    assert(input->shape.back() == dim);
+
+    size_t num_instances = 1;
+    for (size_t i = 0; i < input->shape.size() - 1; i++) {
+        num_instances *= input->shape[i];
+    }
+
+    bool track = input->requires_grad && GradMode::is_enabled();
+    auto result = Tensor::create(input->shape, track);
+
+    std::vector<float> rms(num_instances, 0.0f);
+
+    for (size_t n = 0; n < num_instances; n++) {
+        float sum_sq = 0.0f;
+        for (size_t i = 0; i < dim; i++) {
+            float val = input->data()[n * dim + i];
+            sum_sq += val * val;
+        }
+        rms[n] = std::sqrt(sum_sq / static_cast<float>(dim) + eps);
+    }
+
+    for (size_t n = 0; n < num_instances; n++) {
+        float inv_rms = 1.0f / rms[n];
+        for (size_t i = 0; i < dim; i++) {
+            result->data()[n * dim + i] = gamma->data()[i] * input->data()[n * dim + i] * inv_rms;
+        }
+    }
+
+    if (track) {
+        auto input_ptr = input;
+        auto gamma_ptr = gamma;
+        result->parents = {input_ptr, gamma_ptr};
+
+        auto dim_ = dim;
+
+        result->grad_fn = [input_ptr, gamma_ptr, result, rms, num_instances, dim_]() {
+            std::vector<float> dgamma(dim_, 0.0f);
+
+            for (size_t n = 0; n < num_instances; n++) {
+                float inv_rms = 1.0f / rms[n];
+                float inv_rms3 = inv_rms * inv_rms * inv_rms;
+
+                // Compute sum(dy * gamma * x) for the chain rule through rms
+                float sum_dy_gamma_x = 0.0f;
+                for (size_t i = 0; i < dim_; i++) {
+                    float dy = result->grad()[n * dim_ + i];
+                    sum_dy_gamma_x += dy * gamma_ptr->data()[i] * input_ptr->data()[n * dim_ + i];
+                }
+
+                // dgamma accumulation
+                for (size_t i = 0; i < dim_; i++) {
+                    dgamma[i] += result->grad()[n * dim_ + i] * input_ptr->data()[n * dim_ + i] * inv_rms;
+                }
+
+                // dx = gamma * (dy / rms - x * sum(dy * gamma * x) / (dim * rms^3))
+                if (input_ptr->requires_grad) {
+                    for (size_t i = 0; i < dim_; i++) {
+                        float dy = result->grad()[n * dim_ + i];
+                        float x = input_ptr->data()[n * dim_ + i];
+                        input_ptr->grad()[n * dim_ + i] += gamma_ptr->data()[i] *
+                            (dy * inv_rms - x * sum_dy_gamma_x * inv_rms3 / static_cast<float>(dim_));
+                    }
+                }
+            }
+
+            if (gamma_ptr->requires_grad) {
+                for (size_t i = 0; i < dim_; i++) {
+                    gamma_ptr->grad()[i] += dgamma[i];
+                }
+            }
+        };
+    }
+
+    return result;
+}
+
+std::vector<TensorPtr> RMSNorm::parameters() {
+    return {gamma};
+}
+
+std::string RMSNorm::extra_repr() const {
+    return std::to_string(dim) + ", eps=" + std::to_string(eps);
+}

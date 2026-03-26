@@ -93,6 +93,9 @@ public:
     TensorPtr relu() const;
     TensorPtr sigmoid() const;
     TensorPtr tanh_() const;
+    TensorPtr silu() const;
+    TensorPtr gelu() const;
+    TensorPtr mish() const;
     TensorPtr log_() const;
     TensorPtr exp_() const;
     TensorPtr pow(float exponent) const;
@@ -114,7 +117,8 @@ public:
     TensorPtr reshape(const std::vector<size_t>& new_shape) const;
     TensorPtr slice(size_t start, size_t end, int dim = 0) const;
     TensorPtr conv2d(const TensorPtr& weight, const TensorPtr& bias,
-                     size_t stride = 1, size_t padding = 0) const;
+                     size_t stride = 1, size_t padding = 0,
+                     size_t groups = 1) const;
     TensorPtr conv_transpose2d(const TensorPtr& weight, const TensorPtr& bias,
                                size_t stride = 1, size_t padding = 0,
                                size_t output_padding = 0) const;
