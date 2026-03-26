@@ -1,6 +1,7 @@
 #include "test_framework.h"
 #include "../core/tensor.h"
 #include "../core/layer.h"
+#include <cstring>
 #include "../core/onnx_export.h"
 #include "../core/onnx_import.h"
 #include <cmath>
