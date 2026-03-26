@@ -9,6 +9,7 @@
 #endif
 #if defined(WHITEMATTER_CUDA)
 #include "cuda/cuda_backend.h"
+#include "cuda/cuda_memory.h"
 #endif
 #include <algorithm>
 #include <numeric>
@@ -106,6 +107,39 @@ TensorPtr Tensor::to(whitematter::DeviceType d) const {
         std::memcpy(out->grad(), grad(), grad_size_ * sizeof(float));
     }
     return out;
+}
+
+void Tensor::to_inplace(whitematter::DeviceType d) {
+    if (d == device) return;
+#if defined(WHITEMATTER_CUDA)
+    if (device == whitematter::DeviceType::CPU && d == whitematter::DeviceType::CUDA) {
+        auto& pool = whitematter::CUDAMemoryPool::instance();
+        auto gpu_data = pool.acquire_shared(data_size_);
+        whitematter::CUDABackend::instance().memcpy_h2d(gpu_data.get(), data(), data_size_);
+        data_storage_ = gpu_data;
+        if (grad_storage_) {
+            auto gpu_grad = pool.acquire_shared(grad_size_);
+            whitematter::CUDABackend::instance().memcpy_h2d(gpu_grad.get(), grad(), grad_size_);
+            grad_storage_ = gpu_grad;
+        }
+        device = d;
+        return;
+    }
+    if (device == whitematter::DeviceType::CUDA && d == whitematter::DeviceType::CPU) {
+        auto cpu_data = MemoryPool::instance().acquire_shared(data_size_);
+        whitematter::CUDABackend::instance().memcpy_d2h(cpu_data.get(), data(), data_size_);
+        data_storage_ = cpu_data;
+        if (grad_storage_) {
+            auto cpu_grad = MemoryPool::instance().acquire_shared(grad_size_);
+            whitematter::CUDABackend::instance().memcpy_d2h(cpu_grad.get(), grad(), grad_size_);
+            grad_storage_ = cpu_grad;
+        }
+        device = d;
+        return;
+    }
+#else
+    (void)d;
+#endif
 }
 
 TensorPtr Tensor::xavier(size_t fan_in, size_t fan_out, bool requires_grad) {
