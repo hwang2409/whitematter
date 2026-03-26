@@ -2,14 +2,29 @@ import subprocess
 from pathlib import Path
 from typing import Tuple
 
+from config import PROJECT_ROOT
+
 
 def compile_training_code(
     generated_dir: Path,
     timeout: int = 300
 ) -> Tuple[bool, str]:
     try:
+        # Build the core library first (in the project root)
+        lib_result = subprocess.run(
+            ["make", "build/libwhitematter.a"],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=timeout
+        )
+        if lib_result.returncode != 0:
+            return False, f"Library build failed:\n{lib_result.stderr}"
+
+        # Override PROJECT_ROOT with absolute path so it works from any directory
+        # (the worker runs in a temp dir, not under generated/{job_id}/)
         result = subprocess.run(
-            ["make", "all"],
+            ["make", "all", f"PROJECT_ROOT={PROJECT_ROOT}"],
             cwd=generated_dir,
             capture_output=True,
             text=True,

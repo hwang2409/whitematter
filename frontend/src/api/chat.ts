@@ -163,6 +163,9 @@ export function sendChatMessage(
                 if (parsed.phase) {
                   msg.metadata = { ...msg.metadata, phase: parsed.phase };
                 }
+                if (parsed.training) {
+                  msg.metadata = { ...msg.metadata, training: parsed.training };
+                }
                 onDone(msg);
                 return;
               }

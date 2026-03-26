@@ -28,6 +28,12 @@ CXXFLAGS = -std=c++17 -O3 -Wall -Wextra $(SIMD_FLAGS) -ffast-math -funroll-loops
 CXXFLAGS += -I$(CORE_DIR) -I$(DATASETS_DIR)
 LDFLAGS = $(OPENMP_LIBS)
 
+# Use Apple Accelerate BLAS for fast matmul on macOS
+ifeq ($(UNAME_S),Darwin)
+    CXXFLAGS += -DACCELERATE_NEW_LAPACK
+    LDFLAGS += -framework Accelerate
+endif
+
 METAL ?= 0
 CUDA ?= 0
 
@@ -42,7 +48,8 @@ CORE_SRCS = $(CORE_DIR)/memory_pool.cpp $(CORE_DIR)/autograd.cpp $(CORE_DIR)/bro
             $(LAYERS_DIR)/attention.cpp $(LAYERS_DIR)/sequential.cpp \
             $(CORE_DIR)/ops/simd_ops_avx.cpp $(CORE_DIR)/ops/simd_ops_neon.cpp $(CORE_DIR)/ops/simd_ops_fallback.cpp \
             $(CORE_DIR)/ops/matmul_cpu.cpp $(CORE_DIR)/ops/im2col.cpp \
-            $(CORE_DIR)/ops/conv_ops.cpp $(CORE_DIR)/ops/augmentation.cpp
+            $(CORE_DIR)/ops/conv_ops.cpp $(CORE_DIR)/ops/augmentation.cpp \
+            $(CORE_DIR)/ops/fp16.cpp
 CORE_OBJS = $(BUILD_DIR)/memory_pool.o $(BUILD_DIR)/autograd.o $(BUILD_DIR)/broadcast.o \
             $(BUILD_DIR)/tensor.o $(BUILD_DIR)/loss.o \
             $(BUILD_DIR)/optimizer.o $(BUILD_DIR)/serialize.o $(BUILD_DIR)/dataloader.o \
@@ -52,7 +59,8 @@ CORE_OBJS = $(BUILD_DIR)/memory_pool.o $(BUILD_DIR)/autograd.o $(BUILD_DIR)/broa
             $(BUILD_DIR)/layer_attention.o $(BUILD_DIR)/layer_sequential.o \
             $(BUILD_DIR)/simd_ops_avx.o $(BUILD_DIR)/simd_ops_neon.o $(BUILD_DIR)/simd_ops_fallback.o \
             $(BUILD_DIR)/matmul_cpu.o $(BUILD_DIR)/im2col.o \
-            $(BUILD_DIR)/conv_ops.o $(BUILD_DIR)/augmentation.o
+            $(BUILD_DIR)/conv_ops.o $(BUILD_DIR)/augmentation.o \
+            $(BUILD_DIR)/fp16.o
 
 ifeq ($(METAL),1)
   ifeq ($(UNAME_S),Darwin)
@@ -91,6 +99,7 @@ TESTS_DIR = tests
 ML_TARGET = $(BUILD_DIR)/ml
 CNN_MNIST_TARGET = $(BUILD_DIR)/cnn_mnist
 CNN_CIFAR10_TARGET = $(BUILD_DIR)/cnn_cifar10
+CATS_DOGS_TARGET = $(BUILD_DIR)/cats_vs_dogs
 TRANSFORMER_TARGET = $(BUILD_DIR)/transformer_example
 AUTOENCODER_TARGET = $(BUILD_DIR)/autoencoder
 GAN_TARGET = $(BUILD_DIR)/gan
@@ -99,10 +108,12 @@ TESTS_TARGET = $(BUILD_DIR)/run_tests
 
 TEST_SRCS = $(TESTS_DIR)/test_tensor.cpp $(TESTS_DIR)/test_autograd.cpp \
             $(TESTS_DIR)/test_layers.cpp $(TESTS_DIR)/test_loss.cpp \
-            $(TESTS_DIR)/test_optimizer.cpp $(TESTS_DIR)/run_tests.cpp
+            $(TESTS_DIR)/test_optimizer.cpp $(TESTS_DIR)/test_grad_check.cpp \
+            $(TESTS_DIR)/run_tests.cpp
 TEST_OBJS = $(BUILD_DIR)/test_tensor.o $(BUILD_DIR)/test_autograd.o \
             $(BUILD_DIR)/test_layers.o $(BUILD_DIR)/test_loss.o \
-            $(BUILD_DIR)/test_optimizer.o $(BUILD_DIR)/run_tests.o
+            $(BUILD_DIR)/test_optimizer.o $(BUILD_DIR)/test_grad_check.o \
+            $(BUILD_DIR)/run_tests.o
 
 all: $(STATIC_LIB) $(ML_TARGET) $(CNN_MNIST_TARGET) $(CNN_CIFAR10_TARGET) $(TRANSFORMER_TARGET) $(AUTOENCODER_TARGET) $(GAN_TARGET) $(RNN_TEXT_GEN_TARGET)
 
@@ -138,6 +149,9 @@ $(BUILD_DIR)/conv_ops.o: $(CORE_DIR)/ops/conv_ops.cpp $(CORE_DIR)/tensor.h $(COR
 
 $(BUILD_DIR)/augmentation.o: $(CORE_DIR)/ops/augmentation.cpp $(CORE_DIR)/tensor.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/fp16.o: $(CORE_DIR)/ops/fp16.cpp $(CORE_DIR)/ops/fp16.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -I$(CORE_DIR) -c -o $@ $<
 
 $(BUILD_DIR)/tensor.o: $(CORE_DIR)/tensor.cpp $(CORE_DIR)/tensor.h $(CORE_DIR)/memory_pool.h $(CORE_DIR)/broadcast.h $(CORE_DIR)/ops/simd_ops.h $(CORE_DIR)/ops/matmul_cpu.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
@@ -216,6 +230,9 @@ $(BUILD_DIR)/cnn_mnist.o: $(EXAMPLES_DIR)/cnn_mnist.cpp | $(BUILD_DIR)
 $(BUILD_DIR)/cnn_cifar10.o: $(EXAMPLES_DIR)/cnn_cifar10.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
+$(BUILD_DIR)/cats_vs_dogs.o: $(EXAMPLES_DIR)/cats_vs_dogs.cpp | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
 $(BUILD_DIR)/transformer_example.o: $(EXAMPLES_DIR)/transformer_example.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
@@ -239,6 +256,11 @@ $(CNN_MNIST_TARGET): $(BUILD_DIR)/cnn_mnist.o $(STATIC_LIB)
 
 $(CNN_CIFAR10_TARGET): $(BUILD_DIR)/cnn_cifar10.o $(STATIC_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $< -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
+
+$(CATS_DOGS_TARGET): $(BUILD_DIR)/cats_vs_dogs.o $(STATIC_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $< -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
+
+cats_dogs: $(CATS_DOGS_TARGET)
 
 $(TRANSFORMER_TARGET): $(BUILD_DIR)/transformer_example.o $(STATIC_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $< -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
@@ -267,6 +289,9 @@ $(BUILD_DIR)/test_loss.o: $(TESTS_DIR)/test_loss.cpp $(TESTS_DIR)/test_framework
 $(BUILD_DIR)/test_optimizer.o: $(TESTS_DIR)/test_optimizer.cpp $(TESTS_DIR)/test_framework.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -I$(TESTS_DIR) -c -o $@ $<
 
+$(BUILD_DIR)/test_grad_check.o: $(TESTS_DIR)/test_grad_check.cpp $(TESTS_DIR)/test_framework.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -I$(TESTS_DIR) -c -o $@ $<
+
 $(BUILD_DIR)/run_tests.o: $(TESTS_DIR)/run_tests.cpp $(TESTS_DIR)/test_framework.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -I$(TESTS_DIR) -c -o $@ $<
 
@@ -290,6 +315,9 @@ test-loss: $(TESTS_TARGET)
 
 test-optimizer: $(TESTS_TARGET)
 	./$(TESTS_TARGET) --optimizer
+
+test-gradcheck: $(TESTS_TARGET)
+	./$(TESTS_TARGET) --gradcheck
 
 clean:
 	rm -rf $(BUILD_DIR)/*.o $(BUILD_DIR)/*.a $(BUILD_DIR)/ml $(BUILD_DIR)/cnn_mnist $(BUILD_DIR)/cnn_cifar10 $(BUILD_DIR)/transformer_example $(BUILD_DIR)/autoencoder $(BUILD_DIR)/gan $(BUILD_DIR)/rnn_text_gen $(BUILD_DIR)/run_tests
@@ -348,4 +376,4 @@ test-all: test
 	@echo "── Frontend lint ──"
 	@cd frontend && npm run lint
 
-.PHONY: all clean run run-cnn run-cifar run-transformer run-autoencoder autoencoder run-gan gan debug test test-tensor test-autograd test-layers test-loss test-optimizer dev docker-build lint test-all
+.PHONY: all clean run run-cnn run-cifar run-transformer run-autoencoder autoencoder run-gan gan debug test test-tensor test-autograd test-layers test-loss test-optimizer test-gradcheck dev docker-build lint test-all

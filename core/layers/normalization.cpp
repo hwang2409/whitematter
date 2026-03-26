@@ -28,31 +28,23 @@ TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
     std::vector<float> var(channels, 0.0f);
 
     if (training) {
-        for (size_t c = 0; c < channels; c++) {
-            float sum = 0.0f;
-            for (size_t b = 0; b < batch; b++) {
-                for (size_t h = 0; h < height; h++) {
-                    for (size_t w = 0; w < width; w++) {
-                        size_t idx = b * (channels * spatial_size) + c * spatial_size + h * width + w;
-                        sum += input->data()[idx];
-                    }
+        // Single-pass mean + variance using E[x^2] - E[x]^2
+        // Iterate (b, c, h, w) for contiguous memory access
+        std::vector<float> sum_sq(channels, 0.0f);
+        for (size_t b = 0; b < batch; b++) {
+            for (size_t c = 0; c < channels; c++) {
+                const float* ptr = input->data() + b * (channels * spatial_size) + c * spatial_size;
+                for (size_t i = 0; i < spatial_size; i++) {
+                    float val = ptr[i];
+                    mean[c] += val;
+                    sum_sq[c] += val * val;
                 }
             }
-            mean[c] = sum / static_cast<float>(n);
         }
-
+        float inv_n = 1.0f / static_cast<float>(n);
         for (size_t c = 0; c < channels; c++) {
-            float sum_sq = 0.0f;
-            for (size_t b = 0; b < batch; b++) {
-                for (size_t h = 0; h < height; h++) {
-                    for (size_t w = 0; w < width; w++) {
-                        size_t idx = b * (channels * spatial_size) + c * spatial_size + h * width + w;
-                        float diff = input->data()[idx] - mean[c];
-                        sum_sq += diff * diff;
-                    }
-                }
-            }
-            var[c] = sum_sq / static_cast<float>(n);
+            mean[c] *= inv_n;
+            var[c] = sum_sq[c] * inv_n - mean[c] * mean[c];
         }
 
         for (size_t c = 0; c < channels; c++) {
@@ -96,44 +88,33 @@ TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
             std::vector<float> dmean(channels, 0.0f);
             std::vector<float> dvar(channels, 0.0f);
 
-            for (size_t c = 0; c < channels; c++) {
-                for (size_t b = 0; b < batch; b++) {
-                    for (size_t h = 0; h < height; h++) {
-                        for (size_t w = 0; w < width; w++) {
-                            size_t idx = b * (channels * spatial_size) + c * spatial_size + h * width + w;
-                            float x_norm = (input_ptr->data()[idx] - mean[c]) * inv_std[c];
-                            dgamma[c] += result->grad()[idx] * x_norm;
-                            dbeta[c] += result->grad()[idx];
-                        }
+            // Accumulate dgamma, dbeta, dvar — (b, c, h, w) order for cache locality
+            std::vector<float> sum_dx_norm(channels, 0.0f);
+            std::vector<float> sum_x_diff(channels, 0.0f);
+            for (size_t b = 0; b < batch; b++) {
+                for (size_t c = 0; c < channels; c++) {
+                    size_t base = b * (channels * spatial_size) + c * spatial_size;
+                    float g = gamma_ptr->data()[c];
+                    float m = mean[c];
+                    float is = inv_std[c];
+                    float is3 = -0.5f * is * is * is;
+                    for (size_t i = 0; i < spatial_size; i++) {
+                        size_t idx = base + i;
+                        float dy = result->grad()[idx];
+                        float x_diff = input_ptr->data()[idx] - m;
+                        float x_norm = x_diff * is;
+                        dgamma[c] += dy * x_norm;
+                        dbeta[c] += dy;
+                        float dx_norm = dy * g;
+                        dvar[c] += dx_norm * x_diff * is3;
+                        sum_dx_norm[c] += dx_norm * (-is);
+                        sum_x_diff[c] += -2.0f * x_diff;
                     }
                 }
             }
-
+            // dmean depends on final dvar
             for (size_t c = 0; c < channels; c++) {
-                for (size_t b = 0; b < batch; b++) {
-                    for (size_t h = 0; h < height; h++) {
-                        for (size_t w = 0; w < width; w++) {
-                            size_t idx = b * (channels * spatial_size) + c * spatial_size + h * width + w;
-                            float dx_norm = result->grad()[idx] * gamma_ptr->data()[c];
-                            dvar[c] += dx_norm * (input_ptr->data()[idx] - mean[c]) * -0.5f * inv_std[c] * inv_std[c] * inv_std[c];
-                        }
-                    }
-                }
-            }
-
-            for (size_t c = 0; c < channels; c++) {
-                float sum_dx_norm = 0.0f;
-                float sum_x_diff = 0.0f;
-                for (size_t b = 0; b < batch; b++) {
-                    for (size_t h = 0; h < height; h++) {
-                        for (size_t w = 0; w < width; w++) {
-                            size_t idx = b * (channels * spatial_size) + c * spatial_size + h * width + w;
-                            sum_dx_norm += result->grad()[idx] * gamma_ptr->data()[c] * (-inv_std[c]);
-                            sum_x_diff += -2.0f * (input_ptr->data()[idx] - mean[c]);
-                        }
-                    }
-                }
-                dmean[c] = sum_dx_norm + dvar[c] * sum_x_diff / static_cast<float>(n);
+                dmean[c] = sum_dx_norm[c] + dvar[c] * sum_x_diff[c] / static_cast<float>(n);
             }
 
             if (input_ptr->requires_grad) {

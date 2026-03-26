@@ -71,9 +71,9 @@ CustomDataset load_dataset(const std::string& data_dir, bool train) {{
 
     CustomDataset ds;
     ds.images = Tensor::create(images_file.shape, false);
-    ds.images->data = images_file.data;
+    std::memcpy(ds.images->data(), images_file.data.data(), images_file.data.size() * sizeof(float));
     ds.labels = Tensor::create(labels_file.shape, false);
-    ds.labels->data = labels_file.data;
+    std::memcpy(ds.labels->data(), labels_file.data.data(), labels_file.data.size() * sizeof(float));
     ds.num_samples = images_file.shape[0];
     return ds;
 }}
@@ -120,11 +120,11 @@ public:
         for (size_t i = 0; i < actual_batch; i++) {{
             size_t idx = indices[current_idx + i];
             std::copy(
-                dataset.images->data.begin() + idx * img_size,
-                dataset.images->data.begin() + (idx + 1) * img_size,
-                batch_images->data.begin() + i * img_size
+                dataset.images->data() + idx * img_size,
+                dataset.images->data() + (idx + 1) * img_size,
+                batch_images->data() + i * img_size
             );
-            batch_labels->data[i] = dataset.labels->data[idx];
+            batch_labels->data()[i] = dataset.labels->data()[idx];
         }}
 
         current_idx += actual_batch;
@@ -155,14 +155,14 @@ float compute_accuracy(Sequential& model, CustomDataLoader& loader) {{
 
         for (size_t i = 0; i < batch_size; i++) {{
             size_t predicted = 0;
-            float max_val = output->data[i * num_classes];
+            float max_val = output->data()[i * num_classes];
             for (size_t j = 1; j < num_classes; j++) {{
-                if (output->data[i * num_classes + j] > max_val) {{
-                    max_val = output->data[i * num_classes + j];
+                if (output->data()[i * num_classes + j] > max_val) {{
+                    max_val = output->data()[i * num_classes + j];
                     predicted = j;
                 }}
             }}
-            if (predicted == static_cast<size_t>(labels->data[i])) correct++;
+            if (predicted == static_cast<size_t>(labels->data()[i])) correct++;
             total++;
         }}
     }}
@@ -238,7 +238,7 @@ int main(int argc, char* argv[]) {{
             loss->backward();
             optimizer.step();
 
-            total_loss += loss->data[0];
+            total_loss += loss->data()[0];
             num_batches++;
         }}
 

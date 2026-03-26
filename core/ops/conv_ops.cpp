@@ -14,6 +14,227 @@
 #include "../cuda/cuda_backend.h"
 #endif
 
+// Reusable scratch buffers to avoid heap allocation on every conv forward/backward.
+// Thread-local so they're safe with threaded dataloaders.
+static thread_local std::vector<float> tl_col_buf;
+static thread_local std::vector<float> tl_col_buf2;
+static thread_local std::vector<float> tl_scratch;
+static thread_local std::vector<float> tl_wino_filter;
+static thread_local std::vector<float> tl_wino_input;
+static thread_local std::vector<float> tl_wino_M;
+
+static float* get_buf(std::vector<float>& buf, size_t n) {
+    if (buf.size() < n) buf.resize(n);
+    return buf.data();
+}
+
+// ============================================================================
+// Winograd F(2x2, 3x3) convolution — forward pass only.
+//
+// Computes 2x2 output tiles from 4x4 input tiles and 3x3 filters using
+// only 16 multiplications per tile instead of 36 (2.25x theoretical speedup).
+//
+// Valid only for kernel_size=3, stride=1, padding=1.
+// ============================================================================
+
+// Inline helper: compute B^T @ d @ B for a 4x4 input tile.
+// B^T = [[1,0,-1,0],[0,1,1,0],[0,-1,1,0],[0,1,0,-1]]
+static inline void winograd_input_transform(const float d[4][4], float V[4][4]) {
+    // Compute t = d @ B  (4x4 @ 4x4 -> 4x4)
+    // B = [[1,0,0,0],[0,1,-1,1],[−1,1,1,0],[0,0,0,−1]]
+    float t[4][4];
+    for (int i = 0; i < 4; i++) {
+        t[i][0] =  d[i][0] - d[i][2];
+        t[i][1] =  d[i][1] + d[i][2];
+        t[i][2] = -d[i][1] + d[i][2];
+        t[i][3] =  d[i][1] - d[i][3];
+    }
+    // Compute V = B^T @ t  (4x4)
+    for (int j = 0; j < 4; j++) {
+        V[0][j] =  t[0][j] - t[2][j];
+        V[1][j] =  t[1][j] + t[2][j];
+        V[2][j] = -t[1][j] + t[2][j];
+        V[3][j] =  t[1][j] - t[3][j];
+    }
+}
+
+// Inline helper: compute G @ g @ G^T for a 3x3 filter.
+// G = [[1,0,0],[0.5,0.5,0.5],[0.5,-0.5,0.5],[0,0,1]]
+static inline void winograd_filter_transform(const float g[3][3], float U[4][4]) {
+    // Compute t = g @ G^T  (3x3 @ 3x4 -> 3x4)
+    // G^T = [[1,0.5,0.5,0],[0,0.5,-0.5,0],[0,0.5,0.5,1]]
+    float t[3][4];
+    for (int i = 0; i < 3; i++) {
+        t[i][0] = g[i][0];
+        t[i][1] = 0.5f * (g[i][0] + g[i][1] + g[i][2]);
+        t[i][2] = 0.5f * (g[i][0] - g[i][1] + g[i][2]);
+        t[i][3] = g[i][2];
+    }
+    // Compute U = G @ t  (4x3 @ 3x4 -> 4x4)
+    for (int j = 0; j < 4; j++) {
+        U[0][j] = t[0][j];
+        U[1][j] = 0.5f * (t[0][j] + t[1][j] + t[2][j]);
+        U[2][j] = 0.5f * (t[0][j] - t[1][j] + t[2][j]);
+        U[3][j] = t[2][j];
+    }
+}
+
+// Inline helper: compute A^T @ m @ A for a 4x4 element-wise product.
+// A^T = [[1,1,1,0],[0,1,-1,-1]]
+static inline void winograd_output_transform(const float m[4][4], float Y[2][2]) {
+    // Compute t = m @ A  (4x4 @ 4x2 -> 4x2)
+    // A = [[1,0],[1,1],[1,-1],[0,-1]]
+    float t[4][2];
+    for (int i = 0; i < 4; i++) {
+        t[i][0] = m[i][0] + m[i][1] + m[i][2];
+        t[i][1] = m[i][1] - m[i][2] - m[i][3];
+    }
+    // Compute Y = A^T @ t  (2x4 @ 4x2 -> 2x2)
+    for (int j = 0; j < 2; j++) {
+        Y[0][j] = t[0][j] + t[1][j] + t[2][j];
+        Y[1][j] = t[1][j] - t[2][j] - t[3][j];
+    }
+}
+
+static void conv2d_winograd_f2x2_3x3(
+    float* output, const float* input, const float* weight, const float* bias_data,
+    size_t batch, size_t in_channels, size_t out_channels,
+    size_t in_h, size_t in_w, size_t out_h, size_t out_w)
+{
+    // Number of 2x2 output tiles along each spatial dimension.
+    size_t tile_h = (out_h + 1) / 2;  // ceil(out_h / 2)
+    size_t tile_w = (out_w + 1) / 2;  // ceil(out_w / 2)
+    size_t num_tiles = tile_h * tile_w;
+
+    // ---- Step 1: Pre-transform all filters ----
+    // U_all[oc][ic][4][4] stored as flat: [out_channels * in_channels * 16]
+    // Reorganized as U_elem[alpha*4+beta][out_channels * in_channels]
+    // so that for each (alpha,beta) we have a contiguous [OC x IC] matrix.
+    float* U_flat = get_buf(tl_wino_filter, 16 * out_channels * in_channels);
+
+    for (size_t oc = 0; oc < out_channels; oc++) {
+        for (size_t ic = 0; ic < in_channels; ic++) {
+            const float* w = weight + (oc * in_channels + ic) * 9;  // 3x3 filter
+            float g[3][3];
+            for (int i = 0; i < 3; i++)
+                for (int j = 0; j < 3; j++)
+                    g[i][j] = w[i * 3 + j];
+
+            float U[4][4];
+            winograd_filter_transform(g, U);
+
+            // Store in element-major layout: U_flat[elem * OC * IC + oc * IC + ic]
+            for (int a = 0; a < 4; a++)
+                for (int b = 0; b < 4; b++)
+                    U_flat[(a * 4 + b) * out_channels * in_channels + oc * in_channels + ic] = U[a][b];
+        }
+    }
+
+    // ---- Per-batch processing ----
+    for (size_t n = 0; n < batch; n++) {
+        const float* in_batch = input + n * in_channels * in_h * in_w;
+        float* out_batch = output + n * out_channels * out_h * out_w;
+
+        // ---- Step 2: Transform all input tiles ----
+        // V_flat[elem][in_channels * num_tiles]
+        // Layout: V_flat[elem * IC * num_tiles + ic * num_tiles + tile_idx]
+        float* V_flat = get_buf(tl_wino_input, 16 * in_channels * num_tiles);
+
+        for (size_t ic = 0; ic < in_channels; ic++) {
+            const float* in_ch = in_batch + ic * in_h * in_w;
+
+            for (size_t th = 0; th < tile_h; th++) {
+                for (size_t tw = 0; tw < tile_w; tw++) {
+                    size_t tile_idx = th * tile_w + tw;
+
+                    // Extract 4x4 input tile with padding handling.
+                    // The tile starts at spatial position (th*2 - 1, tw*2 - 1) due to padding=1.
+                    int row_start = static_cast<int>(th * 2) - 1;
+                    int col_start = static_cast<int>(tw * 2) - 1;
+
+                    float d[4][4];
+                    for (int i = 0; i < 4; i++) {
+                        int r = row_start + i;
+                        for (int j = 0; j < 4; j++) {
+                            int c = col_start + j;
+                            if (r >= 0 && r < static_cast<int>(in_h) &&
+                                c >= 0 && c < static_cast<int>(in_w)) {
+                                d[i][j] = in_ch[r * static_cast<int>(in_w) + c];
+                            } else {
+                                d[i][j] = 0.0f;
+                            }
+                        }
+                    }
+
+                    float V[4][4];
+                    winograd_input_transform(d, V);
+
+                    // Store in element-major layout
+                    for (int a = 0; a < 4; a++)
+                        for (int b = 0; b < 4; b++)
+                            V_flat[(a * 4 + b) * in_channels * num_tiles + ic * num_tiles + tile_idx] = V[a][b];
+                }
+            }
+        }
+
+        // ---- Step 3: Batched matrix multiplications ----
+        // For each of 16 elements (alpha, beta):
+        //   M[elem] = U[elem] @ V[elem]  where
+        //   U[elem] is [OC x IC], V[elem] is [IC x num_tiles]
+        //   => M[elem] is [OC x num_tiles]
+        float* M_flat = get_buf(tl_wino_M, 16 * out_channels * num_tiles);
+
+        for (int elem = 0; elem < 16; elem++) {
+            const float* U_elem = U_flat + elem * out_channels * in_channels;
+            const float* V_elem = V_flat + elem * in_channels * num_tiles;
+            float* M_elem = M_flat + elem * out_channels * num_tiles;
+
+            matmul_blocked(M_elem, U_elem, V_elem,
+                           out_channels, in_channels, num_tiles);
+        }
+
+        // ---- Step 4: Inverse-transform and scatter to output ----
+        // Zero the output first (needed for edge-tile handling)
+        std::memset(out_batch, 0, out_channels * out_h * out_w * sizeof(float));
+
+        for (size_t oc = 0; oc < out_channels; oc++) {
+            for (size_t th = 0; th < tile_h; th++) {
+                for (size_t tw = 0; tw < tile_w; tw++) {
+                    size_t tile_idx = th * tile_w + tw;
+
+                    // Gather the 4x4 element-wise product result for this (oc, tile)
+                    float m[4][4];
+                    for (int a = 0; a < 4; a++)
+                        for (int b = 0; b < 4; b++)
+                            m[a][b] = M_flat[(a * 4 + b) * out_channels * num_tiles + oc * num_tiles + tile_idx];
+
+                    // Inverse transform to get 2x2 output tile
+                    float Y[2][2];
+                    winograd_output_transform(m, Y);
+
+                    // Add bias if present
+                    float b_val = bias_data ? bias_data[oc] : 0.0f;
+
+                    // Scatter to output, handling edge cases where out_h/out_w is odd
+                    size_t oh_base = th * 2;
+                    size_t ow_base = tw * 2;
+                    float* out_ch = out_batch + oc * out_h * out_w;
+
+                    for (int i = 0; i < 2; i++) {
+                        for (int j = 0; j < 2; j++) {
+                            size_t oh = oh_base + static_cast<size_t>(i);
+                            size_t ow = ow_base + static_cast<size_t>(j);
+                            if (oh < out_h && ow < out_w) {
+                                out_ch[oh * out_w + ow] = Y[i][j] + b_val;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
                           size_t stride, size_t padding) const {
     assert(shape.size() == 4);
@@ -36,26 +257,35 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
                  && GradMode::is_enabled();
     auto result = create({batch, out_channels, out_h, out_w}, track);
 
-    size_t col_h = in_channels * kernel_h * kernel_w;
-    size_t col_w = out_h * out_w;
-    std::vector<float> col_buffer(col_h * col_w);
+    // Winograd F(2x2, 3x3) fast path: kernel=3, stride=1, padding=1
+    if (kernel_h == 3 && kernel_w == 3 && stride == 1 && padding == 1) {
+        conv2d_winograd_f2x2_3x3(result->data(), data(), weight->data(),
+                                   bias ? bias->data() : nullptr,
+                                   batch, in_channels, out_channels,
+                                   in_h, in_w, out_h, out_w);
+    } else {
+        // Fallback: im2col + GEMM
+        size_t col_h = in_channels * kernel_h * kernel_w;
+        size_t col_w = out_h * out_w;
+        float* col_buffer = get_buf(tl_col_buf, col_h * col_w);
 
-    for (size_t b = 0; b < batch; b++) {
-        const float* input_ptr = data() + b * in_channels * in_h * in_w;
-        float* output_ptr = result->data() + b * out_channels * out_h * out_w;
+        for (size_t b = 0; b < batch; b++) {
+            const float* input_ptr = data() + b * in_channels * in_h * in_w;
+            float* output_ptr = result->data() + b * out_channels * out_h * out_w;
 
-        im2col(input_ptr, col_buffer.data(),
-               in_channels, in_h, in_w,
-               kernel_h, kernel_w,
-               out_h, out_w, stride, padding);
+            im2col(input_ptr, col_buffer,
+                   in_channels, in_h, in_w,
+                   kernel_h, kernel_w,
+                   out_h, out_w, stride, padding);
 
-        matmul_blocked(output_ptr, weight->data(), col_buffer.data(),
-                       out_channels, col_h, col_w);
+            matmul_blocked(output_ptr, weight->data(), col_buffer,
+                           out_channels, col_h, col_w);
 
-        if (bias) {
-            for (size_t oc = 0; oc < out_channels; oc++) {
-                for (size_t i = 0; i < col_w; i++) {
-                    output_ptr[oc * col_w + i] += bias->data()[oc];
+            if (bias) {
+                for (size_t oc = 0; oc < out_channels; oc++) {
+                    for (size_t i = 0; i < col_w; i++) {
+                        output_ptr[oc * col_w + i] += bias->data()[oc];
+                    }
                 }
             }
         }
@@ -77,23 +307,23 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
             size_t col_w = out_h * out_w;
 
             if (self_ptr->requires_grad) {
-                std::vector<float> weight_T(col_h * out_channels);
+                float* weight_T = get_buf(tl_scratch, col_h * out_channels);
                 for (size_t oc = 0; oc < out_channels; oc++) {
                     for (size_t k = 0; k < col_h; k++) {
                         weight_T[k * out_channels + oc] = weight_ptr->data()[oc * col_h + k];
                     }
                 }
 
-                std::vector<float> col_grad(col_h * col_w);
+                float* col_grad = get_buf(tl_col_buf, col_h * col_w);
 
                 for (size_t b = 0; b < batch; b++) {
                     const float* grad_out = result->grad() + b * out_channels * col_w;
                     float* grad_in = self_ptr->grad() + b * in_channels * in_h * in_w;
 
-                    matmul_blocked(col_grad.data(), weight_T.data(), grad_out,
+                    matmul_blocked(col_grad, weight_T, grad_out,
                                    col_h, out_channels, col_w);
 
-                    col2im(col_grad.data(), grad_in,
+                    col2im(col_grad, grad_in,
                            in_channels, in_h, in_w,
                            kernel_h, kernel_w,
                            out_h, out_w, stride, padding);
@@ -101,26 +331,26 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
             }
 
             if (weight_ptr->requires_grad) {
-                std::vector<float> col_buffer(col_h * col_w);
-                std::vector<float> col_T(col_w * col_h);
+                float* col_buf = get_buf(tl_col_buf, col_h * col_w);
+                float* col_T = get_buf(tl_col_buf2, col_w * col_h);
 
                 for (size_t b = 0; b < batch; b++) {
                     const float* input_ptr = self_ptr->data() + b * in_channels * in_h * in_w;
                     const float* grad_out = result->grad() + b * out_channels * col_w;
 
-                    im2col(input_ptr, col_buffer.data(),
+                    im2col(input_ptr, col_buf,
                            in_channels, in_h, in_w,
                            kernel_h, kernel_w,
                            out_h, out_w, stride, padding);
 
                     for (size_t i = 0; i < col_h; i++) {
                         for (size_t j = 0; j < col_w; j++) {
-                            col_T[j * col_h + i] = col_buffer[i * col_w + j];
+                            col_T[j * col_h + i] = col_buf[i * col_w + j];
                         }
                     }
 
-                    std::vector<float> grad_w_batch(out_channels * col_h);
-                    matmul_blocked(grad_w_batch.data(), grad_out, col_T.data(),
+                    float* grad_w_batch = get_buf(tl_scratch, out_channels * col_h);
+                    matmul_blocked(grad_w_batch, grad_out, col_T,
                                    out_channels, col_w, col_h);
 
                     for (size_t i = 0; i < out_channels * col_h; i++) {

@@ -2,7 +2,7 @@
 #include <random>
 #include <cmath>
 
-static std::mt19937 conv_rng(123);
+static thread_local std::mt19937 conv_rng(123);
 
 Conv2d::Conv2d(size_t in_channels, size_t out_channels, size_t kernel_size,
                size_t stride, size_t padding)

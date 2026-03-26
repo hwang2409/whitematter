@@ -132,7 +132,13 @@ class TrainingWorker:
                     )
                     success, compile_msg = self.executor.compile(job_dir)
                     if not success:
-                        raise RuntimeError(f"[compile] {compile_msg[:500]}")
+                        # Filter out warnings to surface the actual error
+                        error_lines = [
+                            line for line in compile_msg.splitlines()
+                            if "warning:" not in line and line.strip()
+                        ]
+                        filtered = "\n".join(error_lines) if error_lines else compile_msg
+                        raise RuntimeError(f"[compile] {filtered[:1000]}")
                 except RuntimeError:
                     raise
                 except Exception as e:
