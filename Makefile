@@ -106,10 +106,12 @@ TESTS_TARGET = $(BUILD_DIR)/run_tests
 
 TEST_SRCS = $(TESTS_DIR)/test_tensor.cpp $(TESTS_DIR)/test_autograd.cpp \
             $(TESTS_DIR)/test_layers.cpp $(TESTS_DIR)/test_loss.cpp \
-            $(TESTS_DIR)/test_optimizer.cpp $(TESTS_DIR)/run_tests.cpp
+            $(TESTS_DIR)/test_optimizer.cpp $(TESTS_DIR)/test_grad_check.cpp \
+            $(TESTS_DIR)/run_tests.cpp
 TEST_OBJS = $(BUILD_DIR)/test_tensor.o $(BUILD_DIR)/test_autograd.o \
             $(BUILD_DIR)/test_layers.o $(BUILD_DIR)/test_loss.o \
-            $(BUILD_DIR)/test_optimizer.o $(BUILD_DIR)/run_tests.o
+            $(BUILD_DIR)/test_optimizer.o $(BUILD_DIR)/test_grad_check.o \
+            $(BUILD_DIR)/run_tests.o
 
 all: $(STATIC_LIB) $(ML_TARGET) $(CNN_MNIST_TARGET) $(CNN_CIFAR10_TARGET) $(TRANSFORMER_TARGET) $(AUTOENCODER_TARGET) $(GAN_TARGET) $(RNN_TEXT_GEN_TARGET)
 
@@ -282,6 +284,9 @@ $(BUILD_DIR)/test_loss.o: $(TESTS_DIR)/test_loss.cpp $(TESTS_DIR)/test_framework
 $(BUILD_DIR)/test_optimizer.o: $(TESTS_DIR)/test_optimizer.cpp $(TESTS_DIR)/test_framework.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -I$(TESTS_DIR) -c -o $@ $<
 
+$(BUILD_DIR)/test_grad_check.o: $(TESTS_DIR)/test_grad_check.cpp $(TESTS_DIR)/test_framework.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -I$(TESTS_DIR) -c -o $@ $<
+
 $(BUILD_DIR)/run_tests.o: $(TESTS_DIR)/run_tests.cpp $(TESTS_DIR)/test_framework.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -I$(TESTS_DIR) -c -o $@ $<
 
@@ -305,6 +310,9 @@ test-loss: $(TESTS_TARGET)
 
 test-optimizer: $(TESTS_TARGET)
 	./$(TESTS_TARGET) --optimizer
+
+test-gradcheck: $(TESTS_TARGET)
+	./$(TESTS_TARGET) --gradcheck
 
 clean:
 	rm -rf $(BUILD_DIR)/*.o $(BUILD_DIR)/*.a $(BUILD_DIR)/ml $(BUILD_DIR)/cnn_mnist $(BUILD_DIR)/cnn_cifar10 $(BUILD_DIR)/transformer_example $(BUILD_DIR)/autoencoder $(BUILD_DIR)/gan $(BUILD_DIR)/rnn_text_gen $(BUILD_DIR)/run_tests
@@ -363,4 +371,4 @@ test-all: test
 	@echo "── Frontend lint ──"
 	@cd frontend && npm run lint
 
-.PHONY: all clean run run-cnn run-cifar run-transformer run-autoencoder autoencoder run-gan gan debug test test-tensor test-autograd test-layers test-loss test-optimizer dev docker-build lint test-all
+.PHONY: all clean run run-cnn run-cifar run-transformer run-autoencoder autoencoder run-gan gan debug test test-tensor test-autograd test-layers test-loss test-optimizer test-gradcheck dev docker-build lint test-all
