@@ -79,6 +79,90 @@ void test_tanh_forward() {
     TEST_ASSERT_NEAR(output->data()[0], 0.0f, 1e-5f);
 }
 
+void test_silu_forward() {
+    SiLU silu;
+    // SiLU(0) = 0 * sigmoid(0) = 0 * 0.5 = 0
+    auto input0 = Tensor::create({0.0f}, std::vector<size_t>{1});
+    auto output0 = silu.forward(input0);
+    TEST_ASSERT_NEAR(output0->data()[0], 0.0f, 1e-5f);
+
+    // SiLU(1) = 1 * sigmoid(1) = 1 * 0.7310586 = 0.7310586
+    auto input = Tensor::create({-1.0f, 0.0f, 1.0f, 2.0f}, std::vector<size_t>{4});
+    auto output = silu.forward(input);
+    float sig_neg1 = 1.0f / (1.0f + std::exp(1.0f));   // sigmoid(-1)
+    float sig_1 = 1.0f / (1.0f + std::exp(-1.0f));     // sigmoid(1)
+    float sig_2 = 1.0f / (1.0f + std::exp(-2.0f));     // sigmoid(2)
+    TEST_ASSERT_NEAR(output->data()[0], -1.0f * sig_neg1, 1e-5f);
+    TEST_ASSERT_NEAR(output->data()[1], 0.0f, 1e-5f);
+    TEST_ASSERT_NEAR(output->data()[2], 1.0f * sig_1, 1e-5f);
+    TEST_ASSERT_NEAR(output->data()[3], 2.0f * sig_2, 1e-5f);
+
+    // Gradient flows
+    auto grad_input = Tensor::create({0.5f, -0.3f, 0.8f}, std::vector<size_t>{3}, true);
+    auto grad_output = silu.forward(grad_input);
+    auto loss = grad_output->sum();
+    loss->backward();
+    for (size_t i = 0; i < grad_input->size(); i++) {
+        TEST_ASSERT(std::abs(grad_input->grad()[i]) > 0.0f || grad_input->data()[i] == 0.0f);
+    }
+}
+
+void test_gelu_forward() {
+    GELU gelu;
+    // GELU(0) = 0 * 0.5 * (1 + erf(0)) = 0
+    auto input0 = Tensor::create({0.0f}, std::vector<size_t>{1});
+    auto output0 = gelu.forward(input0);
+    TEST_ASSERT_NEAR(output0->data()[0], 0.0f, 1e-5f);
+
+    auto input = Tensor::create({-1.0f, 0.0f, 1.0f, 2.0f}, std::vector<size_t>{4});
+    auto output = gelu.forward(input);
+    float sqrt2 = std::sqrt(2.0f);
+    float gelu_neg1 = -1.0f * 0.5f * (1.0f + std::erf(-1.0f / sqrt2));
+    float gelu_1 = 1.0f * 0.5f * (1.0f + std::erf(1.0f / sqrt2));
+    float gelu_2 = 2.0f * 0.5f * (1.0f + std::erf(2.0f / sqrt2));
+    TEST_ASSERT_NEAR(output->data()[0], gelu_neg1, 1e-5f);
+    TEST_ASSERT_NEAR(output->data()[1], 0.0f, 1e-5f);
+    TEST_ASSERT_NEAR(output->data()[2], gelu_1, 1e-5f);
+    TEST_ASSERT_NEAR(output->data()[3], gelu_2, 1e-5f);
+
+    // Gradient flows
+    auto grad_input = Tensor::create({0.5f, -0.3f, 0.8f}, std::vector<size_t>{3}, true);
+    auto grad_output = gelu.forward(grad_input);
+    auto loss = grad_output->sum();
+    loss->backward();
+    for (size_t i = 0; i < grad_input->size(); i++) {
+        TEST_ASSERT(std::abs(grad_input->grad()[i]) > 0.0f || grad_input->data()[i] == 0.0f);
+    }
+}
+
+void test_mish_forward() {
+    Mish mish;
+    // Mish(0) = 0 * tanh(ln(1+1)) = 0 * tanh(ln2) = 0
+    auto input0 = Tensor::create({0.0f}, std::vector<size_t>{1});
+    auto output0 = mish.forward(input0);
+    TEST_ASSERT_NEAR(output0->data()[0], 0.0f, 1e-5f);
+
+    auto input = Tensor::create({-1.0f, 0.0f, 1.0f, 2.0f}, std::vector<size_t>{4});
+    auto output = mish.forward(input);
+    auto softplus = [](float x) { return std::log1p(std::exp(x)); };
+    float mish_neg1 = -1.0f * std::tanh(softplus(-1.0f));
+    float mish_1 = 1.0f * std::tanh(softplus(1.0f));
+    float mish_2 = 2.0f * std::tanh(softplus(2.0f));
+    TEST_ASSERT_NEAR(output->data()[0], mish_neg1, 1e-5f);
+    TEST_ASSERT_NEAR(output->data()[1], 0.0f, 1e-5f);
+    TEST_ASSERT_NEAR(output->data()[2], mish_1, 1e-5f);
+    TEST_ASSERT_NEAR(output->data()[3], mish_2, 1e-5f);
+
+    // Gradient flows
+    auto grad_input = Tensor::create({0.5f, -0.3f, 0.8f}, std::vector<size_t>{3}, true);
+    auto grad_output = mish.forward(grad_input);
+    auto loss = grad_output->sum();
+    loss->backward();
+    for (size_t i = 0; i < grad_input->size(); i++) {
+        TEST_ASSERT(std::abs(grad_input->grad()[i]) > 0.0f || grad_input->data()[i] == 0.0f);
+    }
+}
+
 void test_softmax_forward() {
     Softmax softmax;
     auto input = Tensor::create({1.0f, 2.0f, 3.0f}, {1, 3});
@@ -176,6 +260,51 @@ void test_conv2d_stride() {
 
     // With padding=1, kernel=3, stride=2: output = (8 + 2*1 - 3) / 2 + 1 = 4
     TEST_ASSERT_SHAPE(output, std::vector<size_t>({1, 1, 4, 4}));
+}
+
+void test_conv2d_groups() {
+    // Conv2d with groups=2: 4 input channels, 8 output channels
+    Conv2d conv(4, 8, 3, 1, 1, 2);  // groups=2
+    auto input = Tensor::randn({1, 4, 5, 5});
+    auto output = conv.forward(input);
+
+    // Output shape: [1, 8, 5, 5] (same spatial due to padding=1, kernel=3, stride=1)
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({1, 8, 5, 5}));
+
+    // Verify output values are not NaN
+    for (size_t i = 0; i < output->size(); i++) {
+        TEST_ASSERT(!std::isnan(output->data()[i]));
+    }
+}
+
+void test_conv2d_depthwise() {
+    // Depthwise convolution: groups = in_channels = out_channels = 4
+    Conv2d conv(4, 4, 3, 1, 1, 4);  // groups=4 (depthwise)
+    auto input = Tensor::randn({1, 4, 5, 5});
+    auto output = conv.forward(input);
+
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({1, 4, 5, 5}));
+
+    // Verify output values are not NaN
+    for (size_t i = 0; i < output->size(); i++) {
+        TEST_ASSERT(!std::isnan(output->data()[i]));
+    }
+}
+
+void test_conv2d_groups_parameters() {
+    // With groups=2, weight shape should be [out_ch, in_ch/groups, kh, kw]
+    Conv2d conv(4, 8, 3, 1, 1, 2);  // groups=2
+    auto params = conv.parameters();
+
+    TEST_ASSERT_EQ(params.size(), 2u);  // weight and bias
+    // Weight: [8, 4/2, 3, 3] = [8, 2, 3, 3]
+    TEST_ASSERT_SHAPE(params[0], std::vector<size_t>({8, 2, 3, 3}));
+    TEST_ASSERT_SHAPE(params[1], std::vector<size_t>({8}));  // bias
+
+    // Depthwise: groups=4, in=4, out=4 => weight [4, 1, 3, 3]
+    Conv2d conv_dw(4, 4, 3, 1, 1, 4);
+    auto params_dw = conv_dw.parameters();
+    TEST_ASSERT_SHAPE(params_dw[0], std::vector<size_t>({4, 1, 3, 3}));
 }
 
 // =============================================================================
@@ -1139,6 +1268,184 @@ void test_onnx_roundtrip_linear_relu() {
 }
 
 // =============================================================================
+// GroupNorm Tests
+// =============================================================================
+
+void test_groupnorm_forward() {
+    GroupNorm gn(2, 4);  // 2 groups, 4 channels
+    auto input = Tensor::randn({2, 4, 3, 3});  // [batch, channels, H, W]
+    auto output = gn.forward(input);
+
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({2, 4, 3, 3}));
+
+    // Output should not have NaN or Inf
+    for (size_t i = 0; i < output->size(); i++) {
+        TEST_ASSERT(!std::isnan(output->data()[i]));
+        TEST_ASSERT(!std::isinf(output->data()[i]));
+    }
+}
+
+void test_groupnorm_3d() {
+    // GroupNorm should also handle 3D input [batch, channels, length]
+    GroupNorm gn(2, 4);
+    auto input = Tensor::randn({2, 4, 8});
+    auto output = gn.forward(input);
+
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({2, 4, 8}));
+}
+
+void test_groupnorm_parameters() {
+    GroupNorm gn(2, 4);
+    auto params = gn.parameters();
+
+    TEST_ASSERT_EQ(params.size(), 2u);  // gamma and beta
+    TEST_ASSERT_SHAPE(params[0], std::vector<size_t>({4}));  // gamma
+    TEST_ASSERT_SHAPE(params[1], std::vector<size_t>({4}));  // beta
+}
+
+void test_groupnorm_gradient() {
+    GroupNorm gn(2, 4);
+    auto input = Tensor::randn({2, 4, 3, 3}, true);
+    auto output = gn.forward(input);
+    auto loss = output->sum();
+
+    loss->backward();
+
+    TEST_ASSERT(input->grad_size() > 0);
+    bool has_nonzero = false;
+    for (size_t i = 0; i < input->grad_size(); i++) {
+        if (std::abs(input->grad()[i]) > 1e-7f) {
+            has_nonzero = true;
+            break;
+        }
+    }
+    TEST_ASSERT(has_nonzero);
+
+    TEST_ASSERT(gn.gamma->grad_size() > 0);
+    TEST_ASSERT(gn.beta->grad_size() > 0);
+}
+
+// =============================================================================
+// RMSNorm Tests
+// =============================================================================
+
+void test_rmsnorm_forward() {
+    RMSNorm rn(8);
+    auto input = Tensor::randn({2, 4, 8});
+    auto output = rn.forward(input);
+
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({2, 4, 8}));
+
+    for (size_t i = 0; i < output->size(); i++) {
+        TEST_ASSERT(!std::isnan(output->data()[i]));
+        TEST_ASSERT(!std::isinf(output->data()[i]));
+    }
+}
+
+void test_rmsnorm_parameters() {
+    RMSNorm rn(8);
+    auto params = rn.parameters();
+
+    TEST_ASSERT_EQ(params.size(), 1u);  // gamma only
+    TEST_ASSERT_SHAPE(params[0], std::vector<size_t>({8}));
+}
+
+void test_rmsnorm_gradient() {
+    RMSNorm rn(8);
+    auto input = Tensor::randn({2, 4, 8}, true);
+    auto output = rn.forward(input);
+    auto loss = output->sum();
+
+    loss->backward();
+
+    TEST_ASSERT(input->grad_size() > 0);
+    bool has_nonzero = false;
+    for (size_t i = 0; i < input->grad_size(); i++) {
+        if (std::abs(input->grad()[i]) > 1e-7f) {
+            has_nonzero = true;
+            break;
+        }
+    }
+    TEST_ASSERT(has_nonzero);
+
+    TEST_ASSERT(rn.gamma->grad_size() > 0);
+}
+
+// =============================================================================
+// SinusoidalPositionalEncoding Tests
+// =============================================================================
+
+void test_sinusoidal_pe_forward() {
+    SinusoidalPositionalEncoding pe(100, 32);
+    auto input = Tensor::randn({1, 10, 32});
+    auto output = pe.forward(input);
+
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({1, 10, 32}));
+
+    // Output should differ from input (PE was added)
+    bool differs = false;
+    for (size_t i = 0; i < input->size(); i++) {
+        if (std::abs(output->data()[i] - input->data()[i]) > 1e-7f) {
+            differs = true;
+            break;
+        }
+    }
+    TEST_ASSERT(differs);
+}
+
+void test_sinusoidal_pe_gradient() {
+    SinusoidalPositionalEncoding pe(100, 32);
+    auto input = Tensor::randn({1, 10, 32}, true);
+    auto output = pe.forward(input);
+    auto loss = output->sum();
+
+    loss->backward();
+
+    // Gradient should flow through (identity for input)
+    TEST_ASSERT(input->grad_size() > 0);
+    // Each grad should be 1.0 (sum backward)
+    for (size_t i = 0; i < input->grad_size(); i++) {
+        TEST_ASSERT_NEAR(input->grad()[i], 1.0f, 1e-5f);
+    }
+}
+
+// =============================================================================
+// RoPE Tests
+// =============================================================================
+
+void test_rope_apply() {
+    // [batch=1, seq=4, embed=8] with 2 heads, head_dim=4
+    auto qk = Tensor::ones({1, 4, 8});
+    // Save original values
+    std::vector<float> original(qk->data(), qk->data() + qk->size());
+
+    apply_rope(qk, 4, 2, 4);
+
+    // Should have modified the tensor
+    bool modified = false;
+    for (size_t i = 0; i < qk->size(); i++) {
+        if (std::abs(qk->data()[i] - original[i]) > 1e-7f) {
+            modified = true;
+            break;
+        }
+    }
+    TEST_ASSERT(modified);
+
+    // Position 0 should leave values unchanged (theta=0 => cos=1, sin=0)
+    // For pos=0: x_rot[2i] = x[2i]*1 - x[2i+1]*0 = x[2i]
+    //            x_rot[2i+1] = x[2i]*0 + x[2i+1]*1 = x[2i+1]
+    for (size_t i = 0; i < 8; i++) {
+        TEST_ASSERT_NEAR(qk->data()[i], 1.0f, 1e-5f);
+    }
+
+    // No NaN or Inf
+    for (size_t i = 0; i < qk->size(); i++) {
+        TEST_ASSERT(!std::isnan(qk->data()[i]));
+        TEST_ASSERT(!std::isinf(qk->data()[i]));
+    }
+}
+
+// =============================================================================
 // Test Suite Registration
 // =============================================================================
 
@@ -1155,6 +1462,9 @@ TestSuite* create_layer_tests() {
     suite->add_test("relu_forward", test_relu_forward);
     suite->add_test("sigmoid_forward", test_sigmoid_forward);
     suite->add_test("tanh_forward", test_tanh_forward);
+    suite->add_test("silu_forward", test_silu_forward);
+    suite->add_test("gelu_forward", test_gelu_forward);
+    suite->add_test("mish_forward", test_mish_forward);
     suite->add_test("softmax_forward", test_softmax_forward);
     suite->add_test("logsoftmax_forward", test_logsoftmax_forward);
 
@@ -1167,6 +1477,9 @@ TestSuite* create_layer_tests() {
     suite->add_test("conv2d_parameters", test_conv2d_parameters);
     suite->add_test("conv2d_no_padding", test_conv2d_no_padding);
     suite->add_test("conv2d_stride", test_conv2d_stride);
+    suite->add_test("conv2d_groups", test_conv2d_groups);
+    suite->add_test("conv2d_depthwise", test_conv2d_depthwise);
+    suite->add_test("conv2d_groups_parameters", test_conv2d_groups_parameters);
 
     // ConvTranspose2d tests
     suite->add_test("conv_transpose2d_forward", test_conv_transpose2d_forward);
@@ -1247,6 +1560,24 @@ TestSuite* create_layer_tests() {
     suite->add_test("count_parameters", test_count_parameters);
     suite->add_test("format_memory", test_format_memory);
     suite->add_test("format_number", test_format_number);
+
+    // GroupNorm tests
+    suite->add_test("groupnorm_forward", test_groupnorm_forward);
+    suite->add_test("groupnorm_3d", test_groupnorm_3d);
+    suite->add_test("groupnorm_parameters", test_groupnorm_parameters);
+    suite->add_test("groupnorm_gradient", test_groupnorm_gradient);
+
+    // RMSNorm tests
+    suite->add_test("rmsnorm_forward", test_rmsnorm_forward);
+    suite->add_test("rmsnorm_parameters", test_rmsnorm_parameters);
+    suite->add_test("rmsnorm_gradient", test_rmsnorm_gradient);
+
+    // Sinusoidal PE tests
+    suite->add_test("sinusoidal_pe_forward", test_sinusoidal_pe_forward);
+    suite->add_test("sinusoidal_pe_gradient", test_sinusoidal_pe_gradient);
+
+    // RoPE tests
+    suite->add_test("rope_apply", test_rope_apply);
 
     // ONNX round-trip
     suite->add_test("onnx_roundtrip_linear_relu", test_onnx_roundtrip_linear_relu);

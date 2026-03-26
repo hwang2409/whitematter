@@ -420,6 +420,90 @@ void test_gradcheck_tanh() {
 }
 
 // =============================================================================
+// 7d. SiLU Gradient Check
+// =============================================================================
+
+void test_gradcheck_silu() {
+    const float eps = 1e-4f;
+    const float tol = 5e-3f;
+
+    auto input = Tensor::create({0.5f, -0.3f, 0.8f, -0.1f, 0.2f, 0.6f}, {2, 3}, true);
+
+    input->zero_grad();
+    auto output = input->silu();
+    auto loss = output->sum();
+    loss->backward();
+
+    std::vector<float> input_grad_analytical(input->grad(),
+        input->grad() + input->grad_size());
+
+    auto loss_fn = [&]() -> float {
+        auto out = input->silu();
+        return sum_all(out);
+    };
+
+    TEST_ASSERT_MSG(
+        check_grad_param(loss_fn, input, input_grad_analytical.data(), eps, tol, "SiLU.input"),
+        "SiLU input gradient check failed");
+}
+
+// =============================================================================
+// 7e. GELU Gradient Check
+// =============================================================================
+
+void test_gradcheck_gelu() {
+    const float eps = 1e-4f;
+    const float tol = 5e-3f;
+
+    auto input = Tensor::create({0.5f, -0.3f, 0.8f, -0.1f, 0.2f, 0.6f}, {2, 3}, true);
+
+    input->zero_grad();
+    auto output = input->gelu();
+    auto loss = output->sum();
+    loss->backward();
+
+    std::vector<float> input_grad_analytical(input->grad(),
+        input->grad() + input->grad_size());
+
+    auto loss_fn = [&]() -> float {
+        auto out = input->gelu();
+        return sum_all(out);
+    };
+
+    TEST_ASSERT_MSG(
+        check_grad_param(loss_fn, input, input_grad_analytical.data(), eps, tol, "GELU.input"),
+        "GELU input gradient check failed");
+}
+
+// =============================================================================
+// 7f. Mish Gradient Check
+// =============================================================================
+
+void test_gradcheck_mish() {
+    const float eps = 1e-4f;
+    const float tol = 5e-3f;
+
+    auto input = Tensor::create({0.5f, -0.3f, 0.8f, -0.1f, 0.2f, 0.6f}, {2, 3}, true);
+
+    input->zero_grad();
+    auto output = input->mish();
+    auto loss = output->sum();
+    loss->backward();
+
+    std::vector<float> input_grad_analytical(input->grad(),
+        input->grad() + input->grad_size());
+
+    auto loss_fn = [&]() -> float {
+        auto out = input->mish();
+        return sum_all(out);
+    };
+
+    TEST_ASSERT_MSG(
+        check_grad_param(loss_fn, input, input_grad_analytical.data(), eps, tol, "Mish.input"),
+        "Mish input gradient check failed");
+}
+
+// =============================================================================
 // 8. MultiHeadAttention Gradient Check (W_q only for speed)
 // =============================================================================
 
@@ -472,6 +556,9 @@ TestSuite* create_grad_check_tests() {
     suite->add_test("gradcheck_relu", test_gradcheck_relu);
     suite->add_test("gradcheck_sigmoid", test_gradcheck_sigmoid);
     suite->add_test("gradcheck_tanh", test_gradcheck_tanh);
+    suite->add_test("gradcheck_silu", test_gradcheck_silu);
+    suite->add_test("gradcheck_gelu", test_gradcheck_gelu);
+    suite->add_test("gradcheck_mish", test_gradcheck_mish);
     suite->add_test("gradcheck_mha", test_gradcheck_mha);
 
     return suite;
