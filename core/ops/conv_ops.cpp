@@ -236,10 +236,11 @@ static void conv2d_winograd_f2x2_3x3(
 }
 
 TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
-                          size_t stride, size_t padding, size_t groups) const {
+                          size_t stride, size_t padding, size_t groups, size_t dilation) const {
     assert(shape.size() == 4);
     assert(weight->shape.size() == 4);
     assert(groups >= 1);
+    assert(dilation >= 1);
 
     size_t batch = shape[0];
     size_t in_channels = shape[1];
@@ -255,8 +256,8 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
     // weight->shape[1] should be in_channels / groups
     assert(weight->shape[1] == in_channels / groups);
 
-    size_t out_h = (in_h + 2 * padding - kernel_h) / stride + 1;
-    size_t out_w = (in_w + 2 * padding - kernel_w) / stride + 1;
+    size_t out_h = (in_h + 2 * padding - dilation * (kernel_h - 1) - 1) / stride + 1;
+    size_t out_w = (in_w + 2 * padding - dilation * (kernel_w - 1) - 1) / stride + 1;
 
     bool track = (requires_grad || weight->requires_grad || (bias && bias->requires_grad))
                  && GradMode::is_enabled();
@@ -265,8 +266,8 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
     size_t in_ch_per_group = in_channels / groups;
     size_t out_ch_per_group = out_channels / groups;
 
-    // Winograd F(2x2, 3x3) fast path: kernel=3, stride=1, padding=1, groups=1 only
-    if (groups == 1 && kernel_h == 3 && kernel_w == 3 && stride == 1 && padding == 1) {
+    // Winograd F(2x2, 3x3) fast path: kernel=3, stride=1, padding=1, groups=1, dilation=1 only
+    if (groups == 1 && dilation == 1 && kernel_h == 3 && kernel_w == 3 && stride == 1 && padding == 1) {
         conv2d_winograd_f2x2_3x3(result->data(), data(), weight->data(),
                                    bias ? bias->data() : nullptr,
                                    batch, in_channels, out_channels,
@@ -289,7 +290,7 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
                 im2col(input_ptr, col_buffer,
                        in_ch_per_group, in_h, in_w,
                        kernel_h, kernel_w,
-                       out_h, out_w, stride, padding);
+                       out_h, out_w, stride, padding, dilation);
 
                 matmul_blocked(output_ptr, weight_ptr_g, col_buffer,
                                out_ch_per_group, col_h_per_group, col_w);
@@ -316,7 +317,7 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
         result->grad_fn = [self_ptr, weight_ptr, bias_ptr, result,
                            batch, in_channels, in_h, in_w,
                            out_channels, out_h, out_w,
-                           kernel_h, kernel_w, stride, padding, groups]() {
+                           kernel_h, kernel_w, stride, padding, groups, dilation]() {
 
             size_t in_ch_per_group = in_channels / groups;
             size_t out_ch_per_group = out_channels / groups;
@@ -351,7 +352,7 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
                         col2im(col_grad, grad_in,
                                in_ch_per_group, in_h, in_w,
                                kernel_h, kernel_w,
-                               out_h, out_w, stride, padding);
+                               out_h, out_w, stride, padding, dilation);
                     }
                 }
             }
@@ -372,7 +373,7 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
                         im2col(input_ptr, col_buf,
                                in_ch_per_group, in_h, in_w,
                                kernel_h, kernel_w,
-                               out_h, out_w, stride, padding);
+                               out_h, out_w, stride, padding, dilation);
 
                         for (size_t i = 0; i < col_h_per_group; i++) {
                             for (size_t j = 0; j < col_w; j++) {
@@ -749,4 +750,424 @@ TensorPtr Tensor::flatten(size_t start_dim) const {
     new_shape.push_back(flat_size);
 
     return reshape(new_shape);
+}
+
+// ============================================================================
+// Conv1d: 1D convolution using im2col_1d + GEMM
+// ============================================================================
+
+// Helper: unfold 1D input into column matrix
+// input: [in_channels, length]
+// col: [in_channels * kernel_size, out_length]
+static void im2col_1d(const float* input, float* col,
+                       size_t in_channels, size_t length,
+                       size_t kernel_size, size_t out_length,
+                       size_t stride, size_t padding) {
+    size_t col_rows = in_channels * kernel_size;
+    for (size_t c = 0; c < in_channels; c++) {
+        for (size_t k = 0; k < kernel_size; k++) {
+            size_t row = c * kernel_size + k;
+            for (size_t ol = 0; ol < out_length; ol++) {
+                int il = static_cast<int>(ol * stride + k) - static_cast<int>(padding);
+                if (il >= 0 && il < static_cast<int>(length)) {
+                    col[row * out_length + ol] = input[c * length + static_cast<size_t>(il)];
+                } else {
+                    col[row * out_length + ol] = 0.0f;
+                }
+            }
+        }
+    }
+    (void)col_rows;
+}
+
+// Helper: reverse of im2col_1d, accumulates into input grad
+static void col2im_1d(const float* col, float* input,
+                       size_t in_channels, size_t length,
+                       size_t kernel_size, size_t out_length,
+                       size_t stride, size_t padding) {
+    for (size_t c = 0; c < in_channels; c++) {
+        for (size_t k = 0; k < kernel_size; k++) {
+            size_t row = c * kernel_size + k;
+            for (size_t ol = 0; ol < out_length; ol++) {
+                int il = static_cast<int>(ol * stride + k) - static_cast<int>(padding);
+                if (il >= 0 && il < static_cast<int>(length)) {
+                    input[c * length + static_cast<size_t>(il)] += col[row * out_length + ol];
+                }
+            }
+        }
+    }
+}
+
+TensorPtr Tensor::conv1d(const TensorPtr& weight, const TensorPtr& bias,
+                          size_t stride, size_t padding) const {
+    assert(shape.size() == 3);      // [batch, in_channels, length]
+    assert(weight->shape.size() == 3); // [out_channels, in_channels, kernel_size]
+    assert(shape[1] == weight->shape[1]);
+
+    size_t batch = shape[0];
+    size_t in_channels = shape[1];
+    size_t length = shape[2];
+
+    size_t out_channels = weight->shape[0];
+    size_t kernel_size = weight->shape[2];
+
+    size_t out_length = (length + 2 * padding - kernel_size) / stride + 1;
+
+    bool track = (requires_grad || weight->requires_grad || (bias && bias->requires_grad))
+                 && GradMode::is_enabled();
+    auto result = create({batch, out_channels, out_length}, track);
+
+    size_t col_rows = in_channels * kernel_size;
+    float* col_buffer = get_buf(tl_col_buf, col_rows * out_length);
+
+    for (size_t b = 0; b < batch; b++) {
+        const float* input_ptr = data() + b * in_channels * length;
+        float* output_ptr = result->data() + b * out_channels * out_length;
+
+        im2col_1d(input_ptr, col_buffer,
+                  in_channels, length,
+                  kernel_size, out_length,
+                  stride, padding);
+
+        // weight: [out_channels, in_channels * kernel_size]
+        // col: [in_channels * kernel_size, out_length]
+        // output: [out_channels, out_length]
+        matmul_blocked(output_ptr, weight->data(), col_buffer,
+                       out_channels, col_rows, out_length);
+
+        if (bias) {
+            for (size_t oc = 0; oc < out_channels; oc++) {
+                for (size_t i = 0; i < out_length; i++) {
+                    output_ptr[oc * out_length + i] += bias->data()[oc];
+                }
+            }
+        }
+    }
+
+    if (track) {
+        auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
+        auto weight_ptr = weight;
+        auto bias_ptr = bias;
+        result->parents = {self_ptr, weight_ptr};
+        if (bias_ptr) result->parents.push_back(bias_ptr);
+
+        result->grad_fn = [self_ptr, weight_ptr, bias_ptr, result,
+                           batch, in_channels, length,
+                           out_channels, out_length,
+                           kernel_size, stride, padding]() {
+
+            size_t col_rows = in_channels * kernel_size;
+
+            // Gradient w.r.t. input
+            if (self_ptr->requires_grad) {
+                float* weight_T = get_buf(tl_scratch, col_rows * out_channels);
+                float* col_grad = get_buf(tl_col_buf, col_rows * out_length);
+
+                // Transpose weight: [out_channels, col_rows] -> [col_rows, out_channels]
+                for (size_t oc = 0; oc < out_channels; oc++) {
+                    for (size_t k = 0; k < col_rows; k++) {
+                        weight_T[k * out_channels + oc] = weight_ptr->data()[oc * col_rows + k];
+                    }
+                }
+
+                for (size_t b = 0; b < batch; b++) {
+                    const float* grad_out = result->grad() + b * out_channels * out_length;
+                    float* grad_in = self_ptr->grad() + b * in_channels * length;
+
+                    matmul_blocked(col_grad, weight_T, grad_out,
+                                   col_rows, out_channels, out_length);
+
+                    col2im_1d(col_grad, grad_in,
+                              in_channels, length,
+                              kernel_size, out_length,
+                              stride, padding);
+                }
+            }
+
+            // Gradient w.r.t. weight
+            if (weight_ptr->requires_grad) {
+                float* col_buf = get_buf(tl_col_buf, col_rows * out_length);
+                float* col_T = get_buf(tl_col_buf2, out_length * col_rows);
+
+                for (size_t b = 0; b < batch; b++) {
+                    const float* input_ptr = self_ptr->data() + b * in_channels * length;
+                    const float* grad_out = result->grad() + b * out_channels * out_length;
+
+                    im2col_1d(input_ptr, col_buf,
+                              in_channels, length,
+                              kernel_size, out_length,
+                              stride, padding);
+
+                    // Transpose col: [col_rows, out_length] -> [out_length, col_rows]
+                    for (size_t i = 0; i < col_rows; i++) {
+                        for (size_t j = 0; j < out_length; j++) {
+                            col_T[j * col_rows + i] = col_buf[i * out_length + j];
+                        }
+                    }
+
+                    float* grad_w = get_buf(tl_scratch, out_channels * col_rows);
+                    matmul_blocked(grad_w, grad_out, col_T,
+                                   out_channels, out_length, col_rows);
+
+                    for (size_t i = 0; i < out_channels * col_rows; i++) {
+                        weight_ptr->grad()[i] += grad_w[i];
+                    }
+                }
+            }
+
+            // Gradient w.r.t. bias
+            if (bias_ptr && bias_ptr->requires_grad) {
+                for (size_t oc = 0; oc < out_channels; oc++) {
+                    float grad_sum = 0.0f;
+                    for (size_t b = 0; b < batch; b++) {
+                        for (size_t i = 0; i < out_length; i++) {
+                            grad_sum += result->grad()[b * out_channels * out_length + oc * out_length + i];
+                        }
+                    }
+                    bias_ptr->grad()[oc] += grad_sum;
+                }
+            }
+        };
+    }
+
+    return result;
+}
+
+// ============================================================================
+// Upsample: nearest and bilinear upsampling
+// ============================================================================
+
+TensorPtr Tensor::upsample(size_t scale_factor, const std::string& mode) const {
+    assert(shape.size() == 4);  // [batch, channels, H, W]
+    assert(mode == "nearest" || mode == "bilinear");
+
+    size_t batch = shape[0];
+    size_t channels = shape[1];
+    size_t in_h = shape[2];
+    size_t in_w = shape[3];
+    size_t out_h = in_h * scale_factor;
+    size_t out_w = in_w * scale_factor;
+
+    bool track = requires_grad && GradMode::is_enabled();
+    auto result = create({batch, channels, out_h, out_w}, track);
+
+    if (mode == "nearest") {
+        for (size_t b = 0; b < batch; b++) {
+            for (size_t c = 0; c < channels; c++) {
+                for (size_t oh = 0; oh < out_h; oh++) {
+                    for (size_t ow = 0; ow < out_w; ow++) {
+                        size_t ih = oh / scale_factor;
+                        size_t iw = ow / scale_factor;
+                        size_t out_idx = b * channels * out_h * out_w +
+                                         c * out_h * out_w +
+                                         oh * out_w + ow;
+                        size_t in_idx = b * channels * in_h * in_w +
+                                        c * in_h * in_w +
+                                        ih * in_w + iw;
+                        result->data()[out_idx] = data()[in_idx];
+                    }
+                }
+            }
+        }
+    } else {
+        // Bilinear interpolation
+        for (size_t b = 0; b < batch; b++) {
+            for (size_t c = 0; c < channels; c++) {
+                for (size_t oh = 0; oh < out_h; oh++) {
+                    for (size_t ow = 0; ow < out_w; ow++) {
+                        // Map output to input coordinates
+                        float src_h = (static_cast<float>(oh) + 0.5f) / static_cast<float>(scale_factor) - 0.5f;
+                        float src_w = (static_cast<float>(ow) + 0.5f) / static_cast<float>(scale_factor) - 0.5f;
+
+                        int ih0 = static_cast<int>(std::floor(src_h));
+                        int iw0 = static_cast<int>(std::floor(src_w));
+                        int ih1 = ih0 + 1;
+                        int iw1 = iw0 + 1;
+
+                        float h_lerp = src_h - static_cast<float>(ih0);
+                        float w_lerp = src_w - static_cast<float>(iw0);
+
+                        // Clamp to valid range
+                        ih0 = std::max(0, std::min(ih0, static_cast<int>(in_h) - 1));
+                        ih1 = std::max(0, std::min(ih1, static_cast<int>(in_h) - 1));
+                        iw0 = std::max(0, std::min(iw0, static_cast<int>(in_w) - 1));
+                        iw1 = std::max(0, std::min(iw1, static_cast<int>(in_w) - 1));
+
+                        size_t base = b * channels * in_h * in_w + c * in_h * in_w;
+                        float v00 = data()[base + static_cast<size_t>(ih0) * in_w + static_cast<size_t>(iw0)];
+                        float v01 = data()[base + static_cast<size_t>(ih0) * in_w + static_cast<size_t>(iw1)];
+                        float v10 = data()[base + static_cast<size_t>(ih1) * in_w + static_cast<size_t>(iw0)];
+                        float v11 = data()[base + static_cast<size_t>(ih1) * in_w + static_cast<size_t>(iw1)];
+
+                        float val = (1.0f - h_lerp) * (1.0f - w_lerp) * v00 +
+                                    (1.0f - h_lerp) * w_lerp * v01 +
+                                    h_lerp * (1.0f - w_lerp) * v10 +
+                                    h_lerp * w_lerp * v11;
+
+                        size_t out_idx = b * channels * out_h * out_w +
+                                         c * out_h * out_w +
+                                         oh * out_w + ow;
+                        result->data()[out_idx] = val;
+                    }
+                }
+            }
+        }
+    }
+
+    if (track) {
+        auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
+        auto mode_copy = mode;
+        result->parents = {self_ptr};
+
+        result->grad_fn = [self_ptr, result, batch, channels,
+                           in_h, in_w, out_h, out_w, scale_factor, mode_copy]() {
+            if (!self_ptr->requires_grad) return;
+
+            if (mode_copy == "nearest") {
+                // Accumulate gradients to source positions
+                for (size_t b = 0; b < batch; b++) {
+                    for (size_t c = 0; c < channels; c++) {
+                        for (size_t oh = 0; oh < out_h; oh++) {
+                            for (size_t ow = 0; ow < out_w; ow++) {
+                                size_t ih = oh / scale_factor;
+                                size_t iw = ow / scale_factor;
+                                size_t out_idx = b * channels * out_h * out_w +
+                                                 c * out_h * out_w +
+                                                 oh * out_w + ow;
+                                size_t in_idx = b * channels * in_h * in_w +
+                                                c * in_h * in_w +
+                                                ih * in_w + iw;
+                                self_ptr->grad()[in_idx] += result->grad()[out_idx];
+                            }
+                        }
+                    }
+                }
+            } else {
+                // Bilinear: distribute gradients weighted by interpolation coefficients
+                for (size_t b = 0; b < batch; b++) {
+                    for (size_t c = 0; c < channels; c++) {
+                        for (size_t oh = 0; oh < out_h; oh++) {
+                            for (size_t ow = 0; ow < out_w; ow++) {
+                                float src_h = (static_cast<float>(oh) + 0.5f) / static_cast<float>(scale_factor) - 0.5f;
+                                float src_w = (static_cast<float>(ow) + 0.5f) / static_cast<float>(scale_factor) - 0.5f;
+
+                                int ih0 = static_cast<int>(std::floor(src_h));
+                                int iw0 = static_cast<int>(std::floor(src_w));
+                                int ih1 = ih0 + 1;
+                                int iw1 = iw0 + 1;
+
+                                float h_lerp = src_h - static_cast<float>(ih0);
+                                float w_lerp = src_w - static_cast<float>(iw0);
+
+                                ih0 = std::max(0, std::min(ih0, static_cast<int>(in_h) - 1));
+                                ih1 = std::max(0, std::min(ih1, static_cast<int>(in_h) - 1));
+                                iw0 = std::max(0, std::min(iw0, static_cast<int>(in_w) - 1));
+                                iw1 = std::max(0, std::min(iw1, static_cast<int>(in_w) - 1));
+
+                                size_t out_idx = b * channels * out_h * out_w +
+                                                 c * out_h * out_w +
+                                                 oh * out_w + ow;
+                                float grad_val = result->grad()[out_idx];
+
+                                size_t base = b * channels * in_h * in_w + c * in_h * in_w;
+                                self_ptr->grad()[base + static_cast<size_t>(ih0) * in_w + static_cast<size_t>(iw0)] += (1.0f - h_lerp) * (1.0f - w_lerp) * grad_val;
+                                self_ptr->grad()[base + static_cast<size_t>(ih0) * in_w + static_cast<size_t>(iw1)] += (1.0f - h_lerp) * w_lerp * grad_val;
+                                self_ptr->grad()[base + static_cast<size_t>(ih1) * in_w + static_cast<size_t>(iw0)] += h_lerp * (1.0f - w_lerp) * grad_val;
+                                self_ptr->grad()[base + static_cast<size_t>(ih1) * in_w + static_cast<size_t>(iw1)] += h_lerp * w_lerp * grad_val;
+                            }
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    return result;
+}
+
+// ============================================================================
+// AdaptiveAvgPool2d: pool to fixed output size
+// ============================================================================
+
+TensorPtr Tensor::adaptive_avgpool2d(size_t output_h, size_t output_w) const {
+    assert(shape.size() == 4);  // [batch, channels, H, W]
+
+    size_t batch = shape[0];
+    size_t channels = shape[1];
+    size_t in_h = shape[2];
+    size_t in_w = shape[3];
+
+    bool track = requires_grad && GradMode::is_enabled();
+    auto result = create({batch, channels, output_h, output_w}, track);
+
+    for (size_t b = 0; b < batch; b++) {
+        for (size_t c = 0; c < channels; c++) {
+            for (size_t oh = 0; oh < output_h; oh++) {
+                for (size_t ow = 0; ow < output_w; ow++) {
+                    // Compute input range for this output position
+                    size_t ih_start = (oh * in_h) / output_h;
+                    size_t ih_end = ((oh + 1) * in_h) / output_h;
+                    size_t iw_start = (ow * in_w) / output_w;
+                    size_t iw_end = ((ow + 1) * in_w) / output_w;
+
+                    float sum = 0.0f;
+                    size_t count = (ih_end - ih_start) * (iw_end - iw_start);
+
+                    for (size_t ih = ih_start; ih < ih_end; ih++) {
+                        for (size_t iw = iw_start; iw < iw_end; iw++) {
+                            size_t in_idx = b * channels * in_h * in_w +
+                                            c * in_h * in_w +
+                                            ih * in_w + iw;
+                            sum += data()[in_idx];
+                        }
+                    }
+
+                    size_t out_idx = b * channels * output_h * output_w +
+                                     c * output_h * output_w +
+                                     oh * output_w + ow;
+                    result->data()[out_idx] = sum / static_cast<float>(count);
+                }
+            }
+        }
+    }
+
+    if (track) {
+        auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
+        result->parents = {self_ptr};
+
+        result->grad_fn = [self_ptr, result, batch, channels,
+                           in_h, in_w, output_h, output_w]() {
+            if (!self_ptr->requires_grad) return;
+
+            for (size_t b = 0; b < batch; b++) {
+                for (size_t c = 0; c < channels; c++) {
+                    for (size_t oh = 0; oh < output_h; oh++) {
+                        for (size_t ow = 0; ow < output_w; ow++) {
+                            size_t ih_start = (oh * in_h) / output_h;
+                            size_t ih_end = ((oh + 1) * in_h) / output_h;
+                            size_t iw_start = (ow * in_w) / output_w;
+                            size_t iw_end = ((ow + 1) * in_w) / output_w;
+
+                            size_t count = (ih_end - ih_start) * (iw_end - iw_start);
+                            size_t out_idx = b * channels * output_h * output_w +
+                                             c * output_h * output_w +
+                                             oh * output_w + ow;
+                            float grad_val = result->grad()[out_idx] / static_cast<float>(count);
+
+                            for (size_t ih = ih_start; ih < ih_end; ih++) {
+                                for (size_t iw = iw_start; iw < iw_end; iw++) {
+                                    size_t in_idx = b * channels * in_h * in_w +
+                                                    c * in_h * in_w +
+                                                    ih * in_w + iw;
+                                    self_ptr->grad()[in_idx] += grad_val;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+    }
+
+    return result;
 }

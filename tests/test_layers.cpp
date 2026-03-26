@@ -1441,6 +1441,374 @@ void test_rope_apply() {
 }
 
 // =============================================================================
+// Upsample Tests
+// =============================================================================
+
+void test_upsample_nearest() {
+    Upsample up(2, "nearest");
+    // Input: [1, 1, 2, 2] with values [[1, 2], [3, 4]]
+    auto input = Tensor::create({1.0f, 2.0f, 3.0f, 4.0f}, {1, 1, 2, 2});
+    auto output = up.forward(input);
+
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({1, 1, 4, 4}));
+
+    // Each pixel replicated 2x2:
+    // Row 0: 1 1 2 2
+    // Row 1: 1 1 2 2
+    // Row 2: 3 3 4 4
+    // Row 3: 3 3 4 4
+    float expected[] = {
+        1.0f, 1.0f, 2.0f, 2.0f,
+        1.0f, 1.0f, 2.0f, 2.0f,
+        3.0f, 3.0f, 4.0f, 4.0f,
+        3.0f, 3.0f, 4.0f, 4.0f
+    };
+    for (size_t i = 0; i < 16; i++) {
+        TEST_ASSERT_NEAR(output->data()[i], expected[i], 1e-5f);
+    }
+}
+
+void test_upsample_bilinear() {
+    Upsample up(2, "bilinear");
+    // Input: [1, 1, 2, 2] with values [[1, 2], [3, 4]]
+    auto input = Tensor::create({1.0f, 2.0f, 3.0f, 4.0f}, {1, 1, 2, 2});
+    auto output = up.forward(input);
+
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({1, 1, 4, 4}));
+
+    // Check that bilinear produces smooth interpolation
+    // All output values should be between min(1) and max(4)
+    for (size_t i = 0; i < output->size(); i++) {
+        TEST_ASSERT(output->data()[i] >= 0.5f && output->data()[i] <= 4.5f);
+    }
+
+    // The output should not be all the same (unlike a constant input)
+    float first = output->data()[0];
+    bool all_same = true;
+    for (size_t i = 1; i < output->size(); i++) {
+        if (std::abs(output->data()[i] - first) > 1e-5f) {
+            all_same = false;
+            break;
+        }
+    }
+    TEST_ASSERT(!all_same);
+}
+
+void test_upsample_gradient() {
+    Upsample up(2, "nearest");
+    auto input = Tensor::create({1.0f, 2.0f, 3.0f, 4.0f}, {1, 1, 2, 2}, true);
+    auto output = up.forward(input);
+    auto loss = output->sum();
+    loss->backward();
+
+    // Each input pixel is replicated scale_factor^2 = 4 times
+    // So each input gradient should be 4.0 (sum of 4 ones from output grad)
+    for (size_t i = 0; i < input->size(); i++) {
+        TEST_ASSERT_NEAR(input->grad()[i], 4.0f, 1e-5f);
+    }
+}
+
+// =============================================================================
+// Conv1d Tests
+// =============================================================================
+
+void test_conv1d_forward() {
+    Conv1d conv(1, 2, 3, 1, 1);  // in=1, out=2, kernel=3, stride=1, pad=1
+    auto input = Tensor::randn({1, 1, 5});  // [batch=1, channels=1, length=5]
+    auto output = conv.forward(input);
+
+    // out_length = (5 + 2*1 - 3) / 1 + 1 = 5
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({1, 2, 5}));
+}
+
+void test_conv1d_parameters() {
+    Conv1d conv(3, 8, 5, 1, 0);
+    auto params = conv.parameters();
+
+    TEST_ASSERT_EQ(params.size(), 2u);  // weight and bias
+    // weight shape: [out_channels, in_channels, kernel_size]
+    TEST_ASSERT_SHAPE(params[0], std::vector<size_t>({8, 3, 5}));
+    // bias shape: [out_channels]
+    TEST_ASSERT_SHAPE(params[1], std::vector<size_t>({8}));
+}
+
+// =============================================================================
+// AdaptiveAvgPool2d Tests
+// =============================================================================
+
+void test_adaptive_avgpool_forward() {
+    AdaptiveAvgPool2d pool(1, 1);  // Global average pooling
+    auto input = Tensor::ones({2, 3, 4, 4});  // [batch=2, channels=3, H=4, W=4]
+    auto output = pool.forward(input);
+
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({2, 3, 1, 1}));
+
+    // All ones averaged = 1.0 for each channel
+    for (size_t i = 0; i < output->size(); i++) {
+        TEST_ASSERT_NEAR(output->data()[i], 1.0f, 1e-5f);
+    }
+}
+
+void test_adaptive_avgpool_7x7() {
+    AdaptiveAvgPool2d pool(7, 7);
+    // Input: [1, 1, 14, 14] with all ones
+    auto input = Tensor::ones({1, 1, 14, 14});
+    auto output = pool.forward(input);
+
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({1, 1, 7, 7}));
+
+    // Average of all ones = 1.0
+    for (size_t i = 0; i < output->size(); i++) {
+        TEST_ASSERT_NEAR(output->data()[i], 1.0f, 1e-5f);
+    }
+}
+
+// =============================================================================
+// KV Cache Tests
+// =============================================================================
+
+void test_kv_cache_basic() {
+    size_t num_heads = 4;
+    size_t head_dim = 8;
+    size_t embed_dim = num_heads * head_dim; // 32
+    KVCache cache(1024, num_heads, head_dim);
+
+    TEST_ASSERT_EQ(cache.length(), 0u);
+
+    // Append 3 tokens one at a time
+    auto k1 = Tensor::randn({1, 1, embed_dim});
+    auto v1 = Tensor::randn({1, 1, embed_dim});
+    cache.append(k1, v1);
+    TEST_ASSERT_EQ(cache.length(), 1u);
+
+    auto k2 = Tensor::randn({1, 1, embed_dim});
+    auto v2 = Tensor::randn({1, 1, embed_dim});
+    cache.append(k2, v2);
+    TEST_ASSERT_EQ(cache.length(), 2u);
+
+    auto k3 = Tensor::randn({1, 1, embed_dim});
+    auto v3 = Tensor::randn({1, 1, embed_dim});
+    cache.append(k3, v3);
+    TEST_ASSERT_EQ(cache.length(), 3u);
+
+    // Verify shapes
+    auto keys = cache.keys();
+    auto values = cache.values();
+    TEST_ASSERT_SHAPE(keys, std::vector<size_t>({1, 3, embed_dim}));
+    TEST_ASSERT_SHAPE(values, std::vector<size_t>({1, 3, embed_dim}));
+
+    // Verify content: first token data should match k1
+    for (size_t i = 0; i < embed_dim; i++) {
+        TEST_ASSERT_NEAR(keys->data()[i], k1->data()[i], 1e-6f);
+        TEST_ASSERT_NEAR(values->data()[i], v1->data()[i], 1e-6f);
+    }
+    // Second token should match k2
+    for (size_t i = 0; i < embed_dim; i++) {
+        TEST_ASSERT_NEAR(keys->data()[embed_dim + i], k2->data()[i], 1e-6f);
+    }
+    // Third token should match k3
+    for (size_t i = 0; i < embed_dim; i++) {
+        TEST_ASSERT_NEAR(keys->data()[2 * embed_dim + i], k3->data()[i], 1e-6f);
+    }
+}
+
+void test_kv_cache_clear() {
+    size_t num_heads = 4;
+    size_t head_dim = 8;
+    size_t embed_dim = num_heads * head_dim;
+    KVCache cache(1024, num_heads, head_dim);
+
+    auto k = Tensor::randn({1, 3, embed_dim});
+    auto v = Tensor::randn({1, 3, embed_dim});
+    cache.append(k, v);
+    TEST_ASSERT_EQ(cache.length(), 3u);
+
+    cache.clear();
+    TEST_ASSERT_EQ(cache.length(), 0u);
+
+    // Can append again after clear
+    auto k2 = Tensor::randn({1, 2, embed_dim});
+    auto v2 = Tensor::randn({1, 2, embed_dim});
+    cache.append(k2, v2);
+    TEST_ASSERT_EQ(cache.length(), 2u);
+
+    auto keys = cache.keys();
+    TEST_ASSERT_SHAPE(keys, std::vector<size_t>({1, 2, embed_dim}));
+}
+
+// =============================================================================
+// Grouped-Query Attention Tests
+// =============================================================================
+
+void test_gqa_forward() {
+    // GQA with 8 query heads, 2 KV heads
+    GroupedQueryAttention gqa(32, 8, 2);
+    auto input = Tensor::randn({1, 4, 32});
+    auto output = gqa.forward(input);
+
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({1, 4, 32}));
+
+    // Check output contains finite values
+    bool all_finite = true;
+    for (size_t i = 0; i < output->size(); i++) {
+        if (std::isnan(output->data()[i]) || std::isinf(output->data()[i])) {
+            all_finite = false;
+            break;
+        }
+    }
+    TEST_ASSERT(all_finite);
+}
+
+void test_gqa_mqa() {
+    // Multi-Query Attention: num_kv_heads = 1
+    GroupedQueryAttention gqa(32, 8, 1);
+    auto input = Tensor::randn({1, 4, 32});
+    auto output = gqa.forward(input);
+
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({1, 4, 32}));
+
+    bool all_finite = true;
+    for (size_t i = 0; i < output->size(); i++) {
+        if (std::isnan(output->data()[i]) || std::isinf(output->data()[i])) {
+            all_finite = false;
+            break;
+        }
+    }
+    TEST_ASSERT(all_finite);
+}
+
+void test_gqa_standard() {
+    // When num_kv_heads == num_heads, GQA should behave like standard MHA
+    GroupedQueryAttention gqa(32, 8, 8);
+    auto input = Tensor::randn({1, 4, 32});
+    auto output = gqa.forward(input);
+
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({1, 4, 32}));
+
+    bool all_finite = true;
+    for (size_t i = 0; i < output->size(); i++) {
+        if (std::isnan(output->data()[i]) || std::isinf(output->data()[i])) {
+            all_finite = false;
+            break;
+        }
+    }
+    TEST_ASSERT(all_finite);
+}
+
+void test_gqa_parameters() {
+    size_t embed_dim = 32;
+    size_t num_heads = 8;
+    size_t num_kv_heads = 2;
+    size_t head_dim = embed_dim / num_heads; // 4
+    GroupedQueryAttention gqa(embed_dim, num_heads, num_kv_heads);
+
+    auto params = gqa.parameters();
+    TEST_ASSERT_EQ(params.size(), 8u);  // W_q, W_k, W_v, W_o, b_q, b_k, b_v, b_o
+
+    // W_q: [num_heads * head_dim, embed_dim] = [32, 32]
+    TEST_ASSERT_SHAPE(params[0], std::vector<size_t>({num_heads * head_dim, embed_dim}));
+
+    // W_k: [num_kv_heads * head_dim, embed_dim] = [8, 32]
+    TEST_ASSERT_SHAPE(params[1], std::vector<size_t>({num_kv_heads * head_dim, embed_dim}));
+
+    // W_v: [num_kv_heads * head_dim, embed_dim] = [8, 32]
+    TEST_ASSERT_SHAPE(params[2], std::vector<size_t>({num_kv_heads * head_dim, embed_dim}));
+
+    // W_o: [embed_dim, embed_dim] = [32, 32]
+    TEST_ASSERT_SHAPE(params[3], std::vector<size_t>({embed_dim, embed_dim}));
+
+    // Biases
+    TEST_ASSERT_SHAPE(params[4], std::vector<size_t>({num_heads * head_dim}));   // b_q
+    TEST_ASSERT_SHAPE(params[5], std::vector<size_t>({num_kv_heads * head_dim})); // b_k
+    TEST_ASSERT_SHAPE(params[6], std::vector<size_t>({num_kv_heads * head_dim})); // b_v
+    TEST_ASSERT_SHAPE(params[7], std::vector<size_t>({embed_dim}));               // b_o
+}
+
+void test_gqa_gradient_flow() {
+    GroupedQueryAttention gqa(32, 8, 2);
+    auto input = Tensor::randn({1, 4, 32}, true);
+    auto output = gqa.forward(input);
+    auto loss = output->sum();
+    loss->backward();
+
+    // All weight gradients should be non-zero
+    auto params = gqa.parameters();
+    for (size_t p = 0; p < params.size(); p++) {
+        TEST_ASSERT(params[p]->grad() != nullptr);
+        bool has_nonzero = false;
+        for (size_t i = 0; i < params[p]->grad_size(); i++) {
+            if (std::abs(params[p]->grad()[i]) > 1e-10f) {
+                has_nonzero = true;
+                break;
+            }
+        }
+        TEST_ASSERT_MSG(has_nonzero, "Expected non-zero gradients for GQA parameter");
+    }
+
+    // Input should also have gradients
+    TEST_ASSERT(input->grad() != nullptr);
+    bool input_has_grad = false;
+    for (size_t i = 0; i < input->grad_size(); i++) {
+        if (std::abs(input->grad()[i]) > 1e-10f) {
+            input_has_grad = true;
+            break;
+        }
+    }
+    TEST_ASSERT_MSG(input_has_grad, "Expected non-zero gradients for GQA input");
+}
+
+// =============================================================================
+// Dilated Convolution Tests
+// =============================================================================
+
+void test_conv2d_dilated() {
+    // Conv2d(1,1,3, stride=1, padding=1, groups=1, dilation=2) with [1,1,7,7]
+    // out_h = (7 + 2*1 - 2*(3-1) - 1) / 1 + 1 = (7 + 2 - 4 - 1)/1 + 1 = 5
+    Conv2d layer(1, 1, 3, 1, 1, 1, 2);
+    auto input = Tensor::ones({1, 1, 7, 7});
+    auto output = layer.forward(input);
+
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({1, 1, 5, 5}));
+}
+
+void test_conv2d_dilated_values() {
+    // Verify dilated conv accesses correct input positions
+    Conv2d layer(1, 1, 3, 1, 2, 1, 2);  // padding=2, dilation=2
+
+    // Set weight to identity-like (center=1, rest=0)
+    for (size_t i = 0; i < layer.weight->size(); i++) layer.weight->data()[i] = 0.0f;
+    layer.weight->data()[4] = 1.0f;  // center of 3x3 kernel
+    for (size_t i = 0; i < layer.bias->size(); i++) layer.bias->data()[i] = 0.0f;
+
+    // Input: [1,1,5,5] with incrementing values
+    auto input = Tensor::create({1, 1, 5, 5});
+    for (size_t i = 0; i < 25; i++) input->data()[i] = static_cast<float>(i + 1);
+
+    auto output = layer.forward(input);
+
+    // out_h = (5 + 2*2 - 2*(3-1) - 1) / 1 + 1 = (5 + 4 - 4 - 1)/1 + 1 = 5
+    // With center-only kernel and dilation=2, center maps to kh=1,kw=1
+    // ih = oh*1 + 1*2 - 2 = oh, so output should equal input
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({1, 1, 5, 5}));
+    for (size_t i = 0; i < 25; i++) {
+        TEST_ASSERT_NEAR(output->data()[i], static_cast<float>(i + 1), 1e-5f);
+    }
+}
+
+void test_conv2d_dilation_default() {
+    // Verify default dilation=1 still works correctly
+    Conv2d layer_default(1, 1, 3, 1, 1);
+    Conv2d layer_explicit(1, 1, 3, 1, 1, 1, 1);
+
+    auto input = Tensor::ones({1, 1, 5, 5});
+    auto out1 = layer_default.forward(input);
+    auto out2 = layer_explicit.forward(input);
+
+    TEST_ASSERT_SHAPE(out1, std::vector<size_t>({1, 1, 5, 5}));
+    TEST_ASSERT_SHAPE(out2, std::vector<size_t>({1, 1, 5, 5}));
+}
+
+// =============================================================================
 // Test Suite Registration
 // =============================================================================
 
@@ -1475,6 +1843,9 @@ TestSuite* create_layer_tests() {
     suite->add_test("conv2d_groups", test_conv2d_groups);
     suite->add_test("conv2d_depthwise", test_conv2d_depthwise);
     suite->add_test("conv2d_groups_parameters", test_conv2d_groups_parameters);
+    suite->add_test("conv2d_dilated", test_conv2d_dilated);
+    suite->add_test("conv2d_dilated_values", test_conv2d_dilated_values);
+    suite->add_test("conv2d_dilation_default", test_conv2d_dilation_default);
 
     // ConvTranspose2d tests
     suite->add_test("conv_transpose2d_forward", test_conv_transpose2d_forward);
@@ -1576,6 +1947,30 @@ TestSuite* create_layer_tests() {
 
     // ONNX round-trip
     suite->add_test("onnx_roundtrip_linear_relu", test_onnx_roundtrip_linear_relu);
+
+    // Upsample tests
+    suite->add_test("upsample_nearest", test_upsample_nearest);
+    suite->add_test("upsample_bilinear", test_upsample_bilinear);
+    suite->add_test("upsample_gradient", test_upsample_gradient);
+
+    // Conv1d tests
+    suite->add_test("conv1d_forward", test_conv1d_forward);
+    suite->add_test("conv1d_parameters", test_conv1d_parameters);
+
+    // AdaptiveAvgPool2d tests
+    suite->add_test("adaptive_avgpool_forward", test_adaptive_avgpool_forward);
+    suite->add_test("adaptive_avgpool_7x7", test_adaptive_avgpool_7x7);
+
+    // KV Cache tests
+    suite->add_test("kv_cache_basic", test_kv_cache_basic);
+    suite->add_test("kv_cache_clear", test_kv_cache_clear);
+
+    // Grouped-Query Attention tests
+    suite->add_test("gqa_forward", test_gqa_forward);
+    suite->add_test("gqa_mqa", test_gqa_mqa);
+    suite->add_test("gqa_standard", test_gqa_standard);
+    suite->add_test("gqa_parameters", test_gqa_parameters);
+    suite->add_test("gqa_gradient_flow", test_gqa_gradient_flow);
 
     return suite;
 }

@@ -120,9 +120,10 @@ public:
     size_t stride;
     size_t padding;
     size_t groups;
+    size_t dilation;
 
     Conv2d(size_t in_channels, size_t out_channels, size_t kernel_size,
-           size_t stride = 1, size_t padding = 0, size_t groups = 1);
+           size_t stride = 1, size_t padding = 0, size_t groups = 1, size_t dilation = 1);
 
     TensorPtr forward(const TensorPtr& input) override;
     std::vector<TensorPtr> parameters() override;
@@ -258,6 +259,50 @@ private:
 // qk shape: [batch, seq_len, embed] where embed = num_heads * head_dim
 void apply_rope(TensorPtr& qk, size_t seq_len, size_t num_heads, size_t head_dim);
 
+class Upsample : public Module {
+public:
+    size_t scale_factor;
+    std::string mode;  // "nearest" or "bilinear"
+
+    Upsample(size_t scale_factor, std::string mode = "nearest");
+
+    TensorPtr forward(const TensorPtr& input) override;
+    std::string name() const override { return "Upsample"; }
+    std::string extra_repr() const override;
+    std::vector<size_t> compute_output_shape(const std::vector<size_t>& input_shape) const override;
+};
+
+class Conv1d : public Module {
+public:
+    TensorPtr weight;
+    TensorPtr bias;
+    size_t in_channels, out_channels;
+    size_t kernel_size;
+    size_t stride;
+    size_t padding;
+
+    Conv1d(size_t in_channels, size_t out_channels, size_t kernel_size,
+           size_t stride = 1, size_t padding = 0);
+
+    TensorPtr forward(const TensorPtr& input) override;
+    std::vector<TensorPtr> parameters() override;
+    std::string name() const override { return "Conv1d"; }
+    std::string extra_repr() const override;
+    std::vector<size_t> compute_output_shape(const std::vector<size_t>& input_shape) const override;
+};
+
+class AdaptiveAvgPool2d : public Module {
+public:
+    size_t output_h, output_w;
+
+    AdaptiveAvgPool2d(size_t output_h, size_t output_w);
+
+    TensorPtr forward(const TensorPtr& input) override;
+    std::string name() const override { return "AdaptiveAvgPool2d"; }
+    std::string extra_repr() const override;
+    std::vector<size_t> compute_output_shape(const std::vector<size_t>& input_shape) const override;
+};
+
 class Flatten : public Module {
 public:
     TensorPtr forward(const TensorPtr& input) override;
@@ -375,6 +420,61 @@ public:
 
     // Helper to create causal mask for autoregressive models
     static TensorPtr causal_mask(size_t seq_len);
+};
+
+class KVCache {
+public:
+    KVCache(size_t max_seq_len, size_t num_heads, size_t head_dim);
+
+    // Append new key/value for the current step
+    // new_keys/new_values shape: [batch, new_tokens, embed_dim] where embed_dim = num_heads * head_dim
+    void append(const TensorPtr& new_keys, const TensorPtr& new_values);
+
+    // Get all cached keys/values up to current position
+    TensorPtr keys() const;    // [batch, cached_len, embed_dim]
+    TensorPtr values() const;  // [batch, cached_len, embed_dim]
+
+    size_t length() const;  // Current cached sequence length
+    void clear();           // Reset cache
+
+private:
+    TensorPtr key_cache_;    // Pre-allocated [batch, max_seq_len, embed_dim]
+    TensorPtr value_cache_;
+    size_t current_len_;
+    size_t max_seq_len_;
+    size_t embed_dim_;
+    size_t batch_size_;
+};
+
+class GroupedQueryAttention : public Module {
+public:
+    size_t embed_dim;
+    size_t num_heads;
+    size_t num_kv_heads;
+    size_t head_dim;
+
+    // Projection weights: Q, K, V and output
+    // W_q: [num_heads * head_dim, embed_dim]
+    // W_k, W_v: [num_kv_heads * head_dim, embed_dim] (smaller when num_kv_heads < num_heads)
+    // W_o: [embed_dim, embed_dim]
+    TensorPtr W_q, W_k, W_v, W_o;
+    TensorPtr b_q, b_k, b_v, b_o;
+
+    // Stored attention weights (for visualization/debugging)
+    TensorPtr attn_weights;
+
+    GroupedQueryAttention(size_t embed_dim, size_t num_heads, size_t num_kv_heads);
+
+    // Self-attention: Q=K=V=input
+    TensorPtr forward(const TensorPtr& input) override;
+
+    // Cross-attention or self-attention with explicit Q, K, V
+    TensorPtr forward(const TensorPtr& query, const TensorPtr& key, const TensorPtr& value,
+                      const TensorPtr& mask = nullptr);
+
+    std::vector<TensorPtr> parameters() override;
+    std::string name() const override { return "GroupedQueryAttention"; }
+    std::string extra_repr() const override;
 };
 
 class Sequential : public Module {

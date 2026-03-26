@@ -182,6 +182,22 @@ public:
     void step() override;
 };
 
+// Linear warmup followed by cosine decay (step-based, not epoch-based)
+class LinearWarmupCosineDecay {
+public:
+    LinearWarmupCosineDecay(Optimizer* optimizer, size_t warmup_steps, size_t total_steps,
+                            float min_lr = 0.0f);
+    void step();
+
+private:
+    Optimizer* optimizer_;
+    float base_lr_;
+    float min_lr_;
+    size_t warmup_steps_;
+    size_t total_steps_;
+    size_t current_step_;
+};
+
 // Reduce LR when a metric has stopped improving
 class ReduceLROnPlateau {
 public:
