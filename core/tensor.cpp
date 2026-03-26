@@ -1427,16 +1427,11 @@ TensorPtr Tensor::sum(int dim, bool keepdim) const {
 
 TensorPtr Tensor::mean(int dim, bool keepdim) const {
     if (dim == -1) {
-        auto result = sum(-1, keepdim);
-        float n = static_cast<float>(size());
-        result->data()[0] /= n;
-        return result;
+        return sum(-1, keepdim)->mul(1.0f / static_cast<float>(size()));
     }
 
-    auto result = sum(dim, keepdim);
     float n = static_cast<float>(dim == 0 ? shape[0] : shape[1]);
-    for (size_t i = 0; i < result->size(); i++) result->data()[i] /= n;
-    return result;
+    return sum(dim, keepdim)->mul(1.0f / n);
 }
 
 TensorPtr Tensor::max(int dim, bool keepdim) const {
