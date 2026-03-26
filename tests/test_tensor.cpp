@@ -556,5 +556,49 @@ TestSuite* create_tensor_tests() {
         TEST_ASSERT(def.is_available());
     });
 
+    // fp16 tests
+    suite->add_test("fp16_roundtrip", []() {
+        auto t = Tensor::create({0.5f, -1.25f, 3.14f, 0.0f, 100.0f, -0.001f}, {2, 3});
+        auto h = t->half();
+        TEST_ASSERT(h->dtype == DType::Float16);
+        TEST_ASSERT_EQ(h->size(), 6u);
+        TEST_ASSERT_EQ(h->element_size(), 2u);
+        TEST_ASSERT_EQ(h->nbytes(), 12u);
+        TEST_ASSERT(h->data_half() != nullptr);
+
+        auto back = h->to_float();
+        TEST_ASSERT(back->dtype == DType::Float32);
+        for (size_t i = 0; i < t->size(); i++) {
+            float err = std::abs(t->data()[i] - back->data()[i]);
+            float tol = std::abs(t->data()[i]) * 0.01f + 1e-3f;  // fp16 has ~0.1% relative error
+            TEST_ASSERT_MSG(err < tol, "fp16 roundtrip error too large");
+        }
+    });
+
+    suite->add_test("fp16_shape_preserved", []() {
+        auto t = Tensor::randn({4, 8, 16});
+        auto h = t->half();
+        TEST_ASSERT_SHAPE(h, std::vector<size_t>({4, 8, 16}));
+        auto back = h->to_float();
+        TEST_ASSERT_SHAPE(back, std::vector<size_t>({4, 8, 16}));
+    });
+
+    suite->add_test("fp16_noop_conversion", []() {
+        auto t = Tensor::randn({3, 3});
+        auto same = t->to(DType::Float32);
+        TEST_ASSERT(same.get() == t.get());  // Should return same tensor
+
+        auto h = t->half();
+        auto same_h = h->to(DType::Float16);
+        TEST_ASSERT(same_h.get() == h.get());  // Should return same tensor
+    });
+
+    suite->add_test("fp16_memory_half_size", []() {
+        auto t = Tensor::randn({1000});
+        auto h = t->half();
+        TEST_ASSERT_EQ(t->nbytes(), 4000u);  // 1000 * 4 bytes
+        TEST_ASSERT_EQ(h->nbytes(), 2000u);  // 1000 * 2 bytes
+    });
+
     return suite;
 }

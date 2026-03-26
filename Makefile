@@ -48,7 +48,8 @@ CORE_SRCS = $(CORE_DIR)/memory_pool.cpp $(CORE_DIR)/autograd.cpp $(CORE_DIR)/bro
             $(LAYERS_DIR)/attention.cpp $(LAYERS_DIR)/sequential.cpp \
             $(CORE_DIR)/ops/simd_ops_avx.cpp $(CORE_DIR)/ops/simd_ops_neon.cpp $(CORE_DIR)/ops/simd_ops_fallback.cpp \
             $(CORE_DIR)/ops/matmul_cpu.cpp $(CORE_DIR)/ops/im2col.cpp \
-            $(CORE_DIR)/ops/conv_ops.cpp $(CORE_DIR)/ops/augmentation.cpp
+            $(CORE_DIR)/ops/conv_ops.cpp $(CORE_DIR)/ops/augmentation.cpp \
+            $(CORE_DIR)/ops/fp16.cpp
 CORE_OBJS = $(BUILD_DIR)/memory_pool.o $(BUILD_DIR)/autograd.o $(BUILD_DIR)/broadcast.o \
             $(BUILD_DIR)/tensor.o $(BUILD_DIR)/loss.o \
             $(BUILD_DIR)/optimizer.o $(BUILD_DIR)/serialize.o $(BUILD_DIR)/dataloader.o \
@@ -58,7 +59,8 @@ CORE_OBJS = $(BUILD_DIR)/memory_pool.o $(BUILD_DIR)/autograd.o $(BUILD_DIR)/broa
             $(BUILD_DIR)/layer_attention.o $(BUILD_DIR)/layer_sequential.o \
             $(BUILD_DIR)/simd_ops_avx.o $(BUILD_DIR)/simd_ops_neon.o $(BUILD_DIR)/simd_ops_fallback.o \
             $(BUILD_DIR)/matmul_cpu.o $(BUILD_DIR)/im2col.o \
-            $(BUILD_DIR)/conv_ops.o $(BUILD_DIR)/augmentation.o
+            $(BUILD_DIR)/conv_ops.o $(BUILD_DIR)/augmentation.o \
+            $(BUILD_DIR)/fp16.o
 
 ifeq ($(METAL),1)
   ifeq ($(UNAME_S),Darwin)
@@ -147,6 +149,9 @@ $(BUILD_DIR)/conv_ops.o: $(CORE_DIR)/ops/conv_ops.cpp $(CORE_DIR)/tensor.h $(COR
 
 $(BUILD_DIR)/augmentation.o: $(CORE_DIR)/ops/augmentation.cpp $(CORE_DIR)/tensor.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/fp16.o: $(CORE_DIR)/ops/fp16.cpp $(CORE_DIR)/ops/fp16.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -I$(CORE_DIR) -c -o $@ $<
 
 $(BUILD_DIR)/tensor.o: $(CORE_DIR)/tensor.cpp $(CORE_DIR)/tensor.h $(CORE_DIR)/memory_pool.h $(CORE_DIR)/broadcast.h $(CORE_DIR)/ops/simd_ops.h $(CORE_DIR)/ops/matmul_cpu.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<

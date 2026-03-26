@@ -8,8 +8,11 @@
 #include <functional>
 #include <cmath>
 #include <cassert>
+#include <cstdint>
 #include <cstdio>
 #include <random>
+
+enum class DType { Float32, Float16 };
 
 class Tensor;
 using TensorPtr = std::shared_ptr<Tensor>;
@@ -18,6 +21,7 @@ class Tensor : public std::enable_shared_from_this<Tensor> {
 public:
     std::vector<size_t> shape;
     bool requires_grad;
+    DType dtype{DType::Float32};
     whitematter::DeviceType device{whitematter::DeviceType::CPU};
 
     std::function<void()> grad_fn;
@@ -31,6 +35,17 @@ public:
     const float* grad() const { return grad_storage_ ? grad_storage_.get() : nullptr; }
     size_t grad_size() const { return grad_size_; }
     bool grad_empty() const { return !grad_storage_; }
+
+    // fp16 storage accessors
+    uint16_t* data_half() { assert(dtype == DType::Float16); return half_storage_ ? half_storage_.get() : nullptr; }
+    const uint16_t* data_half() const { assert(dtype == DType::Float16); return half_storage_ ? half_storage_.get() : nullptr; }
+    size_t element_size() const { return dtype == DType::Float32 ? 4 : 2; }
+    size_t nbytes() const { return data_size_ * element_size(); }
+
+    // Type conversion
+    TensorPtr half() const;      // fp32 → fp16 (new tensor)
+    TensorPtr to_float() const;  // fp16 → fp32 (new tensor)
+    TensorPtr to(DType target_dtype) const;
 
     Tensor();
     ~Tensor();
@@ -135,6 +150,7 @@ private:
     bool should_track_grad() const;
 
     std::shared_ptr<float> data_storage_;
+    std::shared_ptr<uint16_t> half_storage_;
     size_t data_size_;
     std::shared_ptr<float> grad_storage_;
     size_t grad_size_;

@@ -3,6 +3,7 @@
 #include "broadcast.h"
 #include "ops/simd_ops.h"
 #include "ops/matmul_cpu.h"
+#include "ops/fp16.h"
 #if defined(WHITEMATTER_METAL) && defined(__APPLE__)
 #include "metal/metal_backend.h"
 #endif
@@ -2157,4 +2158,38 @@ TensorPtr Tensor::permute(const std::vector<int>& dims) const {
 
 TensorPtr operator*(float scalar, const TensorPtr& t) {
     return t->mul(scalar);
+}
+
+// ---------------------------------------------------------------------------
+// fp16 conversion
+// ---------------------------------------------------------------------------
+
+TensorPtr Tensor::half() const {
+    if (dtype == DType::Float16) return const_cast<Tensor*>(this)->shared_from_this();
+
+    auto result = std::make_shared<Tensor>();
+    result->shape = shape;
+    result->dtype = DType::Float16;
+    result->requires_grad = false;  // fp16 tensors don't track gradients
+    result->data_size_ = data_size_;
+
+    // Allocate fp16 storage
+    result->half_storage_ = std::shared_ptr<uint16_t>(
+        new uint16_t[data_size_], [](uint16_t* p) { delete[] p; });
+
+    float_to_half(data(), result->half_storage_.get(), data_size_);
+    return result;
+}
+
+TensorPtr Tensor::to_float() const {
+    if (dtype == DType::Float32) return const_cast<Tensor*>(this)->shared_from_this();
+
+    auto result = create(shape, false);
+    half_to_float(half_storage_.get(), result->data(), data_size_);
+    return result;
+}
+
+TensorPtr Tensor::to(DType target_dtype) const {
+    if (target_dtype == DType::Float16) return half();
+    return to_float();
 }
