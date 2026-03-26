@@ -45,6 +45,121 @@ static void interleave_heads(float* dst, const float* src,
                         src[(b * num_heads + h) * seq * head_dim + s * head_dim + d];
 }
 
+// ---------------------------------------------------------------------------
+// Flash Attention forward (tiled, O(block) memory per head)
+// Implements FlashAttention-1 online softmax for CPU cache efficiency.
+// Called per (batch, head) on deinterleaved Q/K/V.
+// ---------------------------------------------------------------------------
+static constexpr size_t FLASH_BLOCK_Q = 32;
+static constexpr size_t FLASH_BLOCK_K = 32;
+
+static void flash_attention_forward(
+    float* O,               // [seq_q, hd] output
+    const float* Q_ptr,     // [seq_q, hd]
+    const float* K_ptr,     // [seq_k, hd]
+    const float* V_ptr,     // [seq_k, hd]
+    const float* mask_ptr,  // [seq_q, seq_k] or nullptr
+    size_t seq_q, size_t seq_k, size_t hd,
+    float scale)
+{
+    // Tile workspace — small enough to stay in L1/L2 cache
+    thread_local std::vector<float> S_buf, P_buf, PV_buf, Kt_buf;
+    size_t bq = std::min(FLASH_BLOCK_Q, seq_q);
+    size_t bk = std::min(FLASH_BLOCK_K, seq_k);
+    if (S_buf.size() < bq * bk) S_buf.resize(bq * bk);
+    if (P_buf.size() < bq * bk) P_buf.resize(bq * bk);
+    if (PV_buf.size() < bq * hd) PV_buf.resize(bq * hd);
+    if (Kt_buf.size() < hd * bk) Kt_buf.resize(hd * bk);
+
+    // Per-row accumulators
+    thread_local std::vector<float> row_max, row_sum;
+    if (row_max.size() < seq_q) row_max.resize(seq_q);
+    if (row_sum.size() < seq_q) row_sum.resize(seq_q);
+
+    // Initialize: O=0, m=-inf, l=0
+    std::memset(O, 0, seq_q * hd * sizeof(float));
+    std::fill(row_max.begin(), row_max.begin() + seq_q, -std::numeric_limits<float>::max());
+    std::fill(row_sum.begin(), row_sum.begin() + seq_q, 0.0f);
+
+    // Outer loop over K/V blocks
+    for (size_t j0 = 0; j0 < seq_k; j0 += FLASH_BLOCK_K) {
+        size_t bk_actual = std::min(FLASH_BLOCK_K, seq_k - j0);
+
+        // Transpose this K block: K[j0:j0+bk, hd] → Kt[hd, bk]
+        for (size_t i = 0; i < bk_actual; i++)
+            for (size_t d = 0; d < hd; d++)
+                Kt_buf[d * bk_actual + i] = K_ptr[(j0 + i) * hd + d];
+
+        // Inner loop over Q blocks
+        for (size_t i0 = 0; i0 < seq_q; i0 += FLASH_BLOCK_Q) {
+            size_t bq_actual = std::min(FLASH_BLOCK_Q, seq_q - i0);
+
+            // S = Qi @ Kj^T * scale  → [bq_actual, bk_actual]
+            matmul_blocked(S_buf.data(),
+                           Q_ptr + i0 * hd,
+                           Kt_buf.data(),
+                           bq_actual, hd, bk_actual);
+
+            // Scale + mask
+            for (size_t qi = 0; qi < bq_actual; qi++) {
+                for (size_t kj = 0; kj < bk_actual; kj++) {
+                    float val = S_buf[qi * bk_actual + kj] * scale;
+                    if (mask_ptr)
+                        val += mask_ptr[(i0 + qi) * seq_k + (j0 + kj)];
+                    S_buf[qi * bk_actual + kj] = val;
+                }
+            }
+
+            // Online softmax update per query row
+            for (size_t qi = 0; qi < bq_actual; qi++) {
+                size_t row = i0 + qi;
+                float m_old = row_max[row];
+                float l_old = row_sum[row];
+
+                // Find row max of this tile
+                float m_tile = S_buf[qi * bk_actual];
+                for (size_t kj = 1; kj < bk_actual; kj++)
+                    m_tile = std::max(m_tile, S_buf[qi * bk_actual + kj]);
+
+                float m_new = std::max(m_old, m_tile);
+
+                // Compute P = exp(S - m_new) and sum
+                float p_sum = 0.0f;
+                for (size_t kj = 0; kj < bk_actual; kj++) {
+                    float p = std::exp(S_buf[qi * bk_actual + kj] - m_new);
+                    P_buf[qi * bk_actual + kj] = p;
+                    p_sum += p;
+                }
+
+                // Rescale running sum
+                float rescale = std::exp(m_old - m_new);
+                float l_new = rescale * l_old + p_sum;
+
+                // Rescale existing output and add P @ Vj contribution
+                float* O_row = O + row * hd;
+                float inv_l_new = (l_new > 0.0f) ? 1.0f / l_new : 0.0f;
+                float old_scale = rescale * l_old * inv_l_new;
+                float new_scale = inv_l_new;
+
+                for (size_t d = 0; d < hd; d++) {
+                    // P[qi,:] @ V[j0:j0+bk, d]
+                    float pv = 0.0f;
+                    for (size_t kj = 0; kj < bk_actual; kj++)
+                        pv += P_buf[qi * bk_actual + kj] * V_ptr[(j0 + kj) * hd + d];
+
+                    O_row[d] = old_scale * O_row[d] + new_scale * pv;
+                }
+
+                row_max[row] = m_new;
+                row_sum[row] = l_new;
+            }
+        }
+    }
+}
+
+// Threshold: use flash attention when attention matrix would exceed this many elements
+static constexpr size_t FLASH_THRESHOLD = 4096;  // seq_q * seq_k > 4096
+
 // Add bias to each row: out[s,d] += bias[d] for all rows in [seq, embed]
 static void add_bias(float* out, const float* bias, size_t rows, size_t cols) {
     for (size_t s = 0; s < rows; s++)
@@ -128,75 +243,131 @@ TensorPtr MultiHeadAttention::forward(const TensorPtr& query, const TensorPtr& k
     deinterleave_heads(Kh.data(), K->data(), batch, seq_k, nh, hd);
     deinterleave_heads(Vh.data(), V->data(), batch, seq_k, nh, hd);
 
-    // --- 3. Attention scores: scores[bh] = Qh[bh] @ Kh[bh]^T * scale ---
+    // --- 3-5. Attention: scores + softmax + context ---
     float scale = 1.0f / std::sqrt(static_cast<float>(hd));
-    auto scores = Tensor::create({batch, nh, seq_q, seq_k}, track);
+    bool use_flash = (seq_q * seq_k > FLASH_THRESHOLD);
 
-    // Transpose K for each (batch*head) and matmul
-    thread_local std::vector<float> Kt_buf;
-    if (Kt_buf.size() < hd * seq_k) Kt_buf.resize(hd * seq_k);
+    // These are needed for backward — only allocated in non-flash path
+    TensorPtr scores, attn;
+    std::vector<float> ctx_heads(BH * seq_q * hd);
 
-    for (size_t bh = 0; bh < BH; bh++) {
-        const float* Kh_ptr = Kh.data() + bh * seq_k * hd;
-        // Transpose K[seq_k, hd] → Kt[hd, seq_k]
-        for (size_t i = 0; i < seq_k; i++)
-            for (size_t j = 0; j < hd; j++)
-                Kt_buf[j * seq_k + i] = Kh_ptr[i * hd + j];
+    if (use_flash) {
+        // --- Flash Attention path: O(block) memory, cache-friendly ---
+        for (size_t bh = 0; bh < BH; bh++) {
+            size_t b = bh / nh;
+            size_t mb = (mask && mask->shape[0] == 1) ? 0 : b;
+            const float* mask_bh = mask ? mask->data() + mb * seq_q * seq_k : nullptr;
 
-        matmul_blocked(scores->data() + bh * seq_q * seq_k,
-                       Qh.data() + bh * seq_q * hd,
-                       Kt_buf.data(), seq_q, hd, seq_k);
-    }
+            flash_attention_forward(
+                ctx_heads.data() + bh * seq_q * hd,
+                Qh.data() + bh * seq_q * hd,
+                Kh.data() + bh * seq_k * hd,
+                Vh.data() + bh * seq_k * hd,
+                mask_bh,
+                seq_q, seq_k, hd, scale);
+        }
 
-    // Apply scale and mask
-    for (size_t i = 0; i < scores->size(); i++)
-        scores->data()[i] *= scale;
+        // For backward, we still need scores and attn — recompute them
+        // (this is the flash tradeoff: save memory during forward, recompute for backward)
+        if (track) {
+            scores = Tensor::create({batch, nh, seq_q, seq_k}, true);
+            thread_local std::vector<float> Kt_buf2;
+            if (Kt_buf2.size() < hd * seq_k) Kt_buf2.resize(hd * seq_k);
 
-    if (mask != nullptr) {
-        for (size_t b = 0; b < batch; b++) {
-            size_t mb = (mask->shape[0] == 1) ? 0 : b;
-            for (size_t h = 0; h < nh; h++) {
+            for (size_t bh = 0; bh < BH; bh++) {
+                const float* Kh_ptr = Kh.data() + bh * seq_k * hd;
+                for (size_t i = 0; i < seq_k; i++)
+                    for (size_t j = 0; j < hd; j++)
+                        Kt_buf2[j * seq_k + i] = Kh_ptr[i * hd + j];
+                matmul_blocked(scores->data() + bh * seq_q * seq_k,
+                               Qh.data() + bh * seq_q * hd,
+                               Kt_buf2.data(), seq_q, hd, seq_k);
+            }
+            for (size_t i = 0; i < scores->size(); i++)
+                scores->data()[i] *= scale;
+            if (mask) {
+                for (size_t b = 0; b < batch; b++) {
+                    size_t mb = (mask->shape[0] == 1) ? 0 : b;
+                    for (size_t h = 0; h < nh; h++)
+                        for (size_t i = 0; i < seq_q; i++)
+                            for (size_t j = 0; j < seq_k; j++)
+                                scores->data()[b * nh * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j]
+                                    += mask->data()[mb * seq_q * seq_k + i * seq_k + j];
+                }
+            }
+
+            attn = Tensor::create({batch, nh, seq_q, seq_k}, true);
+            for (size_t bh = 0; bh < BH; bh++) {
                 for (size_t i = 0; i < seq_q; i++) {
+                    const float* row = scores->data() + bh * seq_q * seq_k + i * seq_k;
+                    float* out_row = attn->data() + bh * seq_q * seq_k + i * seq_k;
+                    float max_val = row[0];
+                    for (size_t j = 1; j < seq_k; j++) max_val = std::max(max_val, row[j]);
+                    float sum_exp = 0.0f;
                     for (size_t j = 0; j < seq_k; j++) {
-                        size_t score_idx = b * nh * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j;
-                        size_t mask_idx = mb * seq_q * seq_k + i * seq_k + j;
-                        scores->data()[score_idx] += mask->data()[mask_idx];
+                        out_row[j] = std::exp(row[j] - max_val);
+                        sum_exp += out_row[j];
                     }
+                    for (size_t j = 0; j < seq_k; j++) out_row[j] /= sum_exp;
                 }
             }
         }
-    }
+        attn_weights = attn;
+    } else {
+        // --- Standard path: full materialized attention matrix ---
+        scores = Tensor::create({batch, nh, seq_q, seq_k}, track);
 
-    // --- 4. Softmax over seq_k dimension ---
-    auto attn = Tensor::create({batch, nh, seq_q, seq_k}, track);
-    for (size_t bh = 0; bh < BH; bh++) {
-        for (size_t i = 0; i < seq_q; i++) {
-            const float* row = scores->data() + bh * seq_q * seq_k + i * seq_k;
-            float* out_row = attn->data() + bh * seq_q * seq_k + i * seq_k;
+        thread_local std::vector<float> Kt_buf;
+        if (Kt_buf.size() < hd * seq_k) Kt_buf.resize(hd * seq_k);
 
-            float max_val = row[0];
-            for (size_t j = 1; j < seq_k; j++)
-                max_val = std::max(max_val, row[j]);
-
-            float sum_exp = 0.0f;
-            for (size_t j = 0; j < seq_k; j++) {
-                out_row[j] = std::exp(row[j] - max_val);
-                sum_exp += out_row[j];
-            }
-            for (size_t j = 0; j < seq_k; j++)
-                out_row[j] /= sum_exp;
+        for (size_t bh = 0; bh < BH; bh++) {
+            const float* Kh_ptr = Kh.data() + bh * seq_k * hd;
+            for (size_t i = 0; i < seq_k; i++)
+                for (size_t j = 0; j < hd; j++)
+                    Kt_buf[j * seq_k + i] = Kh_ptr[i * hd + j];
+            matmul_blocked(scores->data() + bh * seq_q * seq_k,
+                           Qh.data() + bh * seq_q * hd,
+                           Kt_buf.data(), seq_q, hd, seq_k);
         }
-    }
 
-    attn_weights = attn;
+        for (size_t i = 0; i < scores->size(); i++)
+            scores->data()[i] *= scale;
 
-    // --- 5. Context: ctx_heads[bh] = attn[bh] @ Vh[bh] ---
-    std::vector<float> ctx_heads(BH * seq_q * hd);
-    for (size_t bh = 0; bh < BH; bh++) {
-        matmul_blocked(ctx_heads.data() + bh * seq_q * hd,
-                       attn->data() + bh * seq_q * seq_k,
-                       Vh.data() + bh * seq_k * hd,
-                       seq_q, seq_k, hd);
+        if (mask != nullptr) {
+            for (size_t b = 0; b < batch; b++) {
+                size_t mb = (mask->shape[0] == 1) ? 0 : b;
+                for (size_t h = 0; h < nh; h++)
+                    for (size_t i = 0; i < seq_q; i++)
+                        for (size_t j = 0; j < seq_k; j++)
+                            scores->data()[b * nh * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j]
+                                += mask->data()[mb * seq_q * seq_k + i * seq_k + j];
+            }
+        }
+
+        attn = Tensor::create({batch, nh, seq_q, seq_k}, track);
+        for (size_t bh = 0; bh < BH; bh++) {
+            for (size_t i = 0; i < seq_q; i++) {
+                const float* row = scores->data() + bh * seq_q * seq_k + i * seq_k;
+                float* out_row = attn->data() + bh * seq_q * seq_k + i * seq_k;
+                float max_val = row[0];
+                for (size_t j = 1; j < seq_k; j++) max_val = std::max(max_val, row[j]);
+                float sum_exp = 0.0f;
+                for (size_t j = 0; j < seq_k; j++) {
+                    out_row[j] = std::exp(row[j] - max_val);
+                    sum_exp += out_row[j];
+                }
+                for (size_t j = 0; j < seq_k; j++) out_row[j] /= sum_exp;
+            }
+        }
+
+        attn_weights = attn;
+
+        for (size_t bh = 0; bh < BH; bh++) {
+            matmul_blocked(ctx_heads.data() + bh * seq_q * hd,
+                           attn->data() + bh * seq_q * seq_k,
+                           Vh.data() + bh * seq_k * hd,
+                           seq_q, seq_k, hd);
+        }
     }
 
     // --- 6. Reshape context back to [batch, seq_q, embed_dim] ---
