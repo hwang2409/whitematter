@@ -66,7 +66,7 @@ ifeq ($(METAL),1)
   ifeq ($(UNAME_S),Darwin)
     CORE_OBJS += $(BUILD_DIR)/metal_backend.o
     CXXFLAGS += -DWHITEMATTER_METAL
-    LDFLAGS += -framework Metal -framework Foundation
+    LDFLAGS += -framework Metal -framework Foundation -framework MetalPerformanceShaders
   else
     CORE_OBJS += $(BUILD_DIR)/metal_stub.o
   endif
