@@ -60,6 +60,8 @@ public:
 
     static TensorPtr create(const std::vector<size_t>& shape, bool requires_grad = false);
     static TensorPtr create(const std::vector<float>& data, const std::vector<size_t>& shape, bool requires_grad = false);
+    static TensorPtr create_on_device(const std::vector<size_t>& shape, bool requires_grad,
+                                       whitematter::DeviceType device);
     static TensorPtr zeros(const std::vector<size_t>& shape, bool requires_grad = false);
     static TensorPtr ones(const std::vector<size_t>& shape, bool requires_grad = false);
     static TensorPtr randn(const std::vector<size_t>& shape, bool requires_grad = false);

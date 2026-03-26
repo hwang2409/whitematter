@@ -235,6 +235,14 @@ void CUDABackend::adam_step(float*, const float*, float*, float*,
                             float, float, float, float,
                             float, float, size_t) {}
 
+void CUDABackend::adamw_step(float*, const float*, float*, float*,
+                              float, float, float, float,
+                              float, float, float, size_t) {}
+
+void CUDABackend::rmsprop_step(float*, const float*, float*,
+                                float, float, float,
+                                float, float*, float, size_t) {}
+
 }  // namespace whitematter
 
 // Provide cuda_backend_available when CUDA backend is linked.

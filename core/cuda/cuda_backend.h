@@ -88,6 +88,12 @@ public:
     void adam_step(float* d_params, const float* d_grads, float* d_m, float* d_v,
                    float lr, float beta1, float beta2, float eps,
                    float bc1, float bc2, size_t n);
+    void adamw_step(float* d_params, const float* d_grads, float* d_m, float* d_v,
+                    float lr, float beta1, float beta2, float eps,
+                    float bc1, float bc2, float weight_decay, size_t n);
+    void rmsprop_step(float* d_params, const float* d_grads, float* d_v,
+                      float lr, float alpha, float eps,
+                      float momentum, float* d_buffer, float weight_decay, size_t n);
 
     // --- Memory transfers ---
     void memcpy_h2d(float* d_dst, const float* h_src, size_t n_floats);

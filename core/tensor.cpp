@@ -10,6 +10,7 @@
 #if defined(WHITEMATTER_CUDA)
 #include "cuda/cuda_backend.h"
 #include "cuda/cuda_memory.h"
+#include "cuda/cuda_tensor_ops.h"
 #endif
 #include <algorithm>
 #include <numeric>
@@ -77,6 +78,29 @@ TensorPtr Tensor::create(const std::vector<size_t>& shape, bool requires_grad) {
 
 TensorPtr Tensor::create(const std::vector<float>& data, const std::vector<size_t>& shape, bool requires_grad) {
     return std::make_shared<Tensor>(data, shape, requires_grad);
+}
+
+TensorPtr Tensor::create_on_device(const std::vector<size_t>& shape, bool requires_grad,
+                                     whitematter::DeviceType dev) {
+    if (dev == whitematter::DeviceType::CPU) return create(shape, requires_grad);
+#if defined(WHITEMATTER_CUDA)
+    if (dev == whitematter::DeviceType::CUDA) {
+        // Allocate shape-only on CPU, then swap storage to GPU
+        auto t = std::make_shared<Tensor>(shape, false);
+        auto& pool = whitematter::CUDAMemoryPool::instance();
+        t->data_storage_ = pool.acquire_shared(t->data_size_);
+        whitematter::CUDABackend::instance().memset_zero(t->data(), t->data_size_);
+        t->device = dev;
+        t->requires_grad = requires_grad;
+        if (requires_grad) {
+            t->grad_size_ = t->data_size_;
+            t->grad_storage_ = pool.acquire_shared(t->grad_size_);
+            whitematter::CUDABackend::instance().memset_zero(t->grad(), t->grad_size_);
+        }
+        return t;
+    }
+#endif
+    return create(shape, requires_grad);  // fallback
 }
 
 TensorPtr Tensor::zeros(const std::vector<size_t>& shape, bool requires_grad) {
@@ -717,6 +741,13 @@ TensorPtr Tensor::bmm(const TensorPtr& other) const {
 TensorPtr Tensor::add(const TensorPtr& other) const {
     assert(is_broadcastable(shape, other->shape) && "Shapes are not broadcastable");
 
+#if defined(WHITEMATTER_CUDA)
+    if (device == whitematter::DeviceType::CUDA && other->device == whitematter::DeviceType::CUDA &&
+        whitematter::cuda_backend_available() && shape == other->shape) {
+        return cuda_ops::add(this, other);
+    }
+#endif
+
     bool track = (requires_grad || other->requires_grad) && GradMode::is_enabled();
 
     if (shape == other->shape) {
@@ -801,6 +832,13 @@ TensorPtr Tensor::add(const TensorPtr& other) const {
 
 TensorPtr Tensor::sub(const TensorPtr& other) const {
     assert(is_broadcastable(shape, other->shape) && "Shapes are not broadcastable");
+
+#if defined(WHITEMATTER_CUDA)
+    if (device == whitematter::DeviceType::CUDA && other->device == whitematter::DeviceType::CUDA &&
+        whitematter::cuda_backend_available() && shape == other->shape) {
+        return cuda_ops::sub(this, other);
+    }
+#endif
 
     bool track = (requires_grad || other->requires_grad) && GradMode::is_enabled();
 
@@ -887,6 +925,13 @@ TensorPtr Tensor::sub(const TensorPtr& other) const {
 
 TensorPtr Tensor::mul(const TensorPtr& other) const {
     assert(is_broadcastable(shape, other->shape) && "Shapes are not broadcastable");
+
+#if defined(WHITEMATTER_CUDA)
+    if (device == whitematter::DeviceType::CUDA && other->device == whitematter::DeviceType::CUDA &&
+        whitematter::cuda_backend_available() && shape == other->shape) {
+        return cuda_ops::mul(this, other);
+    }
+#endif
 
     bool track = (requires_grad || other->requires_grad) && GradMode::is_enabled();
 
@@ -976,6 +1021,13 @@ TensorPtr Tensor::mul(const TensorPtr& other) const {
 TensorPtr Tensor::div(const TensorPtr& other) const {
     assert(is_broadcastable(shape, other->shape) && "Shapes are not broadcastable");
 
+#if defined(WHITEMATTER_CUDA)
+    if (device == whitematter::DeviceType::CUDA && other->device == whitematter::DeviceType::CUDA &&
+        whitematter::cuda_backend_available() && shape == other->shape) {
+        return cuda_ops::div(this, other);
+    }
+#endif
+
     bool track = (requires_grad || other->requires_grad) && GradMode::is_enabled();
 
     if (shape == other->shape) {
@@ -1058,6 +1110,12 @@ TensorPtr Tensor::div(const TensorPtr& other) const {
 }
 
 TensorPtr Tensor::mul(float scalar) const {
+#if defined(WHITEMATTER_CUDA)
+    if (device == whitematter::DeviceType::CUDA && whitematter::cuda_backend_available()) {
+        return cuda_ops::scalar_mul(this, scalar);
+    }
+#endif
+
     bool track = requires_grad && GradMode::is_enabled();
     auto result = create(shape, track);
 
@@ -1084,6 +1142,12 @@ TensorPtr Tensor::neg() const {
 }
 
 TensorPtr Tensor::relu() const {
+#if defined(WHITEMATTER_CUDA)
+    if (device == whitematter::DeviceType::CUDA && whitematter::cuda_backend_available()) {
+        return cuda_ops::relu(this);
+    }
+#endif
+
     bool track = requires_grad && GradMode::is_enabled();
     auto result = create(shape, track);
 
@@ -1107,6 +1171,12 @@ TensorPtr Tensor::relu() const {
 }
 
 TensorPtr Tensor::sigmoid() const {
+#if defined(WHITEMATTER_CUDA)
+    if (device == whitematter::DeviceType::CUDA && whitematter::cuda_backend_available()) {
+        return cuda_ops::sigmoid(this);
+    }
+#endif
+
     bool track = requires_grad && GradMode::is_enabled();
     auto result = create(shape, track);
 
@@ -1133,6 +1203,12 @@ TensorPtr Tensor::sigmoid() const {
 }
 
 TensorPtr Tensor::tanh_() const {
+#if defined(WHITEMATTER_CUDA)
+    if (device == whitematter::DeviceType::CUDA && whitematter::cuda_backend_available()) {
+        return cuda_ops::tanh_op(this);
+    }
+#endif
+
     bool track = requires_grad && GradMode::is_enabled();
     auto result = create(shape, track);
 
@@ -1159,6 +1235,12 @@ TensorPtr Tensor::tanh_() const {
 }
 
 TensorPtr Tensor::silu() const {
+#if defined(WHITEMATTER_CUDA)
+    if (device == whitematter::DeviceType::CUDA && whitematter::cuda_backend_available()) {
+        return cuda_ops::silu(this);
+    }
+#endif
+
     bool track = requires_grad && GradMode::is_enabled();
     auto result = create(shape, track);
 
@@ -1185,6 +1267,12 @@ TensorPtr Tensor::silu() const {
 }
 
 TensorPtr Tensor::gelu() const {
+#if defined(WHITEMATTER_CUDA)
+    if (device == whitematter::DeviceType::CUDA && whitematter::cuda_backend_available()) {
+        return cuda_ops::gelu(this);
+    }
+#endif
+
     bool track = requires_grad && GradMode::is_enabled();
     auto result = create(shape, track);
 
@@ -1214,6 +1302,14 @@ TensorPtr Tensor::gelu() const {
 }
 
 TensorPtr Tensor::mish() const {
+#if defined(WHITEMATTER_CUDA)
+    if (device == whitematter::DeviceType::CUDA && whitematter::cuda_backend_available()) {
+        auto r = cuda_ops::mish(this);
+        if (r) return r;
+        // No CUDA mish kernel; fall through to CPU path
+    }
+#endif
+
     bool track = requires_grad && GradMode::is_enabled();
     auto result = create(shape, track);
 
@@ -1456,6 +1552,12 @@ TensorPtr Tensor::clamp(float min_val, float max_val) const {
 }
 
 TensorPtr Tensor::softmax(int dim) const {
+#if defined(WHITEMATTER_CUDA)
+    if (device == whitematter::DeviceType::CUDA && whitematter::cuda_backend_available()) {
+        return cuda_ops::softmax(this, dim);
+    }
+#endif
+
     assert(shape.size() == 2);
     if (dim < 0) dim = shape.size() + dim;
 
@@ -1501,6 +1603,12 @@ TensorPtr Tensor::softmax(int dim) const {
 }
 
 TensorPtr Tensor::log_softmax(int dim) const {
+#if defined(WHITEMATTER_CUDA)
+    if (device == whitematter::DeviceType::CUDA && whitematter::cuda_backend_available()) {
+        return cuda_ops::log_softmax(this, dim);
+    }
+#endif
+
     assert(shape.size() == 2);
     if (dim < 0) dim = shape.size() + dim;
 
@@ -1546,6 +1654,12 @@ TensorPtr Tensor::log_softmax(int dim) const {
 
 TensorPtr Tensor::sum(int dim, bool keepdim) const {
     if (dim == -1) {
+#if defined(WHITEMATTER_CUDA)
+        if (device == whitematter::DeviceType::CUDA && whitematter::cuda_backend_available()) {
+            return cuda_ops::sum(this);
+        }
+#endif
+
         bool track = requires_grad && GradMode::is_enabled();
         auto result = create({1}, track);
         result->data()[0] = 0.0f;

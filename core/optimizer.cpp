@@ -1,11 +1,23 @@
 #include "optimizer.h"
 #include <cmath>
+#if defined(WHITEMATTER_CUDA)
+#include "cuda/cuda_backend.h"
+#include "cuda/cuda_memory.h"
+#endif
 
 Optimizer::Optimizer(const std::vector<TensorPtr>& params, float lr)
     : params(params), lr(lr) {}
 
 void Optimizer::zero_grad() {
     for (auto& p : params) {
+#if defined(WHITEMATTER_CUDA)
+        if (p->device == whitematter::DeviceType::CUDA && whitematter::cuda_backend_available()) {
+            if (p->grad()) {
+                whitematter::CUDABackend::instance().memset_zero(p->grad(), p->size());
+            }
+            continue;
+        }
+#endif
         p->zero_grad();
     }
 }
@@ -22,6 +34,17 @@ SGD::SGD(const std::vector<TensorPtr>& params, float lr, float momentum)
 void SGD::step() {
     for (size_t i = 0; i < params.size(); i++) {
         auto& p = params[i];
+        if (!p->requires_grad || !p->grad()) continue;
+
+#if defined(WHITEMATTER_CUDA)
+        if (p->device == whitematter::DeviceType::CUDA && whitematter::cuda_backend_available()) {
+            if (!cuda_state_initialized_) init_cuda_state();
+            whitematter::CUDABackend::instance().sgd_step(
+                p->data(), p->grad(), d_state1[i],
+                lr, momentum, p->size());
+            continue;
+        }
+#endif
         if (momentum > 0.0f) {
             for (size_t j = 0; j < p->size(); j++) {
                 velocity[i][j] = momentum * velocity[i][j] + p->grad()[j];
@@ -50,6 +73,17 @@ void Adam::step() {
 
     for (size_t i = 0; i < params.size(); i++) {
         auto& p = params[i];
+        if (!p->requires_grad || !p->grad()) continue;
+
+#if defined(WHITEMATTER_CUDA)
+        if (p->device == whitematter::DeviceType::CUDA && whitematter::cuda_backend_available()) {
+            if (!cuda_state_initialized_) init_cuda_state();
+            whitematter::CUDABackend::instance().adam_step(
+                p->data(), p->grad(), d_state1[i], d_state2[i],
+                lr, beta1, beta2, eps, bias_correction1, bias_correction2, p->size());
+            continue;
+        }
+#endif
         for (size_t j = 0; j < p->size(); j++) {
             float g = p->grad()[j];
 
@@ -79,6 +113,18 @@ void AdamW::step() {
 
     for (size_t i = 0; i < params.size(); i++) {
         auto& p = params[i];
+        if (!p->requires_grad || !p->grad()) continue;
+
+#if defined(WHITEMATTER_CUDA)
+        if (p->device == whitematter::DeviceType::CUDA && whitematter::cuda_backend_available()) {
+            if (!cuda_state_initialized_) init_cuda_state();
+            whitematter::CUDABackend::instance().adamw_step(
+                p->data(), p->grad(), d_state1[i], d_state2[i],
+                lr, beta1, beta2, eps, bias_correction1, bias_correction2,
+                weight_decay, p->size());
+            continue;
+        }
+#endif
         for (size_t j = 0; j < p->size(); j++) {
             float g = p->grad()[j];
 
@@ -106,6 +152,17 @@ RMSprop::RMSprop(const std::vector<TensorPtr>& params, float lr, float alpha, fl
 void RMSprop::step() {
     for (size_t i = 0; i < params.size(); i++) {
         auto& p = params[i];
+        if (!p->requires_grad || !p->grad()) continue;
+
+#if defined(WHITEMATTER_CUDA)
+        if (p->device == whitematter::DeviceType::CUDA && whitematter::cuda_backend_available()) {
+            if (!cuda_state_initialized_) init_cuda_state();
+            whitematter::CUDABackend::instance().rmsprop_step(
+                p->data(), p->grad(), d_state1[i],
+                lr, alpha, eps, momentum, d_state2[i], weight_decay, p->size());
+            continue;
+        }
+#endif
         for (size_t j = 0; j < p->size(); j++) {
             float g = p->grad()[j];
 
@@ -126,6 +183,71 @@ void RMSprop::step() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// CUDA state initialization
+// ---------------------------------------------------------------------------
+
+#if defined(WHITEMATTER_CUDA)
+void SGD::init_cuda_state() {
+    auto& pool = whitematter::CUDAMemoryPool::instance();
+    d_state1.resize(params.size(), nullptr);
+    for (size_t i = 0; i < params.size(); i++) {
+        if (params[i]->device == whitematter::DeviceType::CUDA && momentum > 0.0f) {
+            d_state1[i] = pool.acquire(params[i]->size());
+            whitematter::CUDABackend::instance().memset_zero(d_state1[i], params[i]->size());
+        }
+    }
+    cuda_state_initialized_ = true;
+}
+
+void Adam::init_cuda_state() {
+    auto& pool = whitematter::CUDAMemoryPool::instance();
+    d_state1.resize(params.size(), nullptr);
+    d_state2.resize(params.size(), nullptr);
+    for (size_t i = 0; i < params.size(); i++) {
+        if (params[i]->device == whitematter::DeviceType::CUDA) {
+            d_state1[i] = pool.acquire(params[i]->size());
+            d_state2[i] = pool.acquire(params[i]->size());
+            whitematter::CUDABackend::instance().memset_zero(d_state1[i], params[i]->size());
+            whitematter::CUDABackend::instance().memset_zero(d_state2[i], params[i]->size());
+        }
+    }
+    cuda_state_initialized_ = true;
+}
+
+void AdamW::init_cuda_state() {
+    auto& pool = whitematter::CUDAMemoryPool::instance();
+    d_state1.resize(params.size(), nullptr);
+    d_state2.resize(params.size(), nullptr);
+    for (size_t i = 0; i < params.size(); i++) {
+        if (params[i]->device == whitematter::DeviceType::CUDA) {
+            d_state1[i] = pool.acquire(params[i]->size());
+            d_state2[i] = pool.acquire(params[i]->size());
+            whitematter::CUDABackend::instance().memset_zero(d_state1[i], params[i]->size());
+            whitematter::CUDABackend::instance().memset_zero(d_state2[i], params[i]->size());
+        }
+    }
+    cuda_state_initialized_ = true;
+}
+
+void RMSprop::init_cuda_state() {
+    auto& pool = whitematter::CUDAMemoryPool::instance();
+    d_state1.resize(params.size(), nullptr);
+    d_state2.resize(params.size(), nullptr);
+    for (size_t i = 0; i < params.size(); i++) {
+        if (params[i]->device == whitematter::DeviceType::CUDA) {
+            d_state1[i] = pool.acquire(params[i]->size());
+            whitematter::CUDABackend::instance().memset_zero(d_state1[i], params[i]->size());
+            if (momentum > 0.0f) {
+                d_state2[i] = pool.acquire(params[i]->size());
+                whitematter::CUDABackend::instance().memset_zero(d_state2[i], params[i]->size());
+            }
+        }
+    }
+    cuda_state_initialized_ = true;
+}
+#endif
 
 float get_grad_norm(const std::vector<TensorPtr>& params) {
     float total_norm = 0.0f;

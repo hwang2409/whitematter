@@ -77,7 +77,7 @@ else
 endif
 
 ifeq ($(CUDA),1)
-  CORE_OBJS += $(BUILD_DIR)/cuda_backend.o $(BUILD_DIR)/cuda_memory.o
+  CORE_OBJS += $(BUILD_DIR)/cuda_backend.o $(BUILD_DIR)/cuda_memory.o $(BUILD_DIR)/cuda_tensor_ops.o
   CXXFLAGS += -DWHITEMATTER_CUDA
   LDFLAGS += -lcudart -lcublas -lcudnn
   ifneq ($(CUDA_PATH),)
@@ -233,6 +233,9 @@ $(BUILD_DIR)/cuda_backend.o: $(CORE_DIR)/cuda/cuda_backend.cu $(CORE_DIR)/cuda/c
 
 $(BUILD_DIR)/cuda_memory.o: $(CORE_DIR)/cuda/cuda_memory.cu $(CORE_DIR)/cuda/cuda_memory.h $(CORE_DIR)/cuda/cuda_check.h | $(BUILD_DIR)
 	$(NVCC) $(NVCC_FLAGS) -DWHITEMATTER_CUDA -c -o $@ $<
+
+$(BUILD_DIR)/cuda_tensor_ops.o: $(CORE_DIR)/cuda/cuda_tensor_ops.cpp $(CORE_DIR)/cuda/cuda_tensor_ops.h $(CORE_DIR)/cuda/cuda_backend.h $(CORE_DIR)/cuda/cuda_memory.h $(CORE_DIR)/tensor.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -I$(CORE_DIR) -I$(CORE_DIR)/cuda -c -o $@ $<
 $(BUILD_DIR)/mnist.o: $(DATASETS_DIR)/mnist.cpp $(DATASETS_DIR)/mnist.h $(CORE_DIR)/tensor.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
