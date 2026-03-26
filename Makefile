@@ -106,6 +106,9 @@ TRANSFORMER_TARGET = $(BUILD_DIR)/transformer_example
 AUTOENCODER_TARGET = $(BUILD_DIR)/autoencoder
 GAN_TARGET = $(BUILD_DIR)/gan
 RNN_TEXT_GEN_TARGET = $(BUILD_DIR)/rnn_text_gen
+RESNET18_TARGET = $(BUILD_DIR)/resnet18_cifar10
+MOBILENETV2_TARGET = $(BUILD_DIR)/mobilenetv2_cifar10
+GPT_SHAKESPEARE_TARGET = $(BUILD_DIR)/gpt_shakespeare
 TESTS_TARGET = $(BUILD_DIR)/run_tests
 
 TEST_SRCS = $(TESTS_DIR)/test_tensor.cpp $(TESTS_DIR)/test_autograd.cpp \
@@ -256,6 +259,15 @@ $(BUILD_DIR)/gan.o: $(EXAMPLES_DIR)/gan.cpp | $(BUILD_DIR)
 $(BUILD_DIR)/rnn_text_gen.o: $(EXAMPLES_DIR)/rnn_text_gen.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
+$(BUILD_DIR)/resnet18_cifar10.o: $(EXAMPLES_DIR)/resnet18_cifar10.cpp | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/mobilenetv2_cifar10.o: $(EXAMPLES_DIR)/mobilenetv2_cifar10.cpp | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/gpt_shakespeare.o: $(EXAMPLES_DIR)/gpt_shakespeare.cpp | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
 $(STATIC_LIB): $(LIB_OBJS)
 	ar rcs $@ $^
 
@@ -284,6 +296,30 @@ $(GAN_TARGET): $(BUILD_DIR)/gan.o $(STATIC_LIB)
 
 $(RNN_TEXT_GEN_TARGET): $(BUILD_DIR)/rnn_text_gen.o $(STATIC_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $< -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
+
+$(RESNET18_TARGET): $(BUILD_DIR)/resnet18_cifar10.o $(STATIC_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $< -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
+
+resnet18: $(RESNET18_TARGET)
+
+run-resnet18: $(RESNET18_TARGET)
+	./$(RESNET18_TARGET)
+
+$(MOBILENETV2_TARGET): $(BUILD_DIR)/mobilenetv2_cifar10.o $(STATIC_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $< -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
+
+mobilenetv2: $(MOBILENETV2_TARGET)
+
+run-mobilenetv2: $(MOBILENETV2_TARGET)
+	./$(MOBILENETV2_TARGET)
+
+$(GPT_SHAKESPEARE_TARGET): $(BUILD_DIR)/gpt_shakespeare.o $(STATIC_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $< -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
+
+gpt_shakespeare: $(GPT_SHAKESPEARE_TARGET)
+
+run-gpt: $(GPT_SHAKESPEARE_TARGET)
+	./$(GPT_SHAKESPEARE_TARGET)
 
 $(BUILD_DIR)/test_tensor.o: $(TESTS_DIR)/test_tensor.cpp $(TESTS_DIR)/test_framework.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -I$(TESTS_DIR) -c -o $@ $<
@@ -331,7 +367,7 @@ test-gradcheck: $(TESTS_TARGET)
 	./$(TESTS_TARGET) --gradcheck
 
 clean:
-	rm -rf $(BUILD_DIR)/*.o $(BUILD_DIR)/*.a $(BUILD_DIR)/ml $(BUILD_DIR)/cnn_mnist $(BUILD_DIR)/cnn_cifar10 $(BUILD_DIR)/transformer_example $(BUILD_DIR)/autoencoder $(BUILD_DIR)/gan $(BUILD_DIR)/rnn_text_gen $(BUILD_DIR)/run_tests
+	rm -rf $(BUILD_DIR)/*.o $(BUILD_DIR)/*.a $(BUILD_DIR)/ml $(BUILD_DIR)/cnn_mnist $(BUILD_DIR)/cnn_cifar10 $(BUILD_DIR)/cats_vs_dogs $(BUILD_DIR)/transformer_example $(BUILD_DIR)/autoencoder $(BUILD_DIR)/gan $(BUILD_DIR)/rnn_text_gen $(BUILD_DIR)/resnet18_cifar10 $(BUILD_DIR)/mobilenetv2_cifar10 $(BUILD_DIR)/gpt_shakespeare $(BUILD_DIR)/run_tests
 
 run: $(ML_TARGET)
 	./$(ML_TARGET)
@@ -387,4 +423,4 @@ test-all: test
 	@echo "── Frontend lint ──"
 	@cd frontend && npm run lint
 
-.PHONY: all clean run run-cnn run-cifar run-transformer run-autoencoder autoencoder run-gan gan debug test test-tensor test-autograd test-layers test-loss test-optimizer test-gradcheck dev docker-build lint test-all
+.PHONY: all clean run run-cnn run-cifar run-transformer run-autoencoder autoencoder run-gan gan run-rnn rnn resnet18 run-resnet18 mobilenetv2 run-mobilenetv2 gpt_shakespeare run-gpt debug test test-tensor test-autograd test-layers test-loss test-optimizer test-gradcheck dev docker-build lint test-all
