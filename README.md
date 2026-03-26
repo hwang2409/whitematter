@@ -1435,6 +1435,39 @@ TOTAL: 152 passed, 0 failed (0.01s)
 ################################################################################
 ```
 
+## Roadmap
+
+### Performance (High Impact)
+
+- [ ] **Link against Accelerate/BLAS** — Replace hand-rolled matmul with `cblas_sgemm` for 5-10x speedup
+- [ ] **Fix matmul blocking order** — Current (i,k,j) causes cache misses on B columns; transpose B or switch to (i,j,k) blocking for ~2x improvement (`core/ops/matmul_cpu.cpp`)
+- [ ] **Rewrite attention with batched matmul** — Q*K^T uses 6 nested scalar loops instead of bmm; catastrophically slow for seq_len > 256 (`core/layers/attention.cpp:105-170`)
+- [ ] **Flash attention** — Current implementation stores full O(N^2) attention matrix; flash attention reduces memory to O(N) and speeds up 10-100x
+- [ ] **Cache im2col buffer in Conv2d** — Allocates a `std::vector` every forward pass; caching eliminates thousands of heap allocations per epoch (`core/ops/conv_ops.cpp:41`)
+- [ ] **Winograd convolution for 3x3 kernels** — ~2.5x speedup for the most common conv kernel size
+- [ ] **Fix BatchNorm iteration order** — Iterates (c,b,h,w) but tensor layout is (b,c,h,w); swap loops for better cache locality (`core/layers/normalization.cpp:31-56`)
+- [ ] **Add FMA SIMD instructions** — `_mm256_fmadd_ps` for AVX, `vfmaq_f32` for NEON; currently unused
+- [ ] **Add `-march=native -flto`** to Makefile for free 5-15% speedup from LTO and native ISA
+- [ ] **Conv+BN+ReLU fusion** — Fuse into a single kernel to eliminate intermediate memory traffic
+
+### Correctness & Safety
+
+- [ ] **Thread-safe RNG** — Global `static std::mt19937` in tensor.cpp is not thread-safe; use `thread_local`
+- [ ] **Numerical gradient checking** — Add finite-difference gradient verification to test suite to catch backward pass bugs
+- [ ] **Fix grad_fn circular references** — Lambda captures of shared_ptrs can create cycles and leak memory (`tensor.cpp:413`)
+- [ ] **Conv signed/unsigned mismatch** — Padding computed as `int`, used as `size_t` (`conv_ops.cpp:23-24`)
+- [ ] **Bounded memory pool** — Free lists grow without limit; add max bucket size to prevent unbounded memory growth
+
+### Features
+
+- [ ] **Mixed precision (fp16/bf16)** — Halves memory bandwidth (the real bottleneck) and enables tensor cores on NVIDIA GPUs
+- [ ] **Metal GPU backend** — Stubs exist but aren't implemented; M-series Macs have powerful GPUs sitting idle
+- [ ] **CUDA backend** — Move beyond stubs to functional GPU compute
+- [ ] **Grouped/depthwise convolutions** — Required for MobileNet, EfficientNet, and modern architectures
+- [ ] **Dilated convolutions** — Common in semantic segmentation (DeepLab, WaveNet)
+- [ ] **INT8/INT4 quantization** — GGML-style quantized inference for practical deployment
+- [ ] **Operator graph compilation** — Record operations, optimize the graph, then execute (like TorchScript/XLA)
+
 ## Requirements
 
 - C++17 compatible compiler (g++, clang++)

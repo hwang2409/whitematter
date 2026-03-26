@@ -3,7 +3,7 @@
 #include <cmath>
 #include <cassert>
 
-static std::mt19937 recurrent_rng(123);
+static thread_local std::mt19937 recurrent_rng(123);
 
 LSTM::LSTM(size_t input_size, size_t hidden_size, bool batch_first)
     : input_size(input_size), hidden_size(hidden_size), batch_first(batch_first) {

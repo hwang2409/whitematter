@@ -1,7 +1,7 @@
 #include "../layer.h"
 #include <random>
 
-static std::mt19937 activations_rng(123);
+static thread_local std::mt19937 activations_rng(123);
 
 TensorPtr ReLU::forward(const TensorPtr& input) {
     return input->relu();

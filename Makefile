@@ -28,6 +28,12 @@ CXXFLAGS = -std=c++17 -O3 -Wall -Wextra $(SIMD_FLAGS) -ffast-math -funroll-loops
 CXXFLAGS += -I$(CORE_DIR) -I$(DATASETS_DIR)
 LDFLAGS = $(OPENMP_LIBS)
 
+# Use Apple Accelerate BLAS for fast matmul on macOS
+ifeq ($(UNAME_S),Darwin)
+    CXXFLAGS += -DACCELERATE_NEW_LAPACK
+    LDFLAGS += -framework Accelerate
+endif
+
 METAL ?= 0
 CUDA ?= 0
 
@@ -91,6 +97,7 @@ TESTS_DIR = tests
 ML_TARGET = $(BUILD_DIR)/ml
 CNN_MNIST_TARGET = $(BUILD_DIR)/cnn_mnist
 CNN_CIFAR10_TARGET = $(BUILD_DIR)/cnn_cifar10
+CATS_DOGS_TARGET = $(BUILD_DIR)/cats_vs_dogs
 TRANSFORMER_TARGET = $(BUILD_DIR)/transformer_example
 AUTOENCODER_TARGET = $(BUILD_DIR)/autoencoder
 GAN_TARGET = $(BUILD_DIR)/gan
@@ -216,6 +223,9 @@ $(BUILD_DIR)/cnn_mnist.o: $(EXAMPLES_DIR)/cnn_mnist.cpp | $(BUILD_DIR)
 $(BUILD_DIR)/cnn_cifar10.o: $(EXAMPLES_DIR)/cnn_cifar10.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
+$(BUILD_DIR)/cats_vs_dogs.o: $(EXAMPLES_DIR)/cats_vs_dogs.cpp | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
 $(BUILD_DIR)/transformer_example.o: $(EXAMPLES_DIR)/transformer_example.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
@@ -239,6 +249,11 @@ $(CNN_MNIST_TARGET): $(BUILD_DIR)/cnn_mnist.o $(STATIC_LIB)
 
 $(CNN_CIFAR10_TARGET): $(BUILD_DIR)/cnn_cifar10.o $(STATIC_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $< -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
+
+$(CATS_DOGS_TARGET): $(BUILD_DIR)/cats_vs_dogs.o $(STATIC_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $< -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
+
+cats_dogs: $(CATS_DOGS_TARGET)
 
 $(TRANSFORMER_TARGET): $(BUILD_DIR)/transformer_example.o $(STATIC_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $< -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)

@@ -552,10 +552,11 @@ class ChatService:
             conv.phase = new_phase
 
         # Auto-start training if phase transitioned to TRAINING
+        training_job_id = None
         if new_phase == ConversationPhase.TRAINING.value:
-            job_id = self.start_training(db, conv, user)
-            if job_id:
-                yield f"data: {json.dumps({'type': 'training_started', 'job_id': job_id})}\n\n"
+            training_job_id = self.start_training(db, conv, user)
+            if training_job_id:
+                yield f"data: {json.dumps({'type': 'training_started', 'job_id': training_job_id})}\n\n"
 
         # Extract architecture if present
         arch = self._extract_architecture(full_response)
@@ -594,5 +595,10 @@ class ChatService:
             },
             "phase": conv.phase,
         }
+        if training_job_id:
+            done_data["training"] = {
+                "job_id": training_job_id,
+                "conversation_id": conversation_id,
+            }
         yield f"data: {json.dumps(done_data)}\n\n"
         yield "data: [DONE]\n\n"

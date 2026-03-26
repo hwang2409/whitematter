@@ -71,7 +71,7 @@ int main(int argc, char* argv[]) {{
         // Load input tensor
         auto input_file = load_tensor_file(input_path);
         auto input = Tensor::create(input_file.shape, false);
-        input->data = input_file.data;
+        std::memcpy(input->data(), input_file.data.data(), input_file.data.size() * sizeof(float));
 
         // Run inference
         NoGradGuard no_grad;
@@ -82,14 +82,14 @@ int main(int argc, char* argv[]) {{
         size_t num_classes = output->shape.back();
         std::vector<float> probs(num_classes);
 
-        float max_val = output->data[0];
+        float max_val = output->data()[0];
         for (size_t i = 1; i < num_classes; i++) {{
-            max_val = std::max(max_val, output->data[i]);
+            max_val = std::max(max_val, output->data()[i]);
         }}
 
         float sum = 0.0f;
         for (size_t i = 0; i < num_classes; i++) {{
-            probs[i] = std::exp(output->data[i] - max_val);
+            probs[i] = std::exp(output->data()[i] - max_val);
             sum += probs[i];
         }}
         for (size_t i = 0; i < num_classes; i++) {{

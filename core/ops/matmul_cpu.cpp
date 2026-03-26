@@ -1,7 +1,19 @@
 #include "matmul_cpu.h"
-#include "simd_ops.h"
 #include <algorithm>
 #include <cstring>
+
+// Use Accelerate BLAS on macOS, OpenBLAS on Linux if available
+#if defined(__APPLE__)
+    #define ACCELERATE_NEW_LAPACK
+    #include <Accelerate/Accelerate.h>
+    #define USE_BLAS 1
+#elif defined(WHITEMATTER_OPENBLAS)
+    #include <cblas.h>
+    #define USE_BLAS 1
+#endif
+
+#ifndef USE_BLAS
+#include "simd_ops.h"
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -14,11 +26,23 @@
     #include <arm_neon.h>
     #define USE_NEON 1
 #endif
+#endif // !USE_BLAS
 
 static constexpr size_t BLOCK_SIZE = 32;
 
 void matmul_blocked(float* C, const float* A, const float* B,
                     size_t M, size_t K, size_t N) {
+#ifdef USE_BLAS
+    // C = A * B  where A is M×K, B is K×N, C is M×N (all row-major)
+    cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
+                static_cast<int>(M), static_cast<int>(N), static_cast<int>(K),
+                1.0f,           // alpha
+                A, static_cast<int>(K),  // lda
+                B, static_cast<int>(N),  // ldb
+                0.0f,           // beta (zero out C)
+                C, static_cast<int>(N)); // ldc
+#else
+    // Fallback: blocked GEMM with SIMD
     std::memset(C, 0, M * N * sizeof(float));
 
     #pragma omp parallel for schedule(static)
@@ -66,4 +90,5 @@ void matmul_blocked(float* C, const float* A, const float* B,
             }
         }
     }
+#endif
 }

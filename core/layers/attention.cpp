@@ -4,7 +4,7 @@
 #include <cassert>
 #include <limits>
 
-static std::mt19937 attention_rng(123);
+static thread_local std::mt19937 attention_rng(123);
 
 MultiHeadAttention::MultiHeadAttention(size_t embed_dim, size_t num_heads)
     : embed_dim(embed_dim), num_heads(num_heads) {

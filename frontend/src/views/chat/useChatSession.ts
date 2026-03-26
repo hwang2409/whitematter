@@ -67,14 +67,11 @@ export function useChatSession({
           setPhase(data.conversation?.phase ?? "greeting");
           setMessages(data.messages ?? []);
         } else {
-          const conv = await createConversation(token!);
-          if (cancelled) return;
-          setCurrentConversationId(conv.id);
-
-          const data = await getConversation(token!, conv.id);
-          if (cancelled) return;
-          setPhase(data.conversation?.phase ?? "greeting");
-          setMessages(data.messages ?? []);
+          // No conversationId — start as a draft (no backend call).
+          // The conversation will be created when the user sends their first message.
+          setCurrentConversationId(null);
+          setPhase("greeting");
+          setMessages([]);
         }
       } catch (err) {
         console.error("Failed to initialise conversation:", err);
@@ -108,8 +105,24 @@ export function useChatSession({
   }, []);
 
   const handleSend = useCallback(
-    (text: string) => {
-      if (!text.trim() || streaming || !currentConversationId) return;
+    async (text: string) => {
+      if (!text.trim() || streaming) return;
+
+      // Create conversation on first message if we're in draft state
+      let convId = currentConversationId;
+      if (!convId) {
+        if (!token) return;
+        try {
+          const conv = await createConversation(token);
+          convId = conv.id;
+          setCurrentConversationId(convId);
+          // Update URL without triggering Next.js navigation/remount
+          window.history.replaceState(null, "", `/chat/${convId}`);
+        } catch (err) {
+          console.error("Failed to create conversation:", err);
+          return;
+        }
+      }
 
       const userMessage: ChatMessage = {
         id: crypto.randomUUID(),
@@ -132,7 +145,7 @@ export function useChatSession({
       setStreaming(true);
 
       const handle = sendChatMessage(
-        currentConversationId,
+        convId,
         text,
         (chunkText: string) => {
           setMessages((prev) => {
@@ -155,6 +168,26 @@ export function useChatSession({
               createdAt:
                 doneMessage.createdAt ?? new Date().toISOString(),
             };
+
+            // Append training progress message if training started
+            const training = doneMessage.metadata?.training as
+              | { job_id: string; conversation_id: string }
+              | undefined;
+            if (training?.job_id) {
+              updated.push({
+                id: crypto.randomUUID(),
+                role: "assistant",
+                content: "Training started!",
+                type: "training_progress",
+                metadata: {
+                  job_id: training.job_id,
+                  conversation_id: training.conversation_id,
+                  status: "started",
+                },
+                createdAt: new Date().toISOString(),
+              });
+            }
+
             return updated;
           });
 

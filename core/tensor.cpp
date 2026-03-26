@@ -15,7 +15,7 @@
 #include <cstring>
 #include <limits>
 
-static std::mt19937 rng(42);
+static thread_local std::mt19937 rng(42);
 
 Tensor::Tensor() : requires_grad(false), data_size_(0), grad_size_(0) {}
 

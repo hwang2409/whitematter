@@ -14,6 +14,17 @@
 #include "../cuda/cuda_backend.h"
 #endif
 
+// Reusable scratch buffers to avoid heap allocation on every conv forward/backward.
+// Thread-local so they're safe with threaded dataloaders.
+static thread_local std::vector<float> tl_col_buf;
+static thread_local std::vector<float> tl_col_buf2;
+static thread_local std::vector<float> tl_scratch;
+
+static float* get_buf(std::vector<float>& buf, size_t n) {
+    if (buf.size() < n) buf.resize(n);
+    return buf.data();
+}
+
 TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
                           size_t stride, size_t padding) const {
     assert(shape.size() == 4);
@@ -38,18 +49,18 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
 
     size_t col_h = in_channels * kernel_h * kernel_w;
     size_t col_w = out_h * out_w;
-    std::vector<float> col_buffer(col_h * col_w);
+    float* col_buffer = get_buf(tl_col_buf, col_h * col_w);
 
     for (size_t b = 0; b < batch; b++) {
         const float* input_ptr = data() + b * in_channels * in_h * in_w;
         float* output_ptr = result->data() + b * out_channels * out_h * out_w;
 
-        im2col(input_ptr, col_buffer.data(),
+        im2col(input_ptr, col_buffer,
                in_channels, in_h, in_w,
                kernel_h, kernel_w,
                out_h, out_w, stride, padding);
 
-        matmul_blocked(output_ptr, weight->data(), col_buffer.data(),
+        matmul_blocked(output_ptr, weight->data(), col_buffer,
                        out_channels, col_h, col_w);
 
         if (bias) {
@@ -77,23 +88,23 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
             size_t col_w = out_h * out_w;
 
             if (self_ptr->requires_grad) {
-                std::vector<float> weight_T(col_h * out_channels);
+                float* weight_T = get_buf(tl_scratch, col_h * out_channels);
                 for (size_t oc = 0; oc < out_channels; oc++) {
                     for (size_t k = 0; k < col_h; k++) {
                         weight_T[k * out_channels + oc] = weight_ptr->data()[oc * col_h + k];
                     }
                 }
 
-                std::vector<float> col_grad(col_h * col_w);
+                float* col_grad = get_buf(tl_col_buf, col_h * col_w);
 
                 for (size_t b = 0; b < batch; b++) {
                     const float* grad_out = result->grad() + b * out_channels * col_w;
                     float* grad_in = self_ptr->grad() + b * in_channels * in_h * in_w;
 
-                    matmul_blocked(col_grad.data(), weight_T.data(), grad_out,
+                    matmul_blocked(col_grad, weight_T, grad_out,
                                    col_h, out_channels, col_w);
 
-                    col2im(col_grad.data(), grad_in,
+                    col2im(col_grad, grad_in,
                            in_channels, in_h, in_w,
                            kernel_h, kernel_w,
                            out_h, out_w, stride, padding);
@@ -101,26 +112,26 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
             }
 
             if (weight_ptr->requires_grad) {
-                std::vector<float> col_buffer(col_h * col_w);
-                std::vector<float> col_T(col_w * col_h);
+                float* col_buf = get_buf(tl_col_buf, col_h * col_w);
+                float* col_T = get_buf(tl_col_buf2, col_w * col_h);
 
                 for (size_t b = 0; b < batch; b++) {
                     const float* input_ptr = self_ptr->data() + b * in_channels * in_h * in_w;
                     const float* grad_out = result->grad() + b * out_channels * col_w;
 
-                    im2col(input_ptr, col_buffer.data(),
+                    im2col(input_ptr, col_buf,
                            in_channels, in_h, in_w,
                            kernel_h, kernel_w,
                            out_h, out_w, stride, padding);
 
                     for (size_t i = 0; i < col_h; i++) {
                         for (size_t j = 0; j < col_w; j++) {
-                            col_T[j * col_h + i] = col_buffer[i * col_w + j];
+                            col_T[j * col_h + i] = col_buf[i * col_w + j];
                         }
                     }
 
-                    std::vector<float> grad_w_batch(out_channels * col_h);
-                    matmul_blocked(grad_w_batch.data(), grad_out, col_T.data(),
+                    float* grad_w_batch = get_buf(tl_scratch, out_channels * col_h);
+                    matmul_blocked(grad_w_batch, grad_out, col_T,
                                    out_channels, col_w, col_h);
 
                     for (size_t i = 0; i < out_channels * col_h; i++) {
