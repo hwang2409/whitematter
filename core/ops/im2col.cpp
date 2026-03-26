@@ -8,7 +8,8 @@ void im2col(const float* input, float* col,
             size_t in_channels, size_t in_h, size_t in_w,
             size_t kernel_h, size_t kernel_w,
             size_t out_h, size_t out_w,
-            size_t stride, size_t padding) {
+            size_t stride, size_t padding,
+            size_t dilation) {
     size_t col_w = out_h * out_w;
     size_t kernel_size = kernel_h * kernel_w;
 
@@ -19,9 +20,9 @@ void im2col(const float* input, float* col,
             size_t kw = k % kernel_w;
             size_t row = c * kernel_size + k;
             for (size_t oh = 0; oh < out_h; oh++) {
-                int ih = static_cast<int>(oh * stride + kh) - static_cast<int>(padding);
+                int ih = static_cast<int>(oh * stride + kh * dilation) - static_cast<int>(padding);
                 for (size_t ow = 0; ow < out_w; ow++) {
-                    int iw = static_cast<int>(ow * stride + kw) - static_cast<int>(padding);
+                    int iw = static_cast<int>(ow * stride + kw * dilation) - static_cast<int>(padding);
 
                     size_t col_idx = row * col_w + oh * out_w + ow;
                     if (ih >= 0 && ih < static_cast<int>(in_h) &&
@@ -40,7 +41,8 @@ void col2im(const float* col, float* input,
             size_t in_channels, size_t in_h, size_t in_w,
             size_t kernel_h, size_t kernel_w,
             size_t out_h, size_t out_w,
-            size_t stride, size_t padding) {
+            size_t stride, size_t padding,
+            size_t dilation) {
     size_t col_w = out_h * out_w;
     size_t kernel_size = kernel_h * kernel_w;
 
@@ -51,10 +53,10 @@ void col2im(const float* col, float* input,
             size_t kw = k % kernel_w;
             size_t row = c * kernel_size + k;
             for (size_t oh = 0; oh < out_h; oh++) {
-                int ih = static_cast<int>(oh * stride + kh) - static_cast<int>(padding);
+                int ih = static_cast<int>(oh * stride + kh * dilation) - static_cast<int>(padding);
                 if (ih < 0 || ih >= static_cast<int>(in_h)) continue;
                 for (size_t ow = 0; ow < out_w; ow++) {
-                    int iw = static_cast<int>(ow * stride + kw) - static_cast<int>(padding);
+                    int iw = static_cast<int>(ow * stride + kw * dilation) - static_cast<int>(padding);
 
                     if (iw >= 0 && iw < static_cast<int>(in_w)) {
                         size_t col_idx = row * col_w + oh * out_w + ow;

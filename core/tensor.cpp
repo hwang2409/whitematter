@@ -116,6 +116,45 @@ TensorPtr Tensor::xavier(size_t fan_in, size_t fan_out, bool requires_grad) {
     return t;
 }
 
+TensorPtr Tensor::kaiming_normal(const std::vector<size_t>& shape, size_t fan_in, bool requires_grad) {
+    auto t = create(shape, requires_grad);
+    float std_val = std::sqrt(2.0f / static_cast<float>(fan_in));
+    std::normal_distribution<float> dist(0.0f, std_val);
+    for (size_t i = 0; i < t->size(); i++) t->data()[i] = dist(rng);
+    return t;
+}
+
+TensorPtr Tensor::kaiming_uniform(const std::vector<size_t>& shape, size_t fan_in, bool requires_grad) {
+    auto t = create(shape, requires_grad);
+    float bound = std::sqrt(6.0f / static_cast<float>(fan_in));
+    std::uniform_real_distribution<float> dist(-bound, bound);
+    for (size_t i = 0; i < t->size(); i++) t->data()[i] = dist(rng);
+    return t;
+}
+
+TensorPtr Tensor::xavier_normal(const std::vector<size_t>& shape, size_t fan_in, size_t fan_out, bool requires_grad) {
+    auto t = create(shape, requires_grad);
+    float std_val = std::sqrt(2.0f / static_cast<float>(fan_in + fan_out));
+    std::normal_distribution<float> dist(0.0f, std_val);
+    for (size_t i = 0; i < t->size(); i++) t->data()[i] = dist(rng);
+    return t;
+}
+
+TensorPtr Tensor::xavier_uniform(const std::vector<size_t>& shape, size_t fan_in, size_t fan_out, bool requires_grad) {
+    auto t = create(shape, requires_grad);
+    float bound = std::sqrt(6.0f / static_cast<float>(fan_in + fan_out));
+    std::uniform_real_distribution<float> dist(-bound, bound);
+    for (size_t i = 0; i < t->size(); i++) t->data()[i] = dist(rng);
+    return t;
+}
+
+TensorPtr Tensor::uniform(const std::vector<size_t>& shape, float low, float high, bool requires_grad) {
+    auto t = create(shape, requires_grad);
+    std::uniform_real_distribution<float> dist(low, high);
+    for (size_t i = 0; i < t->size(); i++) t->data()[i] = dist(rng);
+    return t;
+}
+
 TensorPtr Tensor::concat(const std::vector<TensorPtr>& tensors, int dim) {
     assert(!tensors.empty() && "concat requires at least one tensor");
 

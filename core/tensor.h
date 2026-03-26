@@ -65,6 +65,13 @@ public:
     static TensorPtr randn(const std::vector<size_t>& shape, bool requires_grad = false);
     static TensorPtr xavier(size_t fan_in, size_t fan_out, bool requires_grad = true);
 
+    // Weight initialization utilities
+    static TensorPtr kaiming_normal(const std::vector<size_t>& shape, size_t fan_in, bool requires_grad = true);
+    static TensorPtr kaiming_uniform(const std::vector<size_t>& shape, size_t fan_in, bool requires_grad = true);
+    static TensorPtr xavier_normal(const std::vector<size_t>& shape, size_t fan_in, size_t fan_out, bool requires_grad = true);
+    static TensorPtr xavier_uniform(const std::vector<size_t>& shape, size_t fan_in, size_t fan_out, bool requires_grad = true);
+    static TensorPtr uniform(const std::vector<size_t>& shape, float low, float high, bool requires_grad = false);
+
     // Concatenate tensors along an existing dimension
     static TensorPtr concat(const std::vector<TensorPtr>& tensors, int dim = 0);
 
@@ -118,12 +125,16 @@ public:
     TensorPtr slice(size_t start, size_t end, int dim = 0) const;
     TensorPtr conv2d(const TensorPtr& weight, const TensorPtr& bias,
                      size_t stride = 1, size_t padding = 0,
-                     size_t groups = 1) const;
+                     size_t groups = 1, size_t dilation = 1) const;
     TensorPtr conv_transpose2d(const TensorPtr& weight, const TensorPtr& bias,
                                size_t stride = 1, size_t padding = 0,
                                size_t output_padding = 0) const;
     TensorPtr maxpool2d(size_t kernel_size, size_t stride = 0) const;
     TensorPtr avgpool2d(size_t kernel_size, size_t stride = 0) const;
+    TensorPtr conv1d(const TensorPtr& weight, const TensorPtr& bias,
+                     size_t stride = 1, size_t padding = 0) const;
+    TensorPtr upsample(size_t scale_factor, const std::string& mode = "nearest") const;
+    TensorPtr adaptive_avgpool2d(size_t output_h, size_t output_w) const;
     TensorPtr flatten(size_t start_dim = 1) const;
     TensorPtr squeeze(int dim = -1) const;      // Remove dimension(s) of size 1
     TensorPtr unsqueeze(int dim) const;         // Add dimension of size 1

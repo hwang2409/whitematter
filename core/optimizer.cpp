@@ -212,6 +212,25 @@ void CosineAnnealingWarmRestarts::step() {
     optimizer->lr = get_lr();
 }
 
+LinearWarmupCosineDecay::LinearWarmupCosineDecay(Optimizer* optimizer, size_t warmup_steps,
+                                                 size_t total_steps, float min_lr)
+    : optimizer_(optimizer), base_lr_(optimizer->lr), min_lr_(min_lr),
+      warmup_steps_(warmup_steps), total_steps_(total_steps), current_step_(0) {}
+
+void LinearWarmupCosineDecay::step() {
+    current_step_++;
+    if (current_step_ <= warmup_steps_) {
+        // Linear warmup
+        optimizer_->lr = base_lr_ * static_cast<float>(current_step_) / static_cast<float>(warmup_steps_);
+    } else {
+        // Cosine decay
+        float progress = static_cast<float>(current_step_ - warmup_steps_)
+                       / static_cast<float>(total_steps_ - warmup_steps_);
+        if (progress > 1.0f) progress = 1.0f;
+        optimizer_->lr = min_lr_ + (base_lr_ - min_lr_) * 0.5f * (1.0f + std::cos(M_PI * progress));
+    }
+}
+
 ReduceLROnPlateau::ReduceLROnPlateau(Optimizer* optimizer, float factor, int patience,
                                      float min_lr, bool mode_min)
     : optimizer(optimizer), factor(factor), patience(patience), min_lr(min_lr),

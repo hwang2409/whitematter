@@ -595,3 +595,510 @@ std::string MultiHeadAttention::extra_repr() const {
     return "embed_dim=" + std::to_string(embed_dim) +
            ", num_heads=" + std::to_string(num_heads);
 }
+
+// ===========================================================================
+// Grouped-Query Attention (GQA)
+// ===========================================================================
+
+// Repeat KV heads: expand [batch*num_kv_heads, seq, head_dim] to [batch*num_heads, seq, head_dim]
+// Each KV head is duplicated `num_heads / num_kv_heads` times.
+static void repeat_kv_heads(float* dst, const float* src,
+                            size_t batch, size_t num_heads, size_t num_kv_heads,
+                            size_t seq, size_t head_dim) {
+    size_t groups = num_heads / num_kv_heads;  // how many Q heads per KV head
+    for (size_t b = 0; b < batch; b++) {
+        for (size_t kv_h = 0; kv_h < num_kv_heads; kv_h++) {
+            const float* kv_src = src + (b * num_kv_heads + kv_h) * seq * head_dim;
+            for (size_t g = 0; g < groups; g++) {
+                size_t q_h = kv_h * groups + g;
+                float* q_dst = dst + (b * num_heads + q_h) * seq * head_dim;
+                std::memcpy(q_dst, kv_src, seq * head_dim * sizeof(float));
+            }
+        }
+    }
+}
+
+// Sum gradients from expanded heads back to KV heads:
+// [batch*num_heads, seq, head_dim] -> [batch*num_kv_heads, seq, head_dim]
+static void reduce_kv_head_grads(float* dst, const float* src,
+                                 size_t batch, size_t num_heads, size_t num_kv_heads,
+                                 size_t seq, size_t head_dim) {
+    size_t groups = num_heads / num_kv_heads;
+    std::memset(dst, 0, batch * num_kv_heads * seq * head_dim * sizeof(float));
+    for (size_t b = 0; b < batch; b++) {
+        for (size_t kv_h = 0; kv_h < num_kv_heads; kv_h++) {
+            float* kv_dst = dst + (b * num_kv_heads + kv_h) * seq * head_dim;
+            for (size_t g = 0; g < groups; g++) {
+                size_t q_h = kv_h * groups + g;
+                const float* q_src = src + (b * num_heads + q_h) * seq * head_dim;
+                for (size_t i = 0; i < seq * head_dim; i++)
+                    kv_dst[i] += q_src[i];
+            }
+        }
+    }
+}
+
+GroupedQueryAttention::GroupedQueryAttention(size_t embed_dim, size_t num_heads, size_t num_kv_heads)
+    : embed_dim(embed_dim), num_heads(num_heads), num_kv_heads(num_kv_heads) {
+    assert(embed_dim % num_heads == 0 && "embed_dim must be divisible by num_heads");
+    assert(num_heads % num_kv_heads == 0 && "num_heads must be divisible by num_kv_heads");
+    head_dim = embed_dim / num_heads;
+
+    size_t q_dim = num_heads * head_dim;      // == embed_dim
+    size_t kv_dim = num_kv_heads * head_dim;  // <= embed_dim
+
+    float std = std::sqrt(2.0f / (embed_dim + embed_dim));
+    std::normal_distribution<float> dist(0.0f, std);
+
+    W_q = Tensor::create({q_dim, embed_dim}, true);
+    W_k = Tensor::create({kv_dim, embed_dim}, true);
+    W_v = Tensor::create({kv_dim, embed_dim}, true);
+    W_o = Tensor::create({embed_dim, embed_dim}, true);
+
+    for (size_t i = 0; i < W_q->size(); i++) W_q->data()[i] = dist(attention_rng);
+    for (size_t i = 0; i < W_k->size(); i++) W_k->data()[i] = dist(attention_rng);
+    for (size_t i = 0; i < W_v->size(); i++) W_v->data()[i] = dist(attention_rng);
+    for (size_t i = 0; i < W_o->size(); i++) W_o->data()[i] = dist(attention_rng);
+
+    b_q = Tensor::zeros({q_dim}, true);
+    b_k = Tensor::zeros({kv_dim}, true);
+    b_v = Tensor::zeros({kv_dim}, true);
+    b_o = Tensor::zeros({embed_dim}, true);
+}
+
+TensorPtr GroupedQueryAttention::forward(const TensorPtr& input) {
+    return forward(input, input, input, nullptr);
+}
+
+TensorPtr GroupedQueryAttention::forward(const TensorPtr& query, const TensorPtr& key,
+                                          const TensorPtr& value, const TensorPtr& mask) {
+    assert(query->shape.size() == 3);
+    assert(key->shape.size() == 3);
+    assert(value->shape.size() == 3);
+    assert(query->shape[2] == embed_dim);
+    assert(key->shape[2] == embed_dim);
+    assert(value->shape[2] == embed_dim);
+
+    size_t batch = query->shape[0];
+    size_t seq_q = query->shape[1];
+    size_t seq_k = key->shape[1];
+    size_t E = embed_dim;
+    size_t nh = num_heads;
+    size_t nkv = num_kv_heads;
+    size_t hd = head_dim;
+    size_t q_dim = nh * hd;    // == E
+    size_t kv_dim = nkv * hd;
+
+    bool track = (query->requires_grad || key->requires_grad || value->requires_grad)
+                 && GradMode::is_enabled();
+
+    // --- 1. Linear projections ---
+    // Q: [batch, seq_q, q_dim]
+    // K: [batch, seq_k, kv_dim]
+    // V: [batch, seq_k, kv_dim]
+    auto Q = Tensor::create({batch, seq_q, q_dim}, track);
+    auto K = Tensor::create({batch, seq_k, kv_dim}, track);
+    auto V = Tensor::create({batch, seq_k, kv_dim}, track);
+
+    for (size_t b = 0; b < batch; b++) {
+        matmul_ABt(Q->data() + b * seq_q * q_dim,
+                   query->data() + b * seq_q * E,
+                   W_q->data(), seq_q, E, q_dim);
+        add_bias(Q->data() + b * seq_q * q_dim, b_q->data(), seq_q, q_dim);
+
+        matmul_ABt(K->data() + b * seq_k * kv_dim,
+                   key->data() + b * seq_k * E,
+                   W_k->data(), seq_k, E, kv_dim);
+        add_bias(K->data() + b * seq_k * kv_dim, b_k->data(), seq_k, kv_dim);
+
+        matmul_ABt(V->data() + b * seq_k * kv_dim,
+                   value->data() + b * seq_k * E,
+                   W_v->data(), seq_k, E, kv_dim);
+        add_bias(V->data() + b * seq_k * kv_dim, b_v->data(), seq_k, kv_dim);
+    }
+
+    // --- 2. Reshape to per-head layout ---
+    // Q: [batch*num_heads, seq_q, head_dim]
+    size_t BH = batch * nh;
+    size_t BKV = batch * nkv;
+    std::vector<float> Qh(BH * seq_q * hd);
+    std::vector<float> Kh_kv(BKV * seq_k * hd);
+    std::vector<float> Vh_kv(BKV * seq_k * hd);
+
+    deinterleave_heads(Qh.data(), Q->data(), batch, seq_q, nh, hd);
+    deinterleave_heads(Kh_kv.data(), K->data(), batch, seq_k, nkv, hd);
+    deinterleave_heads(Vh_kv.data(), V->data(), batch, seq_k, nkv, hd);
+
+    // --- 3. Repeat K/V heads to match Q head count ---
+    std::vector<float> Kh(BH * seq_k * hd);
+    std::vector<float> Vh(BH * seq_k * hd);
+    repeat_kv_heads(Kh.data(), Kh_kv.data(), batch, nh, nkv, seq_k, hd);
+    repeat_kv_heads(Vh.data(), Vh_kv.data(), batch, nh, nkv, seq_k, hd);
+
+    // --- 4. Attention: scores + softmax + context ---
+    float scale = 1.0f / std::sqrt(static_cast<float>(hd));
+
+    // Use flash for large sequences
+    bool use_flash = (seq_q * seq_k > FLASH_THRESHOLD);
+
+    TensorPtr scores, attn;
+    std::vector<float> ctx_heads(BH * seq_q * hd);
+
+    if (use_flash) {
+        for (size_t bh = 0; bh < BH; bh++) {
+            size_t b = bh / nh;
+            size_t mb = (mask && mask->shape[0] == 1) ? 0 : b;
+            const float* mask_bh = mask ? mask->data() + mb * seq_q * seq_k : nullptr;
+
+            flash_attention_forward(
+                ctx_heads.data() + bh * seq_q * hd,
+                Qh.data() + bh * seq_q * hd,
+                Kh.data() + bh * seq_k * hd,
+                Vh.data() + bh * seq_k * hd,
+                mask_bh,
+                seq_q, seq_k, hd, scale);
+        }
+
+        if (track) {
+            scores = Tensor::create({batch, nh, seq_q, seq_k}, true);
+            thread_local std::vector<float> Kt_buf2;
+            if (Kt_buf2.size() < hd * seq_k) Kt_buf2.resize(hd * seq_k);
+
+            for (size_t bh = 0; bh < BH; bh++) {
+                const float* Kh_ptr = Kh.data() + bh * seq_k * hd;
+                for (size_t i = 0; i < seq_k; i++)
+                    for (size_t j = 0; j < hd; j++)
+                        Kt_buf2[j * seq_k + i] = Kh_ptr[i * hd + j];
+                matmul_blocked(scores->data() + bh * seq_q * seq_k,
+                               Qh.data() + bh * seq_q * hd,
+                               Kt_buf2.data(), seq_q, hd, seq_k);
+            }
+            for (size_t i = 0; i < scores->size(); i++)
+                scores->data()[i] *= scale;
+            if (mask) {
+                for (size_t b = 0; b < batch; b++) {
+                    size_t mb = (mask->shape[0] == 1) ? 0 : b;
+                    for (size_t h = 0; h < nh; h++)
+                        for (size_t i = 0; i < seq_q; i++)
+                            for (size_t j = 0; j < seq_k; j++)
+                                scores->data()[b * nh * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j]
+                                    += mask->data()[mb * seq_q * seq_k + i * seq_k + j];
+                }
+            }
+
+            attn = Tensor::create({batch, nh, seq_q, seq_k}, true);
+            for (size_t bh = 0; bh < BH; bh++) {
+                for (size_t i = 0; i < seq_q; i++) {
+                    const float* row = scores->data() + bh * seq_q * seq_k + i * seq_k;
+                    float* out_row = attn->data() + bh * seq_q * seq_k + i * seq_k;
+                    float max_val = row[0];
+                    for (size_t j = 1; j < seq_k; j++) max_val = std::max(max_val, row[j]);
+                    float sum_exp = 0.0f;
+                    for (size_t j = 0; j < seq_k; j++) {
+                        out_row[j] = std::exp(row[j] - max_val);
+                        sum_exp += out_row[j];
+                    }
+                    for (size_t j = 0; j < seq_k; j++) out_row[j] /= sum_exp;
+                }
+            }
+        }
+        attn_weights = attn;
+    } else {
+        // Standard materialized attention
+        scores = Tensor::create({batch, nh, seq_q, seq_k}, track);
+
+        thread_local std::vector<float> Kt_buf;
+        if (Kt_buf.size() < hd * seq_k) Kt_buf.resize(hd * seq_k);
+
+        for (size_t bh = 0; bh < BH; bh++) {
+            const float* Kh_ptr = Kh.data() + bh * seq_k * hd;
+            for (size_t i = 0; i < seq_k; i++)
+                for (size_t j = 0; j < hd; j++)
+                    Kt_buf[j * seq_k + i] = Kh_ptr[i * hd + j];
+            matmul_blocked(scores->data() + bh * seq_q * seq_k,
+                           Qh.data() + bh * seq_q * hd,
+                           Kt_buf.data(), seq_q, hd, seq_k);
+        }
+
+        for (size_t i = 0; i < scores->size(); i++)
+            scores->data()[i] *= scale;
+
+        if (mask != nullptr) {
+            for (size_t b = 0; b < batch; b++) {
+                size_t mb = (mask->shape[0] == 1) ? 0 : b;
+                for (size_t h = 0; h < nh; h++)
+                    for (size_t i = 0; i < seq_q; i++)
+                        for (size_t j = 0; j < seq_k; j++)
+                            scores->data()[b * nh * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j]
+                                += mask->data()[mb * seq_q * seq_k + i * seq_k + j];
+            }
+        }
+
+        attn = Tensor::create({batch, nh, seq_q, seq_k}, track);
+        for (size_t bh = 0; bh < BH; bh++) {
+            for (size_t i = 0; i < seq_q; i++) {
+                const float* row = scores->data() + bh * seq_q * seq_k + i * seq_k;
+                float* out_row = attn->data() + bh * seq_q * seq_k + i * seq_k;
+                float max_val = row[0];
+                for (size_t j = 1; j < seq_k; j++) max_val = std::max(max_val, row[j]);
+                float sum_exp = 0.0f;
+                for (size_t j = 0; j < seq_k; j++) {
+                    out_row[j] = std::exp(row[j] - max_val);
+                    sum_exp += out_row[j];
+                }
+                for (size_t j = 0; j < seq_k; j++) out_row[j] /= sum_exp;
+            }
+        }
+
+        attn_weights = attn;
+
+        for (size_t bh = 0; bh < BH; bh++) {
+            matmul_blocked(ctx_heads.data() + bh * seq_q * hd,
+                           attn->data() + bh * seq_q * seq_k,
+                           Vh.data() + bh * seq_k * hd,
+                           seq_q, seq_k, hd);
+        }
+    }
+
+    // --- 5. Reshape context back to [batch, seq_q, embed_dim] ---
+    auto context = Tensor::create({batch, seq_q, E}, track);
+    interleave_heads(context->data(), ctx_heads.data(), batch, seq_q, nh, hd);
+
+    // --- 6. Output projection ---
+    auto output = Tensor::create({batch, seq_q, E}, track);
+    for (size_t b = 0; b < batch; b++) {
+        matmul_ABt(output->data() + b * seq_q * E,
+                   context->data() + b * seq_q * E,
+                   W_o->data(), seq_q, E, E);
+        add_bias(output->data() + b * seq_q * E, b_o->data(), seq_q, E);
+    }
+
+    // --- Backward pass ---
+    if (track) {
+        auto query_ptr = query;
+        auto key_ptr = key;
+        auto value_ptr = value;
+        auto W_q_ptr = W_q;
+        auto W_k_ptr = W_k;
+        auto W_v_ptr = W_v;
+        auto W_o_ptr = W_o;
+        auto b_q_ptr = b_q;
+        auto b_k_ptr = b_k;
+        auto b_v_ptr = b_v;
+        auto b_o_ptr = b_o;
+
+        output->parents = {query_ptr, key_ptr, value_ptr, W_q_ptr, W_k_ptr, W_v_ptr, W_o_ptr,
+                          b_q_ptr, b_k_ptr, b_v_ptr, b_o_ptr};
+
+        output->grad_fn = [=]() mutable {
+            // --- Backward through output projection ---
+            auto d_context = Tensor::create({batch, seq_q, E}, false);
+            std::memset(d_context->data(), 0, d_context->size() * sizeof(float));
+
+            thread_local std::vector<float> grad_tmp;
+            thread_local std::vector<float> tmp_T;
+            if (grad_tmp.size() < E * E) grad_tmp.resize(E * E);
+
+            for (size_t b = 0; b < batch; b++) {
+                const float* d_out = output->grad() + b * seq_q * E;
+                float* d_ctx = d_context->data() + b * seq_q * E;
+
+                matmul_blocked(d_ctx, d_out, W_o_ptr->data(), seq_q, E, E);
+
+                if (tmp_T.size() < seq_q * E) tmp_T.resize(seq_q * E);
+                for (size_t i = 0; i < seq_q; i++)
+                    for (size_t j = 0; j < E; j++)
+                        tmp_T[j * seq_q + i] = d_out[i * E + j];
+                matmul_blocked(grad_tmp.data(), tmp_T.data(),
+                               context->data() + b * seq_q * E, E, seq_q, E);
+                for (size_t i = 0; i < E * E; i++)
+                    W_o_ptr->grad()[i] += grad_tmp[i];
+
+                for (size_t s = 0; s < seq_q; s++)
+                    for (size_t d = 0; d < E; d++)
+                        b_o_ptr->grad()[d] += d_out[s * E + d];
+            }
+
+            // --- Backward through head reshape ---
+            std::vector<float> d_ctx_heads(BH * seq_q * hd);
+            deinterleave_heads(d_ctx_heads.data(), d_context->data(), batch, seq_q, nh, hd);
+
+            // --- Backward through context matmul: ctx = attn @ Vh ---
+            auto d_attn = Tensor::create({batch, nh, seq_q, seq_k}, false);
+            std::memset(d_attn->data(), 0, d_attn->size() * sizeof(float));
+            std::vector<float> d_Vh(BH * seq_k * hd, 0.0f);
+
+            for (size_t bh = 0; bh < BH; bh++) {
+                if (tmp_T.size() < hd * seq_k) tmp_T.resize(hd * seq_k);
+                const float* Vh_ptr = Vh.data() + bh * seq_k * hd;
+                for (size_t i = 0; i < seq_k; i++)
+                    for (size_t j = 0; j < hd; j++)
+                        tmp_T[j * seq_k + i] = Vh_ptr[i * hd + j];
+                matmul_blocked(d_attn->data() + bh * seq_q * seq_k,
+                               d_ctx_heads.data() + bh * seq_q * hd,
+                               tmp_T.data(), seq_q, hd, seq_k);
+
+                if (tmp_T.size() < seq_q * seq_k) tmp_T.resize(seq_q * seq_k);
+                const float* attn_ptr = attn->data() + bh * seq_q * seq_k;
+                for (size_t i = 0; i < seq_q; i++)
+                    for (size_t j = 0; j < seq_k; j++)
+                        tmp_T[j * seq_q + i] = attn_ptr[i * seq_k + j];
+                matmul_blocked(d_Vh.data() + bh * seq_k * hd,
+                               tmp_T.data(),
+                               d_ctx_heads.data() + bh * seq_q * hd,
+                               seq_k, seq_q, hd);
+            }
+
+            // --- Backward through softmax ---
+            auto d_scores = Tensor::create({batch, nh, seq_q, seq_k}, false);
+            for (size_t bh = 0; bh < BH; bh++) {
+                for (size_t i = 0; i < seq_q; i++) {
+                    const float* a_row = attn->data() + bh * seq_q * seq_k + i * seq_k;
+                    const float* da_row = d_attn->data() + bh * seq_q * seq_k + i * seq_k;
+                    float* ds_row = d_scores->data() + bh * seq_q * seq_k + i * seq_k;
+
+                    float dot_sum = 0.0f;
+                    for (size_t j = 0; j < seq_k; j++)
+                        dot_sum += a_row[j] * da_row[j];
+                    for (size_t j = 0; j < seq_k; j++)
+                        ds_row[j] = a_row[j] * (da_row[j] - dot_sum) * scale;
+                }
+            }
+
+            // --- Backward through scores matmul: scores = Qh @ Kh^T ---
+            std::vector<float> d_Qh(BH * seq_q * hd, 0.0f);
+            std::vector<float> d_Kh(BH * seq_k * hd, 0.0f);
+
+            for (size_t bh = 0; bh < BH; bh++) {
+                matmul_blocked(d_Qh.data() + bh * seq_q * hd,
+                               d_scores->data() + bh * seq_q * seq_k,
+                               Kh.data() + bh * seq_k * hd,
+                               seq_q, seq_k, hd);
+
+                if (tmp_T.size() < seq_q * seq_k) tmp_T.resize(seq_q * seq_k);
+                const float* ds_ptr = d_scores->data() + bh * seq_q * seq_k;
+                for (size_t i = 0; i < seq_q; i++)
+                    for (size_t j = 0; j < seq_k; j++)
+                        tmp_T[j * seq_q + i] = ds_ptr[i * seq_k + j];
+                matmul_blocked(d_Kh.data() + bh * seq_k * hd,
+                               tmp_T.data(),
+                               Qh.data() + bh * seq_q * hd,
+                               seq_k, seq_q, hd);
+            }
+
+            // --- Reduce K/V head gradients: [batch*num_heads] -> [batch*num_kv_heads] ---
+            std::vector<float> d_Kh_kv(BKV * seq_k * hd, 0.0f);
+            std::vector<float> d_Vh_kv(BKV * seq_k * hd, 0.0f);
+            reduce_kv_head_grads(d_Kh_kv.data(), d_Kh.data(), batch, nh, nkv, seq_k, hd);
+            reduce_kv_head_grads(d_Vh_kv.data(), d_Vh.data(), batch, nh, nkv, seq_k, hd);
+
+            // --- Reshape head grads back to [batch, seq, dim] ---
+            auto d_Q = Tensor::create({batch, seq_q, q_dim}, false);
+            auto d_K = Tensor::create({batch, seq_k, kv_dim}, false);
+            auto d_V = Tensor::create({batch, seq_k, kv_dim}, false);
+            std::memset(d_Q->data(), 0, d_Q->size() * sizeof(float));
+            std::memset(d_K->data(), 0, d_K->size() * sizeof(float));
+            std::memset(d_V->data(), 0, d_V->size() * sizeof(float));
+            interleave_heads(d_Q->data(), d_Qh.data(), batch, seq_q, nh, hd);
+            interleave_heads(d_K->data(), d_Kh_kv.data(), batch, seq_k, nkv, hd);
+            interleave_heads(d_V->data(), d_Vh_kv.data(), batch, seq_k, nkv, hd);
+
+            // --- Backward through Q/K/V projections ---
+            // Q projection: d_input += d_Q @ W_q, d_W_q += d_Q^T @ input, d_b_q += colsum(d_Q)
+            for (size_t b = 0; b < batch; b++) {
+                const float* dQ = d_Q->data() + b * seq_q * q_dim;
+                const float* inp = query_ptr->data() + b * seq_q * E;
+
+                if (query_ptr->requires_grad) {
+                    thread_local std::vector<float> dinp_buf;
+                    if (dinp_buf.size() < seq_q * E) dinp_buf.resize(seq_q * E);
+                    matmul_blocked(dinp_buf.data(), dQ, W_q_ptr->data(), seq_q, q_dim, E);
+                    float* grad_inp = query_ptr->grad() + b * seq_q * E;
+                    for (size_t i = 0; i < seq_q * E; i++)
+                        grad_inp[i] += dinp_buf[i];
+                }
+
+                if (tmp_T.size() < seq_q * q_dim) tmp_T.resize(seq_q * q_dim);
+                for (size_t i = 0; i < seq_q; i++)
+                    for (size_t j = 0; j < q_dim; j++)
+                        tmp_T[j * seq_q + i] = dQ[i * q_dim + j];
+                if (grad_tmp.size() < q_dim * E) grad_tmp.resize(q_dim * E);
+                matmul_blocked(grad_tmp.data(), tmp_T.data(), inp, q_dim, seq_q, E);
+                for (size_t i = 0; i < q_dim * E; i++)
+                    W_q_ptr->grad()[i] += grad_tmp[i];
+
+                for (size_t s = 0; s < seq_q; s++)
+                    for (size_t d = 0; d < q_dim; d++)
+                        b_q_ptr->grad()[d] += dQ[s * q_dim + d];
+            }
+
+            // K projection
+            for (size_t b = 0; b < batch; b++) {
+                const float* dK = d_K->data() + b * seq_k * kv_dim;
+                const float* inp = key_ptr->data() + b * seq_k * E;
+
+                if (key_ptr->requires_grad) {
+                    thread_local std::vector<float> dinp_buf;
+                    if (dinp_buf.size() < seq_k * E) dinp_buf.resize(seq_k * E);
+                    matmul_blocked(dinp_buf.data(), dK, W_k_ptr->data(), seq_k, kv_dim, E);
+                    float* grad_inp = key_ptr->grad() + b * seq_k * E;
+                    for (size_t i = 0; i < seq_k * E; i++)
+                        grad_inp[i] += dinp_buf[i];
+                }
+
+                if (tmp_T.size() < seq_k * kv_dim) tmp_T.resize(seq_k * kv_dim);
+                for (size_t i = 0; i < seq_k; i++)
+                    for (size_t j = 0; j < kv_dim; j++)
+                        tmp_T[j * seq_k + i] = dK[i * kv_dim + j];
+                if (grad_tmp.size() < kv_dim * E) grad_tmp.resize(kv_dim * E);
+                matmul_blocked(grad_tmp.data(), tmp_T.data(), inp, kv_dim, seq_k, E);
+                for (size_t i = 0; i < kv_dim * E; i++)
+                    W_k_ptr->grad()[i] += grad_tmp[i];
+
+                for (size_t s = 0; s < seq_k; s++)
+                    for (size_t d = 0; d < kv_dim; d++)
+                        b_k_ptr->grad()[d] += dK[s * kv_dim + d];
+            }
+
+            // V projection
+            for (size_t b = 0; b < batch; b++) {
+                const float* dV = d_V->data() + b * seq_k * kv_dim;
+                const float* inp = value_ptr->data() + b * seq_k * E;
+
+                if (value_ptr->requires_grad) {
+                    thread_local std::vector<float> dinp_buf;
+                    if (dinp_buf.size() < seq_k * E) dinp_buf.resize(seq_k * E);
+                    matmul_blocked(dinp_buf.data(), dV, W_v_ptr->data(), seq_k, kv_dim, E);
+                    float* grad_inp = value_ptr->grad() + b * seq_k * E;
+                    for (size_t i = 0; i < seq_k * E; i++)
+                        grad_inp[i] += dinp_buf[i];
+                }
+
+                if (tmp_T.size() < seq_k * kv_dim) tmp_T.resize(seq_k * kv_dim);
+                for (size_t i = 0; i < seq_k; i++)
+                    for (size_t j = 0; j < kv_dim; j++)
+                        tmp_T[j * seq_k + i] = dV[i * kv_dim + j];
+                if (grad_tmp.size() < kv_dim * E) grad_tmp.resize(kv_dim * E);
+                matmul_blocked(grad_tmp.data(), tmp_T.data(), inp, kv_dim, seq_k, E);
+                for (size_t i = 0; i < kv_dim * E; i++)
+                    W_v_ptr->grad()[i] += grad_tmp[i];
+
+                for (size_t s = 0; s < seq_k; s++)
+                    for (size_t d = 0; d < kv_dim; d++)
+                        b_v_ptr->grad()[d] += dV[s * kv_dim + d];
+            }
+        };
+    }
+
+    return output;
+}
+
+std::vector<TensorPtr> GroupedQueryAttention::parameters() {
+    return {W_q, W_k, W_v, W_o, b_q, b_k, b_v, b_o};
+}
+
+std::string GroupedQueryAttention::extra_repr() const {
+    return "embed_dim=" + std::to_string(embed_dim) +
+           ", num_heads=" + std::to_string(num_heads) +
+           ", num_kv_heads=" + std::to_string(num_kv_heads);
+}

@@ -600,5 +600,58 @@ TestSuite* create_tensor_tests() {
         TEST_ASSERT_EQ(h->nbytes(), 2000u);  // 1000 * 2 bytes
     });
 
+    // Weight initialization tests
+    suite->add_test("kaiming_normal_init", []() {
+        size_t fan_in = 256;
+        auto t = Tensor::kaiming_normal({1000, 256}, fan_in);
+        TEST_ASSERT_EQ(t->size(), 256000u);
+        TEST_ASSERT(t->requires_grad);
+
+        // Compute mean and std
+        double sum = 0.0, sum_sq = 0.0;
+        for (size_t i = 0; i < t->size(); i++) {
+            sum += t->data()[i];
+            sum_sq += t->data()[i] * t->data()[i];
+        }
+        float mean = static_cast<float>(sum / t->size());
+        float var = static_cast<float>(sum_sq / t->size() - mean * mean);
+        float std_val = std::sqrt(var);
+        float expected_std = std::sqrt(2.0f / fan_in);
+
+        TEST_ASSERT_NEAR(mean, 0.0f, 0.02f);
+        TEST_ASSERT_NEAR(std_val, expected_std, 0.01f);
+    });
+
+    suite->add_test("xavier_uniform_init", []() {
+        size_t fan_in = 100, fan_out = 200;
+        auto t = Tensor::xavier_uniform({100, 200}, fan_in, fan_out);
+        TEST_ASSERT_EQ(t->size(), 20000u);
+        TEST_ASSERT(t->requires_grad);
+
+        float bound = std::sqrt(6.0f / static_cast<float>(fan_in + fan_out));
+        float min_val = t->data()[0], max_val = t->data()[0];
+        for (size_t i = 1; i < t->size(); i++) {
+            if (t->data()[i] < min_val) min_val = t->data()[i];
+            if (t->data()[i] > max_val) max_val = t->data()[i];
+        }
+        // All values should be within [-bound, bound]
+        TEST_ASSERT(min_val >= -bound - 1e-6f);
+        TEST_ASSERT(max_val <= bound + 1e-6f);
+        // Values should span most of the range
+        TEST_ASSERT(max_val > bound * 0.8f);
+        TEST_ASSERT(min_val < -bound * 0.8f);
+    });
+
+    suite->add_test("uniform_init", []() {
+        auto t = Tensor::uniform({1000}, -0.5f, 0.5f);
+        TEST_ASSERT_EQ(t->size(), 1000u);
+        TEST_ASSERT(!t->requires_grad);  // default is false
+
+        for (size_t i = 0; i < t->size(); i++) {
+            TEST_ASSERT(t->data()[i] >= -0.5f);
+            TEST_ASSERT(t->data()[i] <= 0.5f);
+        }
+    });
+
     return suite;
 }

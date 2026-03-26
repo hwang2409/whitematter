@@ -5,9 +5,9 @@
 static thread_local std::mt19937 conv_rng(123);
 
 Conv2d::Conv2d(size_t in_channels, size_t out_channels, size_t kernel_size,
-               size_t stride, size_t padding, size_t groups)
+               size_t stride, size_t padding, size_t groups, size_t dilation)
     : in_channels(in_channels), out_channels(out_channels),
-      kernel_size(kernel_size), stride(stride), padding(padding), groups(groups) {
+      kernel_size(kernel_size), stride(stride), padding(padding), groups(groups), dilation(dilation) {
     assert(in_channels % groups == 0 && "in_channels must be divisible by groups");
     assert(out_channels % groups == 0 && "out_channels must be divisible by groups");
 
@@ -21,7 +21,7 @@ Conv2d::Conv2d(size_t in_channels, size_t out_channels, size_t kernel_size,
 }
 
 TensorPtr Conv2d::forward(const TensorPtr& input) {
-    return input->conv2d(weight, bias, stride, padding, groups);
+    return input->conv2d(weight, bias, stride, padding, groups, dilation);
 }
 
 std::vector<TensorPtr> Conv2d::parameters() {
@@ -70,6 +70,7 @@ std::string Conv2d::extra_repr() const {
            ", stride=" + std::to_string(stride) +
            ", padding=" + std::to_string(padding);
     if (groups > 1) repr += ", groups=" + std::to_string(groups);
+    if (dilation > 1) repr += ", dilation=" + std::to_string(dilation);
     return repr;
 }
 
@@ -96,8 +97,8 @@ std::vector<size_t> Conv2d::compute_output_shape(const std::vector<size_t>& inpu
     size_t N = input_shape[0];
     size_t H = input_shape[2];
     size_t W = input_shape[3];
-    size_t H_out = (H + 2 * padding - kernel_size) / stride + 1;
-    size_t W_out = (W + 2 * padding - kernel_size) / stride + 1;
+    size_t H_out = (H + 2 * padding - dilation * (kernel_size - 1) - 1) / stride + 1;
+    size_t W_out = (W + 2 * padding - dilation * (kernel_size - 1) - 1) / stride + 1;
     return {N, out_channels, H_out, W_out};
 }
 
@@ -131,4 +132,65 @@ std::vector<size_t> AvgPool2d::compute_output_shape(const std::vector<size_t>& i
     size_t H_out = (H - kernel_size) / stride + 1;
     size_t W_out = (W - kernel_size) / stride + 1;
     return {N, C, H_out, W_out};
+}
+
+// ============================================================================
+// Conv1d
+// ============================================================================
+
+Conv1d::Conv1d(size_t in_channels, size_t out_channels, size_t kernel_size,
+               size_t stride, size_t padding)
+    : in_channels(in_channels), out_channels(out_channels),
+      kernel_size(kernel_size), stride(stride), padding(padding) {
+    // Kaiming init
+    float std = std::sqrt(2.0f / (in_channels * kernel_size));
+    std::normal_distribution<float> dist(0.0f, std);
+
+    weight = Tensor::create({out_channels, in_channels, kernel_size}, true);
+    for (size_t i = 0; i < weight->size(); i++) weight->data()[i] = dist(conv_rng);
+
+    bias = Tensor::zeros({out_channels}, true);
+}
+
+TensorPtr Conv1d::forward(const TensorPtr& input) {
+    return input->conv1d(weight, bias, stride, padding);
+}
+
+std::vector<TensorPtr> Conv1d::parameters() {
+    return {weight, bias};
+}
+
+std::string Conv1d::extra_repr() const {
+    return std::to_string(in_channels) + ", " + std::to_string(out_channels) +
+           ", kernel_size=" + std::to_string(kernel_size) +
+           ", stride=" + std::to_string(stride) +
+           ", padding=" + std::to_string(padding);
+}
+
+std::vector<size_t> Conv1d::compute_output_shape(const std::vector<size_t>& input_shape) const {
+    if (input_shape.size() != 3) return input_shape;
+    size_t N = input_shape[0];
+    size_t L = input_shape[2];
+    size_t L_out = (L + 2 * padding - kernel_size) / stride + 1;
+    return {N, out_channels, L_out};
+}
+
+// ============================================================================
+// AdaptiveAvgPool2d
+// ============================================================================
+
+AdaptiveAvgPool2d::AdaptiveAvgPool2d(size_t output_h, size_t output_w)
+    : output_h(output_h), output_w(output_w) {}
+
+TensorPtr AdaptiveAvgPool2d::forward(const TensorPtr& input) {
+    return input->adaptive_avgpool2d(output_h, output_w);
+}
+
+std::string AdaptiveAvgPool2d::extra_repr() const {
+    return "output_size=(" + std::to_string(output_h) + ", " + std::to_string(output_w) + ")";
+}
+
+std::vector<size_t> AdaptiveAvgPool2d::compute_output_shape(const std::vector<size_t>& input_shape) const {
+    if (input_shape.size() != 4) return input_shape;
+    return {input_shape[0], input_shape[1], output_h, output_w};
 }

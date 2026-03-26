@@ -457,6 +457,41 @@ void test_reduce_lr_on_plateau() {
 }
 
 // =============================================================================
+// Linear Warmup + Cosine Decay Tests
+// =============================================================================
+
+void test_warmup_cosine_lr() {
+    auto params = std::vector<TensorPtr>{Tensor::randn({10})};
+    SGD optimizer(params, 0.1f);
+    LinearWarmupCosineDecay scheduler(&optimizer, 10, 100, 0.0f);
+
+    // Step 0: LR should be base (before any step calls)
+    TEST_ASSERT_NEAR(optimizer.lr, 0.1f, 1e-6f);
+
+    // After step 1: warmup phase, lr = 0.1 * 1/10 = 0.01
+    scheduler.step();
+    TEST_ASSERT_NEAR(optimizer.lr, 0.01f, 1e-5f);
+
+    // After step 5: warmup phase, lr = 0.1 * 5/10 = 0.05
+    for (int i = 0; i < 4; i++) scheduler.step();
+    TEST_ASSERT_NEAR(optimizer.lr, 0.05f, 1e-5f);
+
+    // After step 10: end of warmup, lr = 0.1 * 10/10 = 0.1
+    for (int i = 0; i < 5; i++) scheduler.step();
+    TEST_ASSERT_NEAR(optimizer.lr, 0.1f, 1e-5f);
+
+    // After step 55: midpoint of cosine decay
+    // progress = (55-10)/(100-10) = 45/90 = 0.5
+    // lr = 0.0 + (0.1 - 0.0) * 0.5 * (1 + cos(pi * 0.5)) = 0.1 * 0.5 * 1 = 0.05
+    for (int i = 0; i < 45; i++) scheduler.step();
+    TEST_ASSERT_NEAR(optimizer.lr, 0.05f, 1e-4f);
+
+    // After step 100: end of cosine decay, lr should be near min_lr=0.0
+    for (int i = 0; i < 45; i++) scheduler.step();
+    TEST_ASSERT_NEAR(optimizer.lr, 0.0f, 1e-4f);
+}
+
+// =============================================================================
 // Early Stopping Tests
 // =============================================================================
 
@@ -566,6 +601,7 @@ TestSuite* create_optimizer_tests() {
     suite->add_test("exponential_lr", test_exponential_lr);
     suite->add_test("cosine_annealing_lr", test_cosine_annealing_lr);
     suite->add_test("reduce_lr_on_plateau", test_reduce_lr_on_plateau);
+    suite->add_test("warmup_cosine_lr", test_warmup_cosine_lr);
 
     // Early stopping tests
     suite->add_test("early_stopping_improves", test_early_stopping_improves);
