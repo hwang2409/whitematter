@@ -1,10 +1,68 @@
 #include "../layer.h"
+#include "../ops/matmul_cpu.h"
 #include <random>
 #include <cmath>
 #include <cassert>
 #include <limits>
+#include <cstring>
+#include <vector>
 
 static thread_local std::mt19937 attention_rng(123);
+
+// C[M×N] = A[M×K] @ B^T[K×N]  (B stored as [N×K])
+static void matmul_ABt(float* C, const float* A, const float* B,
+                       size_t M, size_t K, size_t N) {
+    // Transpose B into scratch, then call matmul_blocked
+    thread_local std::vector<float> Bt_buf;
+    if (Bt_buf.size() < K * N) Bt_buf.resize(K * N);
+    for (size_t i = 0; i < N; i++)
+        for (size_t j = 0; j < K; j++)
+            Bt_buf[j * N + i] = B[i * K + j];
+    matmul_blocked(C, A, Bt_buf.data(), M, K, N);
+}
+
+// Reshape [batch, seq, embed] (heads interleaved) → [batch*heads, seq, head_dim]
+static void deinterleave_heads(float* dst, const float* src,
+                               size_t batch, size_t seq, size_t num_heads, size_t head_dim) {
+    size_t embed = num_heads * head_dim;
+    for (size_t b = 0; b < batch; b++)
+        for (size_t h = 0; h < num_heads; h++)
+            for (size_t s = 0; s < seq; s++)
+                for (size_t d = 0; d < head_dim; d++)
+                    dst[(b * num_heads + h) * seq * head_dim + s * head_dim + d] =
+                        src[b * seq * embed + s * embed + h * head_dim + d];
+}
+
+// Reshape [batch*heads, seq, head_dim] → [batch, seq, embed] (heads interleaved)
+static void interleave_heads(float* dst, const float* src,
+                             size_t batch, size_t seq, size_t num_heads, size_t head_dim) {
+    size_t embed = num_heads * head_dim;
+    for (size_t b = 0; b < batch; b++)
+        for (size_t h = 0; h < num_heads; h++)
+            for (size_t s = 0; s < seq; s++)
+                for (size_t d = 0; d < head_dim; d++)
+                    dst[b * seq * embed + s * embed + h * head_dim + d] =
+                        src[(b * num_heads + h) * seq * head_dim + s * head_dim + d];
+}
+
+// Accumulate interleave: dst[b,s,h*hd+d] += src[b*nh+h, s, d]
+static void interleave_heads_add(float* dst, const float* src,
+                                 size_t batch, size_t seq, size_t num_heads, size_t head_dim) {
+    size_t embed = num_heads * head_dim;
+    for (size_t b = 0; b < batch; b++)
+        for (size_t h = 0; h < num_heads; h++)
+            for (size_t s = 0; s < seq; s++)
+                for (size_t d = 0; d < head_dim; d++)
+                    dst[b * seq * embed + s * embed + h * head_dim + d] +=
+                        src[(b * num_heads + h) * seq * head_dim + s * head_dim + d];
+}
+
+// Add bias to each row: out[s,d] += bias[d] for all rows in [seq, embed]
+static void add_bias(float* out, const float* bias, size_t rows, size_t cols) {
+    for (size_t s = 0; s < rows; s++)
+        for (size_t d = 0; d < cols; d++)
+            out[s * cols + d] += bias[d];
+}
 
 MultiHeadAttention::MultiHeadAttention(size_t embed_dim, size_t num_heads)
     : embed_dim(embed_dim), num_heads(num_heads) {
@@ -36,11 +94,6 @@ TensorPtr MultiHeadAttention::forward(const TensorPtr& input) {
 
 TensorPtr MultiHeadAttention::forward(const TensorPtr& query, const TensorPtr& key,
                                        const TensorPtr& value, const TensorPtr& mask) {
-    // query: [batch, seq_q, embed_dim]
-    // key:   [batch, seq_k, embed_dim]
-    // value: [batch, seq_k, embed_dim]
-    // mask:  [batch, 1, seq_q, seq_k] or nullptr
-
     assert(query->shape.size() == 3);
     assert(key->shape.size() == 3);
     assert(value->shape.size() == 3);
@@ -51,72 +104,73 @@ TensorPtr MultiHeadAttention::forward(const TensorPtr& query, const TensorPtr& k
     size_t batch = query->shape[0];
     size_t seq_q = query->shape[1];
     size_t seq_k = key->shape[1];
+    size_t E = embed_dim;
+    size_t nh = num_heads;
+    size_t hd = head_dim;
 
     bool track = (query->requires_grad || key->requires_grad || value->requires_grad)
                  && GradMode::is_enabled();
 
-    auto Q = Tensor::create({batch, seq_q, embed_dim}, track);
-    auto K = Tensor::create({batch, seq_k, embed_dim}, track);
-    auto V = Tensor::create({batch, seq_k, embed_dim}, track);
+    // --- 1. Linear projections: Q/K/V = input @ W^T + b ---
+    auto Q = Tensor::create({batch, seq_q, E}, track);
+    auto K = Tensor::create({batch, seq_k, E}, track);
+    auto V = Tensor::create({batch, seq_k, E}, track);
 
     for (size_t b = 0; b < batch; b++) {
-        for (size_t s = 0; s < seq_q; s++) {
-            for (size_t d = 0; d < embed_dim; d++) {
-                float sum = b_q->data()[d];
-                for (size_t k = 0; k < embed_dim; k++) {
-                    sum += query->data()[b * seq_q * embed_dim + s * embed_dim + k] *
-                           W_q->data()[d * embed_dim + k];
-                }
-                Q->data()[b * seq_q * embed_dim + s * embed_dim + d] = sum;
-            }
-        }
+        matmul_ABt(Q->data() + b * seq_q * E,
+                   query->data() + b * seq_q * E,
+                   W_q->data(), seq_q, E, E);
+        add_bias(Q->data() + b * seq_q * E, b_q->data(), seq_q, E);
+
+        matmul_ABt(K->data() + b * seq_k * E,
+                   key->data() + b * seq_k * E,
+                   W_k->data(), seq_k, E, E);
+        add_bias(K->data() + b * seq_k * E, b_k->data(), seq_k, E);
+
+        matmul_ABt(V->data() + b * seq_k * E,
+                   value->data() + b * seq_k * E,
+                   W_v->data(), seq_k, E, E);
+        add_bias(V->data() + b * seq_k * E, b_v->data(), seq_k, E);
     }
 
-    for (size_t b = 0; b < batch; b++) {
-        for (size_t s = 0; s < seq_k; s++) {
-            for (size_t d = 0; d < embed_dim; d++) {
-                float sum = b_k->data()[d];
-                for (size_t k = 0; k < embed_dim; k++) {
-                    sum += key->data()[b * seq_k * embed_dim + s * embed_dim + k] *
-                           W_k->data()[d * embed_dim + k];
-                }
-                K->data()[b * seq_k * embed_dim + s * embed_dim + d] = sum;
-            }
-        }
+    // --- 2. Reshape Q/K/V to [batch*heads, seq, head_dim] ---
+    size_t BH = batch * nh;
+    std::vector<float> Qh(BH * seq_q * hd), Kh(BH * seq_k * hd), Vh(BH * seq_k * hd);
+    deinterleave_heads(Qh.data(), Q->data(), batch, seq_q, nh, hd);
+    deinterleave_heads(Kh.data(), K->data(), batch, seq_k, nh, hd);
+    deinterleave_heads(Vh.data(), V->data(), batch, seq_k, nh, hd);
+
+    // --- 3. Attention scores: scores[bh] = Qh[bh] @ Kh[bh]^T * scale ---
+    float scale = 1.0f / std::sqrt(static_cast<float>(hd));
+    auto scores = Tensor::create({batch, nh, seq_q, seq_k}, track);
+
+    // Transpose K for each (batch*head) and matmul
+    thread_local std::vector<float> Kt_buf;
+    if (Kt_buf.size() < hd * seq_k) Kt_buf.resize(hd * seq_k);
+
+    for (size_t bh = 0; bh < BH; bh++) {
+        const float* Kh_ptr = Kh.data() + bh * seq_k * hd;
+        // Transpose K[seq_k, hd] → Kt[hd, seq_k]
+        for (size_t i = 0; i < seq_k; i++)
+            for (size_t j = 0; j < hd; j++)
+                Kt_buf[j * seq_k + i] = Kh_ptr[i * hd + j];
+
+        matmul_blocked(scores->data() + bh * seq_q * seq_k,
+                       Qh.data() + bh * seq_q * hd,
+                       Kt_buf.data(), seq_q, hd, seq_k);
     }
 
-    for (size_t b = 0; b < batch; b++) {
-        for (size_t s = 0; s < seq_k; s++) {
-            for (size_t d = 0; d < embed_dim; d++) {
-                float sum = b_v->data()[d];
-                for (size_t k = 0; k < embed_dim; k++) {
-                    sum += value->data()[b * seq_k * embed_dim + s * embed_dim + k] *
-                           W_v->data()[d * embed_dim + k];
-                }
-                V->data()[b * seq_k * embed_dim + s * embed_dim + d] = sum;
-            }
-        }
-    }
+    // Apply scale and mask
+    for (size_t i = 0; i < scores->size(); i++)
+        scores->data()[i] *= scale;
 
-    float scale = 1.0f / std::sqrt(static_cast<float>(head_dim));
-
-    auto scores = Tensor::create({batch, num_heads, seq_q, seq_k}, track);
-
-    for (size_t b = 0; b < batch; b++) {
-        for (size_t h = 0; h < num_heads; h++) {
-            for (size_t i = 0; i < seq_q; i++) {
-                for (size_t j = 0; j < seq_k; j++) {
-                    float dot = 0.0f;
-                    for (size_t d = 0; d < head_dim; d++) {
-                        size_t q_idx = b * seq_q * embed_dim + i * embed_dim + h * head_dim + d;
-                        size_t k_idx = b * seq_k * embed_dim + j * embed_dim + h * head_dim + d;
-                        dot += Q->data()[q_idx] * K->data()[k_idx];
-                    }
-                    size_t score_idx = b * num_heads * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j;
-                    scores->data()[score_idx] = dot * scale;
-
-                    if (mask != nullptr) {
-                        size_t mb = (mask->shape[0] == 1) ? 0 : b;
+    if (mask != nullptr) {
+        for (size_t b = 0; b < batch; b++) {
+            size_t mb = (mask->shape[0] == 1) ? 0 : b;
+            for (size_t h = 0; h < nh; h++) {
+                for (size_t i = 0; i < seq_q; i++) {
+                    for (size_t j = 0; j < seq_k; j++) {
+                        size_t score_idx = b * nh * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j;
                         size_t mask_idx = mb * seq_q * seq_k + i * seq_k + j;
                         scores->data()[score_idx] += mask->data()[mask_idx];
                     }
@@ -125,67 +179,52 @@ TensorPtr MultiHeadAttention::forward(const TensorPtr& query, const TensorPtr& k
         }
     }
 
-    auto attn = Tensor::create({batch, num_heads, seq_q, seq_k}, track);
-    for (size_t b = 0; b < batch; b++) {
-        for (size_t h = 0; h < num_heads; h++) {
-            for (size_t i = 0; i < seq_q; i++) {
-                float max_val = -std::numeric_limits<float>::max();
-                for (size_t j = 0; j < seq_k; j++) {
-                    size_t idx = b * num_heads * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j;
-                    max_val = std::max(max_val, scores->data()[idx]);
-                }
+    // --- 4. Softmax over seq_k dimension ---
+    auto attn = Tensor::create({batch, nh, seq_q, seq_k}, track);
+    for (size_t bh = 0; bh < BH; bh++) {
+        for (size_t i = 0; i < seq_q; i++) {
+            const float* row = scores->data() + bh * seq_q * seq_k + i * seq_k;
+            float* out_row = attn->data() + bh * seq_q * seq_k + i * seq_k;
 
-                float sum_exp = 0.0f;
-                for (size_t j = 0; j < seq_k; j++) {
-                    size_t idx = b * num_heads * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j;
-                    attn->data()[idx] = std::exp(scores->data()[idx] - max_val);
-                    sum_exp += attn->data()[idx];
-                }
+            float max_val = row[0];
+            for (size_t j = 1; j < seq_k; j++)
+                max_val = std::max(max_val, row[j]);
 
-                for (size_t j = 0; j < seq_k; j++) {
-                    size_t idx = b * num_heads * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j;
-                    attn->data()[idx] /= sum_exp;
-                }
+            float sum_exp = 0.0f;
+            for (size_t j = 0; j < seq_k; j++) {
+                out_row[j] = std::exp(row[j] - max_val);
+                sum_exp += out_row[j];
             }
+            for (size_t j = 0; j < seq_k; j++)
+                out_row[j] /= sum_exp;
         }
     }
 
     attn_weights = attn;
 
-    auto context = Tensor::create({batch, seq_q, embed_dim}, track);
-
-    for (size_t b = 0; b < batch; b++) {
-        for (size_t h = 0; h < num_heads; h++) {
-            for (size_t i = 0; i < seq_q; i++) {
-                for (size_t d = 0; d < head_dim; d++) {
-                    float sum = 0.0f;
-                    for (size_t j = 0; j < seq_k; j++) {
-                        size_t attn_idx = b * num_heads * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j;
-                        size_t v_idx = b * seq_k * embed_dim + j * embed_dim + h * head_dim + d;
-                        sum += attn->data()[attn_idx] * V->data()[v_idx];
-                    }
-                    size_t out_idx = b * seq_q * embed_dim + i * embed_dim + h * head_dim + d;
-                    context->data()[out_idx] = sum;
-                }
-            }
-        }
+    // --- 5. Context: ctx_heads[bh] = attn[bh] @ Vh[bh] ---
+    std::vector<float> ctx_heads(BH * seq_q * hd);
+    for (size_t bh = 0; bh < BH; bh++) {
+        matmul_blocked(ctx_heads.data() + bh * seq_q * hd,
+                       attn->data() + bh * seq_q * seq_k,
+                       Vh.data() + bh * seq_k * hd,
+                       seq_q, seq_k, hd);
     }
 
-    auto output = Tensor::create({batch, seq_q, embed_dim}, track);
+    // --- 6. Reshape context back to [batch, seq_q, embed_dim] ---
+    auto context = Tensor::create({batch, seq_q, E}, track);
+    interleave_heads(context->data(), ctx_heads.data(), batch, seq_q, nh, hd);
 
+    // --- 7. Output projection: output[b] = context[b] @ W_o^T + b_o ---
+    auto output = Tensor::create({batch, seq_q, E}, track);
     for (size_t b = 0; b < batch; b++) {
-        for (size_t s = 0; s < seq_q; s++) {
-            for (size_t d = 0; d < embed_dim; d++) {
-                float sum = b_o->data()[d];
-                for (size_t k = 0; k < embed_dim; k++) {
-                    sum += context->data()[b * seq_q * embed_dim + s * embed_dim + k] *
-                           W_o->data()[d * embed_dim + k];
-                }
-                output->data()[b * seq_q * embed_dim + s * embed_dim + d] = sum;
-            }
-        }
+        matmul_ABt(output->data() + b * seq_q * E,
+                   context->data() + b * seq_q * E,
+                   W_o->data(), seq_q, E, E);
+        add_bias(output->data() + b * seq_q * E, b_o->data(), seq_q, E);
     }
 
+    // --- Backward pass ---
     if (track) {
         auto query_ptr = query;
         auto key_ptr = key;
@@ -198,133 +237,175 @@ TensorPtr MultiHeadAttention::forward(const TensorPtr& query, const TensorPtr& k
         auto b_k_ptr = b_k;
         auto b_v_ptr = b_v;
         auto b_o_ptr = b_o;
-        size_t ed = embed_dim;
-        size_t nh = num_heads;
-        size_t hd = head_dim;
 
         output->parents = {query_ptr, key_ptr, value_ptr, W_q_ptr, W_k_ptr, W_v_ptr, W_o_ptr,
                           b_q_ptr, b_k_ptr, b_v_ptr, b_o_ptr};
 
         output->grad_fn = [=]() mutable {
-            auto d_context = Tensor::create({batch, seq_q, ed}, false);
-            for (size_t i = 0; i < d_context->size(); i++) d_context->data()[i] = 0;
+            // --- Backward through output projection ---
+            // d_context[b] = d_output[b] @ W_o (not transposed: d_out[seq,E] @ W_o[E,E])
+            auto d_context = Tensor::create({batch, seq_q, E}, false);
+            std::memset(d_context->data(), 0, d_context->size() * sizeof(float));
 
             for (size_t b = 0; b < batch; b++) {
-                for (size_t s = 0; s < seq_q; s++) {
-                    for (size_t d = 0; d < ed; d++) {
-                        float dout = output->grad()[b * seq_q * ed + s * ed + d];
-                        b_o_ptr->grad()[d] += dout;
+                const float* d_out = output->grad() + b * seq_q * E;
+                float* d_ctx = d_context->data() + b * seq_q * E;
 
-                        for (size_t k = 0; k < ed; k++) {
-                            W_o_ptr->grad()[d * ed + k] += dout * context->data()[b * seq_q * ed + s * ed + k];
-                            d_context->data()[b * seq_q * ed + s * ed + k] += dout * W_o_ptr->data()[d * ed + k];
+                // d_ctx[b] = d_out[b] @ W_o  (M=seq_q, K=E, N=E)
+                matmul_blocked(d_ctx, d_out, W_o_ptr->data(), seq_q, E, E);
+
+                // W_o grad: d_out^T @ context  → accumulate into W_o_ptr->grad()
+                // W_o_grad[d,k] += sum_s d_out[s,d] * context[s,k]
+                for (size_t s = 0; s < seq_q; s++) {
+                    for (size_t d = 0; d < E; d++) {
+                        float dval = d_out[s * E + d];
+                        b_o_ptr->grad()[d] += dval;
+                        for (size_t k = 0; k < E; k++) {
+                            W_o_ptr->grad()[d * E + k] += dval * context->data()[b * seq_q * E + s * E + k];
                         }
                     }
                 }
             }
 
+            // --- Backward through head reshape: d_ctx_heads ---
+            std::vector<float> d_ctx_heads(BH * seq_q * hd);
+            deinterleave_heads(d_ctx_heads.data(), d_context->data(), batch, seq_q, nh, hd);
+
+            // --- Backward through context matmul: ctx = attn @ Vh ---
+            // d_attn[bh] = d_ctx_heads[bh] @ Vh[bh]^T
+            // d_Vh[bh] = attn[bh]^T @ d_ctx_heads[bh]
             auto d_attn = Tensor::create({batch, nh, seq_q, seq_k}, false);
-            auto d_V = Tensor::create({batch, seq_k, ed}, false);
-            for (size_t i = 0; i < d_attn->size(); i++) d_attn->data()[i] = 0;
-            for (size_t i = 0; i < d_V->size(); i++) d_V->data()[i] = 0;
+            std::memset(d_attn->data(), 0, d_attn->size() * sizeof(float));
+            std::vector<float> d_Vh(BH * seq_k * hd, 0.0f);
 
-            for (size_t b = 0; b < batch; b++) {
-                for (size_t h = 0; h < nh; h++) {
-                    for (size_t i = 0; i < seq_q; i++) {
-                        for (size_t d = 0; d < hd; d++) {
-                            float d_ctx = d_context->data()[b * seq_q * ed + i * ed + h * hd + d];
-                            for (size_t j = 0; j < seq_k; j++) {
-                                size_t attn_idx = b * nh * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j;
-                                size_t v_idx = b * seq_k * ed + j * ed + h * hd + d;
-                                d_attn->data()[attn_idx] += d_ctx * V->data()[v_idx];
-                                d_V->data()[v_idx] += d_ctx * attn->data()[attn_idx];
-                            }
-                        }
-                    }
-                }
+            thread_local std::vector<float> tmp_T;
+
+            for (size_t bh = 0; bh < BH; bh++) {
+                // d_attn[bh] = d_ctx_heads[bh] @ Vh[bh]^T
+                // Transpose Vh[seq_k, hd] → [hd, seq_k]
+                if (tmp_T.size() < hd * seq_k) tmp_T.resize(hd * seq_k);
+                const float* Vh_ptr = Vh.data() + bh * seq_k * hd;
+                for (size_t i = 0; i < seq_k; i++)
+                    for (size_t j = 0; j < hd; j++)
+                        tmp_T[j * seq_k + i] = Vh_ptr[i * hd + j];
+                matmul_blocked(d_attn->data() + bh * seq_q * seq_k,
+                               d_ctx_heads.data() + bh * seq_q * hd,
+                               tmp_T.data(), seq_q, hd, seq_k);
+
+                // d_Vh[bh] = attn[bh]^T @ d_ctx_heads[bh]
+                // Transpose attn[seq_q, seq_k] → [seq_k, seq_q]
+                if (tmp_T.size() < seq_q * seq_k) tmp_T.resize(seq_q * seq_k);
+                const float* attn_ptr = attn->data() + bh * seq_q * seq_k;
+                for (size_t i = 0; i < seq_q; i++)
+                    for (size_t j = 0; j < seq_k; j++)
+                        tmp_T[j * seq_q + i] = attn_ptr[i * seq_k + j];
+                matmul_blocked(d_Vh.data() + bh * seq_k * hd,
+                               tmp_T.data(),
+                               d_ctx_heads.data() + bh * seq_q * hd,
+                               seq_k, seq_q, hd);
             }
 
+            // --- Backward through softmax ---
             auto d_scores = Tensor::create({batch, nh, seq_q, seq_k}, false);
-            for (size_t b = 0; b < batch; b++) {
-                for (size_t h = 0; h < nh; h++) {
-                    for (size_t i = 0; i < seq_q; i++) {
-                        float dot_sum = 0.0f;
-                        for (size_t j = 0; j < seq_k; j++) {
-                            size_t idx = b * nh * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j;
-                            dot_sum += attn->data()[idx] * d_attn->data()[idx];
-                        }
-                        for (size_t j = 0; j < seq_k; j++) {
-                            size_t idx = b * nh * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j;
-                            d_scores->data()[idx] = attn->data()[idx] * (d_attn->data()[idx] - dot_sum);
-                        }
-                    }
+            for (size_t bh = 0; bh < BH; bh++) {
+                for (size_t i = 0; i < seq_q; i++) {
+                    const float* a_row = attn->data() + bh * seq_q * seq_k + i * seq_k;
+                    const float* da_row = d_attn->data() + bh * seq_q * seq_k + i * seq_k;
+                    float* ds_row = d_scores->data() + bh * seq_q * seq_k + i * seq_k;
+
+                    float dot_sum = 0.0f;
+                    for (size_t j = 0; j < seq_k; j++)
+                        dot_sum += a_row[j] * da_row[j];
+                    for (size_t j = 0; j < seq_k; j++)
+                        ds_row[j] = a_row[j] * (da_row[j] - dot_sum) * scale;
                 }
             }
 
-            auto d_Q = Tensor::create({batch, seq_q, ed}, false);
-            auto d_K = Tensor::create({batch, seq_k, ed}, false);
-            for (size_t i = 0; i < d_Q->size(); i++) d_Q->data()[i] = 0;
-            for (size_t i = 0; i < d_K->size(); i++) d_K->data()[i] = 0;
+            // --- Backward through scores matmul: scores = Qh @ Kh^T ---
+            // d_Qh[bh] = d_scores[bh] @ Kh[bh]
+            // d_Kh[bh] = d_scores[bh]^T @ Qh[bh]
+            std::vector<float> d_Qh(BH * seq_q * hd, 0.0f);
+            std::vector<float> d_Kh(BH * seq_k * hd, 0.0f);
 
-            for (size_t b = 0; b < batch; b++) {
-                for (size_t h = 0; h < nh; h++) {
-                    for (size_t i = 0; i < seq_q; i++) {
-                        for (size_t j = 0; j < seq_k; j++) {
-                            size_t score_idx = b * nh * seq_q * seq_k + h * seq_q * seq_k + i * seq_k + j;
-                            float d_s = d_scores->data()[score_idx] * scale;
-                            for (size_t d = 0; d < hd; d++) {
-                                size_t q_idx = b * seq_q * ed + i * ed + h * hd + d;
-                                size_t k_idx = b * seq_k * ed + j * ed + h * hd + d;
-                                d_Q->data()[q_idx] += d_s * K->data()[k_idx];
-                                d_K->data()[k_idx] += d_s * Q->data()[q_idx];
-                            }
-                        }
-                    }
-                }
+            for (size_t bh = 0; bh < BH; bh++) {
+                // d_Qh[bh] = d_scores[bh] @ Kh[bh]  (seq_q×seq_k @ seq_k×hd = seq_q×hd)
+                matmul_blocked(d_Qh.data() + bh * seq_q * hd,
+                               d_scores->data() + bh * seq_q * seq_k,
+                               Kh.data() + bh * seq_k * hd,
+                               seq_q, seq_k, hd);
+
+                // d_Kh[bh] = d_scores[bh]^T @ Qh[bh]  (seq_k×seq_q @ seq_q×hd = seq_k×hd)
+                if (tmp_T.size() < seq_q * seq_k) tmp_T.resize(seq_q * seq_k);
+                const float* ds_ptr = d_scores->data() + bh * seq_q * seq_k;
+                for (size_t i = 0; i < seq_q; i++)
+                    for (size_t j = 0; j < seq_k; j++)
+                        tmp_T[j * seq_q + i] = ds_ptr[i * seq_k + j];
+                matmul_blocked(d_Kh.data() + bh * seq_k * hd,
+                               tmp_T.data(),
+                               Qh.data() + bh * seq_q * hd,
+                               seq_k, seq_q, hd);
             }
 
+            // --- Reshape head grads back to [batch, seq, embed] ---
+            auto d_Q = Tensor::create({batch, seq_q, E}, false);
+            auto d_K = Tensor::create({batch, seq_k, E}, false);
+            auto d_V = Tensor::create({batch, seq_k, E}, false);
+            std::memset(d_Q->data(), 0, d_Q->size() * sizeof(float));
+            std::memset(d_K->data(), 0, d_K->size() * sizeof(float));
+            std::memset(d_V->data(), 0, d_V->size() * sizeof(float));
+            interleave_heads(d_Q->data(), d_Qh.data(), batch, seq_q, nh, hd);
+            interleave_heads(d_K->data(), d_Kh.data(), batch, seq_k, nh, hd);
+            interleave_heads(d_V->data(), d_Vh.data(), batch, seq_k, nh, hd);
+
+            // --- Backward through Q/K/V projections ---
+            // d_query[b] = d_Q[b] @ W_q, d_W_q += d_Q^T @ query, d_b_q += sum(d_Q)
             for (size_t b = 0; b < batch; b++) {
+                // V projection
+                const float* dV = d_V->data() + b * seq_k * E;
                 for (size_t s = 0; s < seq_k; s++) {
-                    for (size_t d = 0; d < ed; d++) {
-                        float dv = d_V->data()[b * seq_k * ed + s * ed + d];
-                        b_v_ptr->grad()[d] += dv;
-
-                        for (size_t k = 0; k < ed; k++) {
-                            W_v_ptr->grad()[d * ed + k] += dv * value_ptr->data()[b * seq_k * ed + s * ed + k];
-                            if (value_ptr->requires_grad) {
-                                value_ptr->grad()[b * seq_k * ed + s * ed + k] += dv * W_v_ptr->data()[d * ed + k];
+                    for (size_t d = 0; d < E; d++) {
+                        float dval = dV[s * E + d];
+                        b_v_ptr->grad()[d] += dval;
+                        for (size_t k = 0; k < E; k++) {
+                            W_v_ptr->grad()[d * E + k] += dval * value_ptr->data()[b * seq_k * E + s * E + k];
+                        }
+                        if (value_ptr->requires_grad) {
+                            for (size_t k = 0; k < E; k++) {
+                                value_ptr->grad()[b * seq_k * E + s * E + k] += dval * W_v_ptr->data()[d * E + k];
                             }
                         }
                     }
                 }
-            }
 
-            for (size_t b = 0; b < batch; b++) {
+                // K projection
+                const float* dK = d_K->data() + b * seq_k * E;
                 for (size_t s = 0; s < seq_k; s++) {
-                    for (size_t d = 0; d < ed; d++) {
-                        float dk = d_K->data()[b * seq_k * ed + s * ed + d];
-                        b_k_ptr->grad()[d] += dk;
-
-                        for (size_t k = 0; k < ed; k++) {
-                            W_k_ptr->grad()[d * ed + k] += dk * key_ptr->data()[b * seq_k * ed + s * ed + k];
-                            if (key_ptr->requires_grad) {
-                                key_ptr->grad()[b * seq_k * ed + s * ed + k] += dk * W_k_ptr->data()[d * ed + k];
+                    for (size_t d = 0; d < E; d++) {
+                        float dval = dK[s * E + d];
+                        b_k_ptr->grad()[d] += dval;
+                        for (size_t k = 0; k < E; k++) {
+                            W_k_ptr->grad()[d * E + k] += dval * key_ptr->data()[b * seq_k * E + s * E + k];
+                        }
+                        if (key_ptr->requires_grad) {
+                            for (size_t k = 0; k < E; k++) {
+                                key_ptr->grad()[b * seq_k * E + s * E + k] += dval * W_k_ptr->data()[d * E + k];
                             }
                         }
                     }
                 }
-            }
 
-            for (size_t b = 0; b < batch; b++) {
+                // Q projection
+                const float* dQ = d_Q->data() + b * seq_q * E;
                 for (size_t s = 0; s < seq_q; s++) {
-                    for (size_t d = 0; d < ed; d++) {
-                        float dq = d_Q->data()[b * seq_q * ed + s * ed + d];
-                        b_q_ptr->grad()[d] += dq;
-
-                        for (size_t k = 0; k < ed; k++) {
-                            W_q_ptr->grad()[d * ed + k] += dq * query_ptr->data()[b * seq_q * ed + s * ed + k];
-                            if (query_ptr->requires_grad) {
-                                query_ptr->grad()[b * seq_q * ed + s * ed + k] += dq * W_q_ptr->data()[d * ed + k];
+                    for (size_t d = 0; d < E; d++) {
+                        float dval = dQ[s * E + d];
+                        b_q_ptr->grad()[d] += dval;
+                        for (size_t k = 0; k < E; k++) {
+                            W_q_ptr->grad()[d * E + k] += dval * query_ptr->data()[b * seq_q * E + s * E + k];
+                        }
+                        if (query_ptr->requires_grad) {
+                            for (size_t k = 0; k < E; k++) {
+                                query_ptr->grad()[b * seq_q * E + s * E + k] += dval * W_q_ptr->data()[d * E + k];
                             }
                         }
                     }
@@ -346,11 +427,7 @@ TensorPtr MultiHeadAttention::causal_mask(size_t seq_len) {
     for (size_t i = 0; i < seq_len; i++) {
         for (size_t j = 0; j < seq_len; j++) {
             size_t idx = i * seq_len + j;
-            if (j > i) {
-                mask->data()[idx] = -1e9f;
-            } else {
-                mask->data()[idx] = 0.0f;
-            }
+            mask->data()[idx] = (j > i) ? -1e9f : 0.0f;
         }
     }
 
