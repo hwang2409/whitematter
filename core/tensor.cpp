@@ -648,6 +648,12 @@ TensorPtr Tensor::add(const TensorPtr& other) const {
 
     if (shape == other->shape) {
         auto result = create(shape, track);
+#if defined(WHITEMATTER_METAL) && defined(__APPLE__)
+        if (device == whitematter::DeviceType::METAL && other->device == whitematter::DeviceType::METAL &&
+            whitematter::metal_backend_available()) {
+            whitematter::MetalBackend::instance().elementwise_add(data(), other->data(), result->data(), size());
+        } else
+#endif
         simd_add(result->data(), data(), other->data(), size());
 
         if (track) {
@@ -727,6 +733,12 @@ TensorPtr Tensor::sub(const TensorPtr& other) const {
 
     if (shape == other->shape) {
         auto result = create(shape, track);
+#if defined(WHITEMATTER_METAL) && defined(__APPLE__)
+        if (device == whitematter::DeviceType::METAL && other->device == whitematter::DeviceType::METAL &&
+            whitematter::metal_backend_available()) {
+            whitematter::MetalBackend::instance().elementwise_sub(data(), other->data(), result->data(), size());
+        } else
+#endif
         simd_sub(result->data(), data(), other->data(), size());
 
         if (track) {
@@ -807,6 +819,12 @@ TensorPtr Tensor::mul(const TensorPtr& other) const {
 
     if (shape == other->shape) {
         auto result = create(shape, track);
+#if defined(WHITEMATTER_METAL) && defined(__APPLE__)
+        if (device == whitematter::DeviceType::METAL && other->device == whitematter::DeviceType::METAL &&
+            whitematter::metal_backend_available()) {
+            whitematter::MetalBackend::instance().elementwise_mul(data(), other->data(), result->data(), size());
+        } else
+#endif
         simd_mul(result->data(), data(), other->data(), size());
 
         if (track) {
@@ -996,6 +1014,11 @@ TensorPtr Tensor::relu() const {
     bool track = requires_grad && GradMode::is_enabled();
     auto result = create(shape, track);
 
+#if defined(WHITEMATTER_METAL) && defined(__APPLE__)
+    if (device == whitematter::DeviceType::METAL && whitematter::metal_backend_available()) {
+        whitematter::MetalBackend::instance().relu(data(), result->data(), size());
+    } else
+#endif
     simd_relu(result->data(), data(), size());
 
     if (track) {
@@ -1014,6 +1037,11 @@ TensorPtr Tensor::sigmoid() const {
     bool track = requires_grad && GradMode::is_enabled();
     auto result = create(shape, track);
 
+#if defined(WHITEMATTER_METAL) && defined(__APPLE__)
+    if (device == whitematter::DeviceType::METAL && whitematter::metal_backend_available()) {
+        whitematter::MetalBackend::instance().sigmoid(data(), result->data(), size());
+    } else
+#endif
     for (size_t i = 0; i < size(); i++) {
         result->data()[i] = 1.0f / (1.0f + std::exp(-data()[i]));
     }
@@ -1035,6 +1063,11 @@ TensorPtr Tensor::tanh_() const {
     bool track = requires_grad && GradMode::is_enabled();
     auto result = create(shape, track);
 
+#if defined(WHITEMATTER_METAL) && defined(__APPLE__)
+    if (device == whitematter::DeviceType::METAL && whitematter::metal_backend_available()) {
+        whitematter::MetalBackend::instance().tanh_op(data(), result->data(), size());
+    } else
+#endif
     for (size_t i = 0; i < size(); i++) {
         result->data()[i] = std::tanh(data()[i]);
     }
