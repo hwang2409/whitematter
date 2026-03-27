@@ -1,6 +1,25 @@
 #include "loss.h"
 #include "device.h"
 #include <cmath>
+#include <cstring>
+#include <algorithm>
+#if defined(WHITEMATTER_CUDA)
+#include "cuda/cuda_backend.h"
+#include "cuda/cuda_memory.h"
+
+namespace {
+// Local topological sort for CPU backward subgraph traversal.
+// Mirrors Tensor::build_topo (which is private).
+void build_cpu_topo(Tensor* node, std::vector<Tensor*>& topo, std::vector<Tensor*>& visited) {
+    if (std::find(visited.begin(), visited.end(), node) != visited.end()) return;
+    visited.push_back(node);
+    for (auto& p : node->parents) {
+        build_cpu_topo(p.get(), topo, visited);
+    }
+    topo.push_back(node);
+}
+}  // namespace
+#endif
 
 TensorPtr MSELoss::forward(const TensorPtr& prediction, const TensorPtr& target) {
     assert(prediction->size() == target->size());
@@ -62,13 +81,59 @@ TensorPtr CrossEntropyLoss::forward(const TensorPtr& prediction, const TensorPtr
     assert(prediction->shape.size() == 2);
     assert(target->shape.size() == 1 || (target->shape.size() == 2 && target->shape[1] == 1));
 
-    // CPU fallback for non-CPU tensors
+    // CPU fallback for non-CPU tensors with gradient bridging
     if (prediction->device != whitematter::DeviceType::CPU) {
+#if defined(WHITEMATTER_CUDA)
+        auto orig_device = prediction->device;
+
+        // Transfer inputs to CPU for computation
         auto cpu_pred = prediction->to(whitematter::DeviceType::CPU);
+        cpu_pred->requires_grad = prediction->requires_grad;
         auto cpu_tgt = target->to(whitematter::DeviceType::CPU);
-        auto cpu_result = forward(cpu_pred, cpu_tgt);
-        cpu_result->to_inplace(prediction->device);
-        return cpu_result;
+
+        auto cpu_result = forward(cpu_pred, cpu_tgt);  // recursive call on CPU path
+
+        // Create CUDA loss tensor and copy forward data
+        auto result = Tensor::create_on_device({1}, cpu_result->requires_grad, orig_device);
+        whitematter::CUDABackend::instance().memcpy_h2d(result->data(), cpu_result->data(), 1);
+
+        if (result->requires_grad && GradMode::is_enabled()) {
+            auto pred_sptr = std::const_pointer_cast<Tensor>(prediction);
+            result->parents = {pred_sptr};
+
+            // The CPU grad_fn inside cpu_result writes to log_probs->grad() and
+            // log_softmax backward writes to cpu_pred->grad(). All are CPU tensors.
+            // We bridge: CUDA loss grad -> CPU loss grad, run CPU backward subgraph,
+            // then CPU pred grad -> CUDA pred grad.
+            result->grad_fn = [pred_sptr, cpu_pred, cpu_result, result, orig_device]() {
+                // Copy loss grad from CUDA to CPU
+                whitematter::CUDABackend::instance().memcpy_d2h(
+                    cpu_result->grad(), result->grad(), 1);
+
+                // Run the full CPU backward subgraph (cross_entropy -> log_softmax -> prediction)
+                std::vector<Tensor*> cpu_topo, cpu_visited;
+                build_cpu_topo(cpu_result.get(), cpu_topo, cpu_visited);
+                for (auto it = cpu_topo.rbegin(); it != cpu_topo.rend(); ++it) {
+                    if ((*it)->grad_fn) (*it)->grad_fn();
+                }
+
+                // Copy prediction grad from CPU to CUDA parent (accumulate)
+                if (pred_sptr->requires_grad && cpu_pred->grad()) {
+                    size_t n = pred_sptr->size();
+                    std::vector<float> cpu_grad(n);
+                    std::memcpy(cpu_grad.data(), cpu_pred->grad(), n * sizeof(float));
+                    std::vector<float> existing(n);
+                    whitematter::CUDABackend::instance().memcpy_d2h(
+                        existing.data(), pred_sptr->grad(), n);
+                    for (size_t i = 0; i < n; i++) existing[i] += cpu_grad[i];
+                    whitematter::CUDABackend::instance().memcpy_h2d(
+                        pred_sptr->grad(), existing.data(), n);
+                }
+            };
+        }
+
+        return result;
+#endif
     }
 
     size_t batch_size = prediction->shape[0];

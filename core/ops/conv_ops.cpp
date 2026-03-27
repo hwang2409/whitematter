@@ -334,6 +334,138 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
             size_t col_h_per_group = in_ch_per_group * kernel_h * kernel_w;
             size_t col_w = out_h * out_w;
 
+#if defined(WHITEMATTER_CUDA)
+            if (result->device == whitematter::DeviceType::CUDA) {
+                auto& cuda = whitematter::CUDABackend::instance();
+
+                // Download grad_output, input data, weight data to host
+                std::vector<float> h_grad_out(result->size());
+                cuda.memcpy_d2h(h_grad_out.data(), result->grad(), result->size());
+
+                std::vector<float> h_input(self_ptr->size());
+                cuda.memcpy_d2h(h_input.data(), self_ptr->data(), self_ptr->size());
+
+                std::vector<float> h_weight(weight_ptr->size());
+                cuda.memcpy_d2h(h_weight.data(), weight_ptr->data(), weight_ptr->size());
+
+                // Allocate host gradient buffers
+                std::vector<float> h_grad_input(self_ptr->size(), 0.0f);
+                std::vector<float> h_grad_weight(weight_ptr->size(), 0.0f);
+                std::vector<float> h_grad_bias;
+                if (bias_ptr && bias_ptr->requires_grad)
+                    h_grad_bias.resize(bias_ptr->size(), 0.0f);
+
+                // --- Gradient w.r.t. input (on host) ---
+                if (self_ptr->requires_grad) {
+                    std::vector<float> weight_T(col_h_per_group * out_ch_per_group);
+                    std::vector<float> col_grad(col_h_per_group * col_w);
+
+                    for (size_t b = 0; b < batch; b++) {
+                        for (size_t g = 0; g < groups; g++) {
+                            const float* weight_g = h_weight.data()
+                                                   + g * out_ch_per_group * col_h_per_group;
+                            for (size_t oc = 0; oc < out_ch_per_group; oc++) {
+                                for (size_t k = 0; k < col_h_per_group; k++) {
+                                    weight_T[k * out_ch_per_group + oc] = weight_g[oc * col_h_per_group + k];
+                                }
+                            }
+
+                            const float* grad_out = h_grad_out.data()
+                                                   + b * out_channels * col_w
+                                                   + g * out_ch_per_group * col_w;
+                            float* grad_in = h_grad_input.data()
+                                            + b * in_channels * in_h * in_w
+                                            + g * in_ch_per_group * in_h * in_w;
+
+                            matmul_blocked(col_grad.data(), weight_T.data(), grad_out,
+                                           col_h_per_group, out_ch_per_group, col_w);
+
+                            col2im(col_grad.data(), grad_in,
+                                   in_ch_per_group, in_h, in_w,
+                                   kernel_h, kernel_w,
+                                   out_h, out_w, stride, padding, dilation);
+                        }
+                    }
+                }
+
+                // --- Gradient w.r.t. weight (on host) ---
+                if (weight_ptr->requires_grad) {
+                    std::vector<float> col_buf(col_h_per_group * col_w);
+                    std::vector<float> col_T(col_w * col_h_per_group);
+
+                    for (size_t b = 0; b < batch; b++) {
+                        for (size_t g = 0; g < groups; g++) {
+                            const float* input_ptr = h_input.data()
+                                                    + b * in_channels * in_h * in_w
+                                                    + g * in_ch_per_group * in_h * in_w;
+                            const float* grad_out = h_grad_out.data()
+                                                   + b * out_channels * col_w
+                                                   + g * out_ch_per_group * col_w;
+
+                            im2col(input_ptr, col_buf.data(),
+                                   in_ch_per_group, in_h, in_w,
+                                   kernel_h, kernel_w,
+                                   out_h, out_w, stride, padding, dilation);
+
+                            for (size_t i = 0; i < col_h_per_group; i++) {
+                                for (size_t j = 0; j < col_w; j++) {
+                                    col_T[j * col_h_per_group + i] = col_buf[i * col_w + j];
+                                }
+                            }
+
+                            std::vector<float> grad_w_g(out_ch_per_group * col_h_per_group);
+                            matmul_blocked(grad_w_g.data(), grad_out, col_T.data(),
+                                           out_ch_per_group, col_w, col_h_per_group);
+
+                            float* weight_grad_g = h_grad_weight.data()
+                                                  + g * out_ch_per_group * col_h_per_group;
+                            for (size_t i = 0; i < out_ch_per_group * col_h_per_group; i++) {
+                                weight_grad_g[i] += grad_w_g[i];
+                            }
+                        }
+                    }
+                }
+
+                // --- Gradient w.r.t. bias (on host) ---
+                if (bias_ptr && bias_ptr->requires_grad) {
+                    for (size_t oc = 0; oc < out_channels; oc++) {
+                        float grad_sum = 0.0f;
+                        for (size_t b = 0; b < batch; b++) {
+                            for (size_t i = 0; i < col_w; i++) {
+                                size_t out_idx = b * out_channels * col_w + oc * col_w + i;
+                                grad_sum += h_grad_out[out_idx];
+                            }
+                        }
+                        h_grad_bias[oc] += grad_sum;
+                    }
+                }
+
+                // Upload gradients back to CUDA (accumulate with existing)
+                if (self_ptr->requires_grad) {
+                    std::vector<float> existing(self_ptr->size());
+                    cuda.memcpy_d2h(existing.data(), self_ptr->grad(), self_ptr->size());
+                    for (size_t i = 0; i < self_ptr->size(); i++)
+                        existing[i] += h_grad_input[i];
+                    cuda.memcpy_h2d(self_ptr->grad(), existing.data(), self_ptr->size());
+                }
+                if (weight_ptr->requires_grad) {
+                    std::vector<float> existing(weight_ptr->size());
+                    cuda.memcpy_d2h(existing.data(), weight_ptr->grad(), weight_ptr->size());
+                    for (size_t i = 0; i < weight_ptr->size(); i++)
+                        existing[i] += h_grad_weight[i];
+                    cuda.memcpy_h2d(weight_ptr->grad(), existing.data(), weight_ptr->size());
+                }
+                if (bias_ptr && bias_ptr->requires_grad) {
+                    std::vector<float> existing(bias_ptr->size());
+                    cuda.memcpy_d2h(existing.data(), bias_ptr->grad(), bias_ptr->size());
+                    for (size_t i = 0; i < bias_ptr->size(); i++)
+                        existing[i] += h_grad_bias[i];
+                    cuda.memcpy_h2d(bias_ptr->grad(), existing.data(), bias_ptr->size());
+                }
+                return;
+            }
+#endif
+
             if (self_ptr->requires_grad) {
                 float* weight_T = get_buf(tl_scratch, col_h_per_group * out_ch_per_group);
                 float* col_grad = get_buf(tl_col_buf, col_h_per_group * col_w);
@@ -509,6 +641,137 @@ TensorPtr Tensor::conv_transpose2d(const TensorPtr& weight, const TensorPtr& bia
                            out_channels, out_h, out_w,
                            kernel_h, kernel_w, stride, padding]() {
 
+#if defined(WHITEMATTER_CUDA)
+            if (result->device == whitematter::DeviceType::CUDA) {
+                auto& cuda = whitematter::CUDABackend::instance();
+
+                std::vector<float> h_grad_out(result->size());
+                cuda.memcpy_d2h(h_grad_out.data(), result->grad(), result->size());
+
+                std::vector<float> h_input(self_ptr->size());
+                cuda.memcpy_d2h(h_input.data(), self_ptr->data(), self_ptr->size());
+
+                std::vector<float> h_weight(weight_ptr->size());
+                cuda.memcpy_d2h(h_weight.data(), weight_ptr->data(), weight_ptr->size());
+
+                std::vector<float> h_grad_input(self_ptr->size(), 0.0f);
+                std::vector<float> h_grad_weight(weight_ptr->size(), 0.0f);
+                std::vector<float> h_grad_bias;
+                if (bias_ptr && bias_ptr->requires_grad)
+                    h_grad_bias.resize(bias_ptr->size(), 0.0f);
+
+                if (self_ptr->requires_grad) {
+                    for (size_t b = 0; b < batch; b++) {
+                        for (size_t ic = 0; ic < in_channels; ic++) {
+                            for (size_t ih = 0; ih < in_h; ih++) {
+                                for (size_t iw = 0; iw < in_w; iw++) {
+                                    float grad_sum = 0.0f;
+                                    for (size_t oc = 0; oc < out_channels; oc++) {
+                                        for (size_t kh = 0; kh < kernel_h; kh++) {
+                                            for (size_t kw = 0; kw < kernel_w; kw++) {
+                                                int oh = static_cast<int>(ih * stride + kh) - static_cast<int>(padding);
+                                                int ow = static_cast<int>(iw * stride + kw) - static_cast<int>(padding);
+                                                if (oh >= 0 && oh < static_cast<int>(out_h) &&
+                                                    ow >= 0 && ow < static_cast<int>(out_w)) {
+                                                    size_t w_idx = ic * out_channels * kernel_h * kernel_w +
+                                                                   oc * kernel_h * kernel_w +
+                                                                   kh * kernel_w + kw;
+                                                    size_t out_idx = b * out_channels * out_h * out_w +
+                                                                     oc * out_h * out_w +
+                                                                     static_cast<size_t>(oh) * out_w +
+                                                                     static_cast<size_t>(ow);
+                                                    grad_sum += h_grad_out[out_idx] * h_weight[w_idx];
+                                                }
+                                            }
+                                        }
+                                    }
+                                    size_t in_idx = b * in_channels * in_h * in_w +
+                                                    ic * in_h * in_w +
+                                                    ih * in_w + iw;
+                                    h_grad_input[in_idx] += grad_sum;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (weight_ptr->requires_grad) {
+                    for (size_t b = 0; b < batch; b++) {
+                        for (size_t ic = 0; ic < in_channels; ic++) {
+                            for (size_t ih = 0; ih < in_h; ih++) {
+                                for (size_t iw = 0; iw < in_w; iw++) {
+                                    size_t in_idx = b * in_channels * in_h * in_w +
+                                                    ic * in_h * in_w +
+                                                    ih * in_w + iw;
+                                    float in_val = h_input[in_idx];
+                                    for (size_t oc = 0; oc < out_channels; oc++) {
+                                        for (size_t kh = 0; kh < kernel_h; kh++) {
+                                            for (size_t kw = 0; kw < kernel_w; kw++) {
+                                                int oh = static_cast<int>(ih * stride + kh) - static_cast<int>(padding);
+                                                int ow = static_cast<int>(iw * stride + kw) - static_cast<int>(padding);
+                                                if (oh >= 0 && oh < static_cast<int>(out_h) &&
+                                                    ow >= 0 && ow < static_cast<int>(out_w)) {
+                                                    size_t w_idx = ic * out_channels * kernel_h * kernel_w +
+                                                                   oc * kernel_h * kernel_w +
+                                                                   kh * kernel_w + kw;
+                                                    size_t out_idx = b * out_channels * out_h * out_w +
+                                                                     oc * out_h * out_w +
+                                                                     static_cast<size_t>(oh) * out_w +
+                                                                     static_cast<size_t>(ow);
+                                                    h_grad_weight[w_idx] += in_val * h_grad_out[out_idx];
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (bias_ptr && bias_ptr->requires_grad) {
+                    for (size_t oc = 0; oc < out_channels; oc++) {
+                        float grad_sum = 0.0f;
+                        for (size_t b = 0; b < batch; b++) {
+                            for (size_t oh = 0; oh < out_h; oh++) {
+                                for (size_t ow = 0; ow < out_w; ow++) {
+                                    size_t idx = b * out_channels * out_h * out_w +
+                                                 oc * out_h * out_w +
+                                                 oh * out_w + ow;
+                                    grad_sum += h_grad_out[idx];
+                                }
+                            }
+                        }
+                        h_grad_bias[oc] += grad_sum;
+                    }
+                }
+
+                // Upload gradients back to CUDA (accumulate with existing)
+                if (self_ptr->requires_grad) {
+                    std::vector<float> existing(self_ptr->size());
+                    cuda.memcpy_d2h(existing.data(), self_ptr->grad(), self_ptr->size());
+                    for (size_t i = 0; i < self_ptr->size(); i++)
+                        existing[i] += h_grad_input[i];
+                    cuda.memcpy_h2d(self_ptr->grad(), existing.data(), self_ptr->size());
+                }
+                if (weight_ptr->requires_grad) {
+                    std::vector<float> existing(weight_ptr->size());
+                    cuda.memcpy_d2h(existing.data(), weight_ptr->grad(), weight_ptr->size());
+                    for (size_t i = 0; i < weight_ptr->size(); i++)
+                        existing[i] += h_grad_weight[i];
+                    cuda.memcpy_h2d(weight_ptr->grad(), existing.data(), weight_ptr->size());
+                }
+                if (bias_ptr && bias_ptr->requires_grad) {
+                    std::vector<float> existing(bias_ptr->size());
+                    cuda.memcpy_d2h(existing.data(), bias_ptr->grad(), bias_ptr->size());
+                    for (size_t i = 0; i < bias_ptr->size(); i++)
+                        existing[i] += h_grad_bias[i];
+                    cuda.memcpy_h2d(bias_ptr->grad(), existing.data(), bias_ptr->size());
+                }
+                return;
+            }
+#endif
+
             if (self_ptr->requires_grad) {
                 for (size_t b = 0; b < batch; b++) {
                     for (size_t ic = 0; ic < in_channels; ic++) {
@@ -610,6 +873,51 @@ TensorPtr Tensor::maxpool2d(size_t kernel_size, size_t stride) const {
 
     if (stride == 0) stride = kernel_size;
 
+#if defined(WHITEMATTER_CUDA)
+    // CPU fallback for CUDA tensors — forward uses data() which is a device pointer
+    if (device == whitematter::DeviceType::CUDA) {
+        auto cpu_self = to(whitematter::DeviceType::CPU);
+        auto cpu_result = cpu_self->maxpool2d(kernel_size, stride);
+
+        bool track = requires_grad && GradMode::is_enabled();
+        size_t out_sz = cpu_result->size();
+        size_t in_sz = this->size();
+
+        // Create CUDA result and upload forward data
+        auto cuda_result = create_on_device(cpu_result->shape, track, whitematter::DeviceType::CUDA);
+        whitematter::CUDABackend::instance().memcpy_h2d(cuda_result->data(), cpu_result->data(), out_sz);
+
+        if (track) {
+            auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
+            // Capture cpu_self and cpu_result so their grad_fn and max_indices survive
+            cuda_result->parents = {self_ptr};
+            cuda_result->grad_fn = [self_ptr, cuda_result, cpu_self, cpu_result, in_sz, out_sz]() {
+                if (!self_ptr->requires_grad) return;
+                auto& cuda = whitematter::CUDABackend::instance();
+
+                // Download grad_output from CUDA result
+                std::vector<float> h_grad_out(out_sz);
+                cuda.memcpy_d2h(h_grad_out.data(), cuda_result->grad(), out_sz);
+
+                // Set it as grad on CPU result and run CPU backward
+                std::memcpy(cpu_result->grad(), h_grad_out.data(), out_sz * sizeof(float));
+                if (cpu_result->grad_fn) cpu_result->grad_fn();
+
+                // Upload cpu_self grad back to CUDA, accumulating
+                std::vector<float> h_grad_input(in_sz);
+                std::memcpy(h_grad_input.data(), cpu_self->grad(), in_sz * sizeof(float));
+
+                std::vector<float> existing(in_sz);
+                cuda.memcpy_d2h(existing.data(), self_ptr->grad(), in_sz);
+                for (size_t i = 0; i < in_sz; i++)
+                    existing[i] += h_grad_input[i];
+                cuda.memcpy_h2d(self_ptr->grad(), existing.data(), in_sz);
+            };
+        }
+        return cuda_result;
+    }
+#endif
+
     size_t batch = shape[0];
     size_t channels = shape[1];
     size_t in_h = shape[2];
@@ -671,6 +979,46 @@ TensorPtr Tensor::avgpool2d(size_t kernel_size, size_t stride) const {
     assert(shape.size() == 4);
 
     if (stride == 0) stride = kernel_size;
+
+#if defined(WHITEMATTER_CUDA)
+    // CPU fallback for CUDA tensors — forward uses data() which is a device pointer
+    if (device == whitematter::DeviceType::CUDA) {
+        auto cpu_self = to(whitematter::DeviceType::CPU);
+        auto cpu_result = cpu_self->avgpool2d(kernel_size, stride);
+
+        bool track = requires_grad && GradMode::is_enabled();
+        size_t out_sz = cpu_result->size();
+        size_t in_sz = this->size();
+
+        auto cuda_result = create_on_device(cpu_result->shape, track, whitematter::DeviceType::CUDA);
+        whitematter::CUDABackend::instance().memcpy_h2d(cuda_result->data(), cpu_result->data(), out_sz);
+
+        if (track) {
+            auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
+            cuda_result->parents = {self_ptr};
+            cuda_result->grad_fn = [self_ptr, cuda_result, cpu_self, cpu_result, in_sz, out_sz]() {
+                if (!self_ptr->requires_grad) return;
+                auto& cuda = whitematter::CUDABackend::instance();
+
+                std::vector<float> h_grad_out(out_sz);
+                cuda.memcpy_d2h(h_grad_out.data(), cuda_result->grad(), out_sz);
+
+                std::memcpy(cpu_result->grad(), h_grad_out.data(), out_sz * sizeof(float));
+                if (cpu_result->grad_fn) cpu_result->grad_fn();
+
+                std::vector<float> h_grad_input(in_sz);
+                std::memcpy(h_grad_input.data(), cpu_self->grad(), in_sz * sizeof(float));
+
+                std::vector<float> existing(in_sz);
+                cuda.memcpy_d2h(existing.data(), self_ptr->grad(), in_sz);
+                for (size_t i = 0; i < in_sz; i++)
+                    existing[i] += h_grad_input[i];
+                cuda.memcpy_h2d(self_ptr->grad(), existing.data(), in_sz);
+            };
+        }
+        return cuda_result;
+    }
+#endif
 
     size_t batch = shape[0];
     size_t channels = shape[1];
@@ -1102,13 +1450,53 @@ TensorPtr Tensor::upsample(size_t scale_factor, const std::string& mode) const {
 TensorPtr Tensor::adaptive_avgpool2d(size_t output_h, size_t output_w) const {
     assert(shape.size() == 4);  // [batch, channels, H, W]
 
-    // CPU fallback for CUDA tensors
+#if defined(WHITEMATTER_CUDA)
+    // CPU fallback for CUDA tensors with proper backward bridging
+    if (device == whitematter::DeviceType::CUDA) {
+        auto cpu_self = to(whitematter::DeviceType::CPU);
+        auto cpu_result = cpu_self->adaptive_avgpool2d(output_h, output_w);
+
+        bool track = requires_grad && GradMode::is_enabled();
+        size_t out_sz = cpu_result->size();
+        size_t in_sz = this->size();
+
+        auto cuda_result = create_on_device(cpu_result->shape, track, whitematter::DeviceType::CUDA);
+        whitematter::CUDABackend::instance().memcpy_h2d(cuda_result->data(), cpu_result->data(), out_sz);
+
+        if (track) {
+            auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
+            cuda_result->parents = {self_ptr};
+            cuda_result->grad_fn = [self_ptr, cuda_result, cpu_self, cpu_result, in_sz, out_sz]() {
+                if (!self_ptr->requires_grad) return;
+                auto& cuda = whitematter::CUDABackend::instance();
+
+                std::vector<float> h_grad_out(out_sz);
+                cuda.memcpy_d2h(h_grad_out.data(), cuda_result->grad(), out_sz);
+
+                std::memcpy(cpu_result->grad(), h_grad_out.data(), out_sz * sizeof(float));
+                if (cpu_result->grad_fn) cpu_result->grad_fn();
+
+                std::vector<float> h_grad_input(in_sz);
+                std::memcpy(h_grad_input.data(), cpu_self->grad(), in_sz * sizeof(float));
+
+                std::vector<float> existing(in_sz);
+                cuda.memcpy_d2h(existing.data(), self_ptr->grad(), in_sz);
+                for (size_t i = 0; i < in_sz; i++)
+                    existing[i] += h_grad_input[i];
+                cuda.memcpy_h2d(self_ptr->grad(), existing.data(), in_sz);
+            };
+        }
+        return cuda_result;
+    }
+#else
+    // Non-CUDA fallback for other non-CPU devices (e.g. Metal)
     if (device != whitematter::DeviceType::CPU) {
         auto cpu_self = to(whitematter::DeviceType::CPU);
         auto cpu_result = cpu_self->adaptive_avgpool2d(output_h, output_w);
         cpu_result->to_inplace(device);
         return cpu_result;
     }
+#endif
 
     size_t batch = shape[0];
     size_t channels = shape[1];

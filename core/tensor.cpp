@@ -584,35 +584,52 @@ TensorPtr Tensor::matmul(const TensorPtr& other) const {
 #if defined(WHITEMATTER_CUDA)
     if (device == whitematter::DeviceType::CUDA && other->device == whitematter::DeviceType::CUDA &&
         whitematter::cuda_backend_available()) {
-        whitematter::CUDABackend::instance().matmul(data(), other->data(), result->data(),
+        auto cuda_result = Tensor::create_on_device({m, n}, track, whitematter::DeviceType::CUDA);
+        whitematter::CUDABackend::instance().matmul(data(), other->data(), cuda_result->data(),
             static_cast<int>(m), static_cast<int>(n), static_cast<int>(k));
         if (track) {
             auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
             auto other_ptr = other;
-            result->parents = {self_ptr, other_ptr};
-            result->grad_fn = [self_ptr, other_ptr, result, m, k, n]() {
+            cuda_result->parents = {self_ptr, other_ptr};
+            cuda_result->grad_fn = [self_ptr, other_ptr, cuda_result, m, k, n]() {
+                auto& be = whitematter::CUDABackend::instance();
                 if (self_ptr->requires_grad) {
+                    // grad_A += grad_C @ B^T  (CPU fallback: transfer, compute, transfer back)
+                    std::vector<float> cg(m * n), bd(k * n), ag(m * k);
+                    be.memcpy_d2h(cg.data(), cuda_result->grad(), m * n);
+                    be.memcpy_d2h(bd.data(), other_ptr->data(), k * n);
+                    be.memcpy_d2h(ag.data(), self_ptr->grad(), m * k);
                     for (size_t i = 0; i < m; i++) {
                         for (size_t l = 0; l < k; l++) {
-                            self_ptr->grad()[i * k + l] += simd_dot(
-                                &result->grad()[i * n], &other_ptr->data()[l * n], n);
+                            float s = 0.0f;
+                            for (size_t j = 0; j < n; j++) {
+                                s += cg[i * n + j] * bd[l * n + j];
+                            }
+                            ag[i * k + l] += s;
                         }
                     }
+                    be.memcpy_h2d(self_ptr->grad(), ag.data(), m * k);
                 }
                 if (other_ptr->requires_grad) {
+                    // grad_B += A^T @ grad_C  (CPU fallback)
+                    std::vector<float> cg(m * n), ad(m * k), bg(k * n);
+                    be.memcpy_d2h(cg.data(), cuda_result->grad(), m * n);
+                    be.memcpy_d2h(ad.data(), self_ptr->data(), m * k);
+                    be.memcpy_d2h(bg.data(), other_ptr->grad(), k * n);
                     for (size_t l = 0; l < k; l++) {
                         for (size_t j = 0; j < n; j++) {
-                            float sum = 0.0f;
+                            float s = 0.0f;
                             for (size_t i = 0; i < m; i++) {
-                                sum += self_ptr->data()[i * k + l] * result->grad()[i * n + j];
+                                s += ad[i * k + l] * cg[i * n + j];
                             }
-                            other_ptr->grad()[l * n + j] += sum;
+                            bg[l * n + j] += s;
                         }
                     }
+                    be.memcpy_h2d(other_ptr->grad(), bg.data(), k * n);
                 }
             };
         }
-        return result;
+        return cuda_result;
     }
 #endif
 
@@ -668,47 +685,61 @@ TensorPtr Tensor::bmm(const TensorPtr& other) const {
 #if defined(WHITEMATTER_CUDA)
     if (device == whitematter::DeviceType::CUDA && other->device == whitematter::DeviceType::CUDA &&
         whitematter::cuda_backend_available()) {
-        whitematter::CUDABackend::instance().bmm(data(), other->data(), result->data(),
+        auto cuda_result = Tensor::create_on_device({batch, m, n}, track, whitematter::DeviceType::CUDA);
+        whitematter::CUDABackend::instance().bmm(data(), other->data(), cuda_result->data(),
             static_cast<int>(batch), static_cast<int>(m), static_cast<int>(k), static_cast<int>(n));
         if (track) {
             auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
             auto other_ptr = other;
-            result->parents = {self_ptr, other_ptr};
-            result->grad_fn = [self_ptr, other_ptr, result, batch, m, k, n,
+            cuda_result->parents = {self_ptr, other_ptr};
+            cuda_result->grad_fn = [self_ptr, other_ptr, cuda_result, batch, m, k, n,
                               a_batch_stride, b_batch_stride, c_batch_stride]() {
-                for (size_t b_idx = 0; b_idx < batch; b_idx++) {
-                    if (self_ptr->requires_grad) {
-                        float* a_grad = &self_ptr->grad()[b_idx * a_batch_stride];
-                        const float* c_grad = &result->grad()[b_idx * c_batch_stride];
-                        const float* b_data = &other_ptr->data()[b_idx * b_batch_stride];
+                // CPU fallback for backward: transfer device data to host, compute, transfer back
+                auto& be = whitematter::CUDABackend::instance();
+                size_t total_a = batch * m * k;
+                size_t total_b = batch * k * n;
+                size_t total_c = batch * m * n;
+                if (self_ptr->requires_grad) {
+                    std::vector<float> cg(total_c), bd(total_b), ag(total_a);
+                    be.memcpy_d2h(cg.data(), cuda_result->grad(), total_c);
+                    be.memcpy_d2h(bd.data(), other_ptr->data(), total_b);
+                    be.memcpy_d2h(ag.data(), self_ptr->grad(), total_a);
+                    for (size_t b_idx = 0; b_idx < batch; b_idx++) {
                         for (size_t i = 0; i < m; i++) {
                             for (size_t l = 0; l < k; l++) {
-                                float sum = 0.0f;
+                                float s = 0.0f;
                                 for (size_t j = 0; j < n; j++) {
-                                    sum += c_grad[i * n + j] * b_data[l * n + j];
+                                    s += cg[b_idx * c_batch_stride + i * n + j] *
+                                         bd[b_idx * b_batch_stride + l * n + j];
                                 }
-                                a_grad[i * k + l] += sum;
+                                ag[b_idx * a_batch_stride + i * k + l] += s;
                             }
                         }
                     }
-                    if (other_ptr->requires_grad) {
-                        const float* a_data = &self_ptr->data()[b_idx * a_batch_stride];
-                        const float* c_grad = &result->grad()[b_idx * c_batch_stride];
-                        float* b_grad = &other_ptr->grad()[b_idx * b_batch_stride];
+                    be.memcpy_h2d(self_ptr->grad(), ag.data(), total_a);
+                }
+                if (other_ptr->requires_grad) {
+                    std::vector<float> cg(total_c), ad(total_a), bg(total_b);
+                    be.memcpy_d2h(cg.data(), cuda_result->grad(), total_c);
+                    be.memcpy_d2h(ad.data(), self_ptr->data(), total_a);
+                    be.memcpy_d2h(bg.data(), other_ptr->grad(), total_b);
+                    for (size_t b_idx = 0; b_idx < batch; b_idx++) {
                         for (size_t l = 0; l < k; l++) {
                             for (size_t j = 0; j < n; j++) {
-                                float sum = 0.0f;
+                                float s = 0.0f;
                                 for (size_t i = 0; i < m; i++) {
-                                    sum += a_data[i * k + l] * c_grad[i * n + j];
+                                    s += ad[b_idx * a_batch_stride + i * k + l] *
+                                         cg[b_idx * c_batch_stride + i * n + j];
                                 }
-                                b_grad[l * n + j] += sum;
+                                bg[b_idx * b_batch_stride + l * n + j] += s;
                             }
                         }
                     }
+                    be.memcpy_h2d(other_ptr->grad(), bg.data(), total_b);
                 }
             };
         }
-        return result;
+        return cuda_result;
     }
 #endif
 
@@ -2260,6 +2291,43 @@ TensorPtr Tensor::transpose() const {
     size_t rows = shape[0], cols = shape[1];
 
     bool track = requires_grad && GradMode::is_enabled();
+
+#if defined(WHITEMATTER_CUDA)
+    if (device == whitematter::DeviceType::CUDA && whitematter::cuda_backend_available()) {
+        // CPU fallback: transfer to CPU, transpose, transfer back
+        auto& be = whitematter::CUDABackend::instance();
+        auto cuda_result = Tensor::create_on_device({cols, rows}, track, whitematter::DeviceType::CUDA);
+        std::vector<float> src(rows * cols), dst(rows * cols);
+        be.memcpy_d2h(src.data(), data(), rows * cols);
+        for (size_t i = 0; i < rows; i++) {
+            for (size_t j = 0; j < cols; j++) {
+                dst[j * rows + i] = src[i * cols + j];
+            }
+        }
+        be.memcpy_h2d(cuda_result->data(), dst.data(), rows * cols);
+
+        if (track) {
+            auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
+            cuda_result->parents = {self_ptr};
+            cuda_result->grad_fn = [self_ptr, cuda_result, rows, cols]() {
+                // Transpose the result grad back to self grad (CPU fallback)
+                auto& be2 = whitematter::CUDABackend::instance();
+                size_t n = rows * cols;
+                std::vector<float> rg(n), sg(n);
+                be2.memcpy_d2h(rg.data(), cuda_result->grad(), n);
+                be2.memcpy_d2h(sg.data(), self_ptr->grad(), n);
+                for (size_t i = 0; i < rows; i++) {
+                    for (size_t j = 0; j < cols; j++) {
+                        sg[i * cols + j] += rg[j * rows + i];
+                    }
+                }
+                be2.memcpy_h2d(self_ptr->grad(), sg.data(), n);
+            };
+        }
+        return cuda_result;
+    }
+#endif
+
     auto result = create({cols, rows}, track);
 
     for (size_t i = 0; i < rows; i++) {
