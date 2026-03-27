@@ -6,6 +6,7 @@
 #include <cublas_v2.h>
 #include <cstring>
 #include <cstdio>
+#include <vector>
 
 namespace whitematter {
 
@@ -222,36 +223,15 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
     size_t weight_size = out_ch * (in_ch / groups) * kernel_h * kernel_w;
     size_t output_size = batch * out_ch * out_h * out_w;
 
-    // Allocate managed temp buffers from pool
-    auto& pool = CUDAMemoryPool::instance();
-    float* d_input  = pool.acquire(input_size);
-    float* d_weight = pool.acquire(weight_size);
-    float* d_output = pool.acquire(output_size);
-    if (!d_input || !d_weight || !d_output) {
-        if (d_input)  pool.release(d_input, input_size);
-        if (d_weight) pool.release(d_weight, weight_size);
-        if (d_output) pool.release(d_output, output_size);
-        return;
-    }
+    // Allocate device memory directly (cuDNN requires real device memory, not managed)
+    float *d_input = nullptr, *d_weight = nullptr, *d_output = nullptr;
+    CUDA_CHECK(cudaMalloc(&d_input,  input_size  * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_weight, weight_size * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_output, output_size * sizeof(float)));
 
-    // Copy data to managed buffers
-    if (!h_input || !h_weight || !h_output) {
-        fprintf(stderr, "cuDNN conv2d_forward: null host pointer (input=%p weight=%p output=%p)\n",
-                (void*)h_input, (void*)h_weight, (void*)h_output);
-        pool.release(d_input, input_size);
-        pool.release(d_weight, weight_size);
-        pool.release(d_output, output_size);
-        return;
-    }
-    memcpy(d_input,  h_input,  input_size  * sizeof(float));
-    memcpy(d_weight, h_weight, weight_size * sizeof(float));
-
-    // Prefetch to GPU for performance
-    int device;
-    cudaGetDevice(&device);
-    cudaMemPrefetchAsync(d_input,  input_size  * sizeof(float), device, 0);
-    cudaMemPrefetchAsync(d_weight, weight_size * sizeof(float), device, 0);
-    cudaMemPrefetchAsync(d_output, output_size * sizeof(float), device, 0);
+    // H2D transfer
+    CUDA_CHECK(cudaMemcpy(d_input,  h_input,  input_size  * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_weight, h_weight, weight_size * sizeof(float), cudaMemcpyHostToDevice));
 
     // Create cuDNN descriptors
     cudnnHandle_t dnn = static_cast<cudnnHandle_t>(cudnn_handle_);
@@ -289,13 +269,10 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
     CUDNN_CHECK(cudnnGetConvolutionForwardWorkspaceSize(dnn, input_desc, weight_desc, conv_desc,
                                                         output_desc, algo, &ws_size));
 
-    // Use pre-allocated workspace if large enough, otherwise allocate from pool
-    void* ws = workspace_;
-    float* ws_pool = nullptr;
-    if (ws_size > workspace_size_) {
-        size_t ws_floats = ws_size / sizeof(float) + 1;
-        ws_pool = pool.acquire(ws_floats);
-        ws = ws_pool;
+    // Workspace: use device memory
+    void* ws = nullptr;
+    if (ws_size > 0) {
+        CUDA_CHECK(cudaMalloc(&ws, ws_size));
     }
 
     // Forward convolution
@@ -312,11 +289,10 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
         CUDNN_CHECK(cudnnSetTensor4dDescriptor(bias_desc, CUDNN_TENSOR_NCHW, CUDNN_DATA_FLOAT,
                                                1, (int)out_ch, 1, 1));
 
-        d_bias = pool.acquire(out_ch);
-        memcpy(d_bias, h_bias, out_ch * sizeof(float));
-        cudaMemPrefetchAsync(d_bias, out_ch * sizeof(float), device, 0);
+        CUDA_CHECK(cudaMalloc(&d_bias, out_ch * sizeof(float)));
+        CUDA_CHECK(cudaMemcpy(d_bias, h_bias, out_ch * sizeof(float), cudaMemcpyHostToDevice));
 
-        float bias_alpha = 1.0f, bias_beta = 1.0f;  // add bias to existing output
+        float bias_alpha = 1.0f, bias_beta = 1.0f;
         CUDNN_CHECK(cudnnAddTensor(dnn, &bias_alpha, bias_desc, d_bias,
                                    &bias_beta, output_desc, d_output));
 
@@ -325,21 +301,20 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
 
     cudaDeviceSynchronize();
 
-    // Copy result back to CPU
-    memcpy(h_output, d_output, output_size * sizeof(float));
+    // D2H result
+    CUDA_CHECK(cudaMemcpy(h_output, d_output, output_size * sizeof(float), cudaMemcpyDeviceToHost));
 
-    // Cleanup descriptors
+    // Cleanup
     CUDNN_CHECK(cudnnDestroyTensorDescriptor(input_desc));
     CUDNN_CHECK(cudnnDestroyTensorDescriptor(output_desc));
     CUDNN_CHECK(cudnnDestroyFilterDescriptor(weight_desc));
     CUDNN_CHECK(cudnnDestroyConvolutionDescriptor(conv_desc));
 
-    // Return pool buffers
-    if (ws_pool) pool.release(ws_pool, ws_size / sizeof(float) + 1);
-    if (d_bias)  pool.release(d_bias, out_ch);
-    pool.release(d_input,  input_size);
-    pool.release(d_weight, weight_size);
-    pool.release(d_output, output_size);
+    if (ws)     cudaFree(ws);
+    if (d_bias) cudaFree(d_bias);
+    cudaFree(d_input);
+    cudaFree(d_weight);
+    cudaFree(d_output);
 }
 
 void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
@@ -359,34 +334,25 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
     size_t weight_size     = out_ch * (in_ch / groups) * kernel_h * kernel_w;
     size_t output_size     = batch * out_ch * out_h * out_w;
 
-    // Allocate managed temp buffers
-    auto& pool = CUDAMemoryPool::instance();
-    float* d_input       = pool.acquire(input_size);
-    float* d_weight      = pool.acquire(weight_size);
-    float* d_grad_output = pool.acquire(output_size);
-    float* d_grad_input  = h_grad_input  ? pool.acquire(input_size)  : nullptr;
-    float* d_grad_weight = h_grad_weight ? pool.acquire(weight_size) : nullptr;
-    float* d_grad_bias   = h_grad_bias   ? pool.acquire(out_ch)     : nullptr;
+    // Allocate device memory (cuDNN requires real device memory)
+    float *d_input = nullptr, *d_weight = nullptr, *d_grad_output = nullptr;
+    float *d_grad_input = nullptr, *d_grad_weight = nullptr, *d_grad_bias = nullptr;
+    CUDA_CHECK(cudaMalloc(&d_input,       input_size  * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_weight,      weight_size * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_grad_output, output_size * sizeof(float)));
+    if (h_grad_input)  CUDA_CHECK(cudaMalloc(&d_grad_input,  input_size  * sizeof(float)));
+    if (h_grad_weight) CUDA_CHECK(cudaMalloc(&d_grad_weight, weight_size * sizeof(float)));
+    if (h_grad_bias)   CUDA_CHECK(cudaMalloc(&d_grad_bias,   out_ch      * sizeof(float)));
 
-    // Copy inputs to managed buffers
-    memcpy(d_input,       h_input,       input_size  * sizeof(float));
-    memcpy(d_weight,      h_weight,      weight_size * sizeof(float));
-    memcpy(d_grad_output, h_grad_output, output_size * sizeof(float));
+    // H2D transfers
+    CUDA_CHECK(cudaMemcpy(d_input,       h_input,       input_size  * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_weight,      h_weight,      weight_size * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_grad_output, h_grad_output, output_size * sizeof(float), cudaMemcpyHostToDevice));
 
-    // Zero the gradient outputs (cuDNN backward with beta=0 overwrites, we accumulate in CPU later)
-    if (d_grad_input)  memset(d_grad_input,  0, input_size  * sizeof(float));
-    if (d_grad_weight) memset(d_grad_weight, 0, weight_size * sizeof(float));
-    if (d_grad_bias)   memset(d_grad_bias,   0, out_ch      * sizeof(float));
-
-    // Prefetch to GPU
-    int device;
-    cudaGetDevice(&device);
-    cudaMemPrefetchAsync(d_input,       input_size  * sizeof(float), device, 0);
-    cudaMemPrefetchAsync(d_weight,      weight_size * sizeof(float), device, 0);
-    cudaMemPrefetchAsync(d_grad_output, output_size * sizeof(float), device, 0);
-    if (d_grad_input)  cudaMemPrefetchAsync(d_grad_input,  input_size  * sizeof(float), device, 0);
-    if (d_grad_weight) cudaMemPrefetchAsync(d_grad_weight, weight_size * sizeof(float), device, 0);
-    if (d_grad_bias)   cudaMemPrefetchAsync(d_grad_bias,   out_ch      * sizeof(float), device, 0);
+    // Zero gradient outputs on device
+    if (d_grad_input)  CUDA_CHECK(cudaMemset(d_grad_input,  0, input_size  * sizeof(float)));
+    if (d_grad_weight) CUDA_CHECK(cudaMemset(d_grad_weight, 0, weight_size * sizeof(float)));
+    if (d_grad_bias)   CUDA_CHECK(cudaMemset(d_grad_bias,   0, out_ch      * sizeof(float)));
 
     // Create cuDNN descriptors
     cudnnHandle_t dnn = static_cast<cudnnHandle_t>(cudnn_handle_);
@@ -427,20 +393,15 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
                                                                   conv_desc, input_desc,
                                                                   data_algo, &data_ws_size));
 
-        void* data_ws = workspace_;
-        float* data_ws_pool = nullptr;
-        if (data_ws_size > workspace_size_) {
-            size_t ws_floats = data_ws_size / sizeof(float) + 1;
-            data_ws_pool = pool.acquire(ws_floats);
-            data_ws = data_ws_pool;
-        }
+        void* data_ws = nullptr;
+        if (data_ws_size > 0) CUDA_CHECK(cudaMalloc(&data_ws, data_ws_size));
 
         CUDNN_CHECK(cudnnConvolutionBackwardData(dnn, &alpha, weight_desc, d_weight,
                                                   output_desc, d_grad_output,
                                                   conv_desc, data_algo, data_ws, data_ws_size,
                                                   &beta, input_desc, d_grad_input));
 
-        if (data_ws_pool) pool.release(data_ws_pool, data_ws_size / sizeof(float) + 1);
+        if (data_ws) cudaFree(data_ws);
     }
 
     // --- Backward filter: gradient w.r.t. weight ---
@@ -452,20 +413,15 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
                                                                     conv_desc, weight_desc,
                                                                     filter_algo, &filter_ws_size));
 
-        void* filter_ws = workspace_;
-        float* filter_ws_pool = nullptr;
-        if (filter_ws_size > workspace_size_) {
-            size_t ws_floats = filter_ws_size / sizeof(float) + 1;
-            filter_ws_pool = pool.acquire(ws_floats);
-            filter_ws = filter_ws_pool;
-        }
+        void* filter_ws = nullptr;
+        if (filter_ws_size > 0) CUDA_CHECK(cudaMalloc(&filter_ws, filter_ws_size));
 
         CUDNN_CHECK(cudnnConvolutionBackwardFilter(dnn, &alpha, input_desc, d_input,
                                                     output_desc, d_grad_output,
                                                     conv_desc, filter_algo, filter_ws, filter_ws_size,
                                                     &beta, weight_desc, d_grad_weight));
 
-        if (filter_ws_pool) pool.release(filter_ws_pool, filter_ws_size / sizeof(float) + 1);
+        if (filter_ws) cudaFree(filter_ws);
     }
 
     // --- Backward bias: gradient w.r.t. bias ---
@@ -483,36 +439,35 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
 
     cudaDeviceSynchronize();
 
-    // Copy gradients back to CPU and accumulate (add to existing grad, don't overwrite)
+    // D2H gradients and accumulate with existing host grads
     if (h_grad_input && d_grad_input) {
-        for (size_t i = 0; i < input_size; i++) {
-            h_grad_input[i] += d_grad_input[i];
-        }
+        std::vector<float> tmp(input_size);
+        CUDA_CHECK(cudaMemcpy(tmp.data(), d_grad_input, input_size * sizeof(float), cudaMemcpyDeviceToHost));
+        for (size_t i = 0; i < input_size; i++) h_grad_input[i] += tmp[i];
     }
     if (h_grad_weight && d_grad_weight) {
-        for (size_t i = 0; i < weight_size; i++) {
-            h_grad_weight[i] += d_grad_weight[i];
-        }
+        std::vector<float> tmp(weight_size);
+        CUDA_CHECK(cudaMemcpy(tmp.data(), d_grad_weight, weight_size * sizeof(float), cudaMemcpyDeviceToHost));
+        for (size_t i = 0; i < weight_size; i++) h_grad_weight[i] += tmp[i];
     }
     if (h_grad_bias && d_grad_bias) {
-        for (size_t i = 0; i < out_ch; i++) {
-            h_grad_bias[i] += d_grad_bias[i];
-        }
+        std::vector<float> tmp(out_ch);
+        CUDA_CHECK(cudaMemcpy(tmp.data(), d_grad_bias, out_ch * sizeof(float), cudaMemcpyDeviceToHost));
+        for (size_t i = 0; i < out_ch; i++) h_grad_bias[i] += tmp[i];
     }
 
-    // Cleanup descriptors
+    // Cleanup
     CUDNN_CHECK(cudnnDestroyTensorDescriptor(input_desc));
     CUDNN_CHECK(cudnnDestroyTensorDescriptor(output_desc));
     CUDNN_CHECK(cudnnDestroyFilterDescriptor(weight_desc));
     CUDNN_CHECK(cudnnDestroyConvolutionDescriptor(conv_desc));
 
-    // Return pool buffers
-    if (d_grad_bias)   pool.release(d_grad_bias,   out_ch);
-    if (d_grad_weight) pool.release(d_grad_weight, weight_size);
-    if (d_grad_input)  pool.release(d_grad_input,  input_size);
-    pool.release(d_grad_output, output_size);
-    pool.release(d_weight,      weight_size);
-    pool.release(d_input,       input_size);
+    if (d_grad_bias)   cudaFree(d_grad_bias);
+    if (d_grad_weight) cudaFree(d_grad_weight);
+    if (d_grad_input)  cudaFree(d_grad_input);
+    cudaFree(d_grad_output);
+    cudaFree(d_weight);
+    cudaFree(d_input);
 }
 
 // ---------------------------------------------------------------------------
