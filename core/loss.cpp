@@ -155,7 +155,9 @@ TensorPtr CrossEntropyLoss::forward(const TensorPtr& prediction, const TensorPtr
         auto pred_ptr = prediction;
         result->grad_fn = [log_probs, target, result, batch_size, num_classes, pred_ptr]() {
 #if defined(WHITEMATTER_CUDA)
-            if (whitematter::cuda_backend_available() && pred_ptr->requires_grad) {
+            // GPU offload only for large logits (>50K elements)
+            if (whitematter::cuda_backend_available() && pred_ptr->requires_grad
+                && batch_size * num_classes > 50000) {
                 float upstream = result->grad()[0];
                 whitematter::CUDABackend::instance().cross_entropy_backward_host(
                     pred_ptr->data(), target->data(), pred_ptr->grad(),

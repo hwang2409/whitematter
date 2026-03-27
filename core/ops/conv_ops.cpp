@@ -1600,7 +1600,9 @@ TensorPtr Tensor::adaptive_avgpool2d(size_t output_h, size_t output_w) const {
             if (!self_ptr->requires_grad) return;
 
 #if defined(WHITEMATTER_CUDA)
-            if (whitematter::cuda_backend_available() && output_h == 1 && output_w == 1) {
+            // Only offload for large tensors (batch*channels*spatial > 100K)
+            if (whitematter::cuda_backend_available() && output_h == 1 && output_w == 1
+                && batch * channels * in_h * in_w > 100000) {
                 size_t spatial = in_h * in_w;
                 whitematter::CUDABackend::instance().adaptive_avgpool_backward_host(
                     result->grad(), self_ptr->grad(), batch, channels, spatial);
