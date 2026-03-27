@@ -489,9 +489,12 @@ int main(int argc, char* argv[]) {
                 total++;
             }
 
-            if (num_batches % 50 == 0) {
-                printf("\r  Epoch %3d: batch %3zu/%zu (lr=%.6f)",
-                       epoch + 1, num_batches, train_loader.num_batches(), optimizer.lr);
+            // Print progress: every batch for first epoch, every 50 after
+            if (epoch == 0 || num_batches % 50 == 0) {
+                auto batch_time = std::chrono::high_resolution_clock::now();
+                double elapsed = std::chrono::duration<double>(batch_time - epoch_start).count();
+                printf("\r  Epoch %3d: batch %3zu/%zu | %.1fs elapsed",
+                       epoch + 1, num_batches, train_loader.num_batches(), elapsed);
                 fflush(stdout);
             }
         }
