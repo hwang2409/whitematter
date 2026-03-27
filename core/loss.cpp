@@ -152,7 +152,17 @@ TensorPtr CrossEntropyLoss::forward(const TensorPtr& prediction, const TensorPtr
 
     if (result->requires_grad) {
         result->parents = {log_probs};
-        result->grad_fn = [log_probs, target, result, batch_size, num_classes]() {
+        auto pred_ptr = prediction;
+        result->grad_fn = [log_probs, target, result, batch_size, num_classes, pred_ptr]() {
+#if defined(WHITEMATTER_CUDA)
+            if (whitematter::cuda_backend_available() && pred_ptr->requires_grad) {
+                float upstream = result->grad()[0];
+                whitematter::CUDABackend::instance().cross_entropy_backward_host(
+                    pred_ptr->data(), target->data(), pred_ptr->grad(),
+                    batch_size, num_classes, upstream);
+                return;
+            }
+#endif
             float scale = result->grad()[0] / static_cast<float>(batch_size);
             for (size_t i = 0; i < batch_size; i++) {
                 size_t label = static_cast<size_t>(target->data()[i]);

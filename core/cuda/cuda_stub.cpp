@@ -112,6 +112,13 @@ void CUDABackend::rmsprop_step(float*, const float*, float*,
 void CUDABackend::relu_forward_host(const float*, float*, size_t) {}
 void CUDABackend::relu_backward_host(const float*, const float*, float*, size_t) {}
 void CUDABackend::elementwise_add_host(const float*, const float*, float*, size_t) {}
+void CUDABackend::matmul_backward_host(const float*, const float*, const float*,
+                                       float*, float*, int, int, int) {}
+void CUDABackend::cross_entropy_backward_host(const float*, const float*,
+                                              float*, size_t, size_t, float) {}
+void CUDABackend::adaptive_avgpool_backward_host(const float*, float*,
+                                                 size_t, size_t, size_t) {}
+void CUDABackend::elementwise_accumulate_host(float*, const float*, size_t) {}
 
 // Weight cache (no-op without CUDA)
 void CUDABackend::invalidate_weight_cache() {}
