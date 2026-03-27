@@ -28,6 +28,29 @@
 #endif
 
 // ---------------------------------------------------------------------------
+// Save model parameters to a binary file.
+// Format: [num_params:u32] then for each param: [ndim:u32][dims:u64...][data:float...]
+// ---------------------------------------------------------------------------
+static void save_parameters(const std::vector<TensorPtr>& params, const std::string& path) {
+    FILE* f = fopen(path.c_str(), "wb");
+    if (!f) { fprintf(stderr, "Failed to save to %s\n", path.c_str()); return; }
+
+    uint32_t num_params = params.size();
+    fwrite(&num_params, sizeof(uint32_t), 1, f);
+
+    for (auto& p : params) {
+        uint32_t ndim = p->shape.size();
+        fwrite(&ndim, sizeof(uint32_t), 1, f);
+        for (auto s : p->shape) {
+            uint64_t dim = s;
+            fwrite(&dim, sizeof(uint64_t), 1, f);
+        }
+        fwrite(p->data(), sizeof(float), p->size(), f);
+    }
+    fclose(f);
+}
+
+// ---------------------------------------------------------------------------
 // BasicBlock: the fundamental building block of ResNet-18.
 //
 //   path A (main):  conv3x3 -> BN -> ReLU -> conv3x3 -> BN
@@ -510,16 +533,28 @@ int main(int argc, char* argv[]) {
         float train_acc = static_cast<float>(correct) / static_cast<float>(total) * 100.0f;
         float test_acc  = compute_accuracy(model, test_loader, use_cuda);
 
+        bool saved_best = false;
         if (test_acc > best_test_acc) {
             best_test_acc = test_acc;
+            save_parameters(all_params, "resnet18_best.bin");
+            saved_best = true;
+        }
+        if ((epoch + 1) % 10 == 0) {
+            char path[256];
+            snprintf(path, sizeof(path), "resnet18_epoch%d.bin", epoch + 1);
+            save_parameters(all_params, path);
         }
 
-        printf("\r  Epoch %3d | Loss: %.4f | Train: %.2f%% | Test: %.2f%% | Best: %.2f%% | LR: %.6f | %.1fs\n",
+        printf("\r  Epoch %3d | Loss: %.4f | Train: %.2f%% | Test: %.2f%% | Best: %.2f%% | LR: %.6f | %.1fs",
                epoch + 1, avg_loss, train_acc, test_acc, best_test_acc, optimizer.lr, epoch_secs);
+        if (saved_best) printf(" [saved best]");
+        printf("\n");
         fflush(stdout);
     }
 
     printf("--------------------------------------------------------------------------------\n");
+    save_parameters(all_params, "resnet18_final.bin");
+    printf("Model saved to resnet18_final.bin\n");
     printf("Training complete! Best test accuracy: %.2f%%\n\n", best_test_acc);
 
     // ------------------------------------------------------------------
