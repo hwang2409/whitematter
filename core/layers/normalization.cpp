@@ -19,75 +19,46 @@ TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
     assert(input->shape.size() == 4);
     assert(input->shape[1] == num_features);
 
-    // CUDA fallback: transfer to CPU, compute, transfer back with gradient bridging
-    if (input->device != whitematter::DeviceType::CPU) {
 #if defined(WHITEMATTER_CUDA)
-        auto orig_device = input->device;
+    // cuDNN BatchNorm dispatch — works for both CPU and CUDA tensors (host-pointer API)
+    if (whitematter::cuda_backend_available()) {
+        size_t batch = input->shape[0];
+        size_t channels = input->shape[1];
+        size_t spatial = input->shape[2] * input->shape[3];
 
-        // Transfer input to CPU for computation
-        auto cpu_input = input->to(whitematter::DeviceType::CPU);
-        cpu_input->requires_grad = input->requires_grad;
+        bool track = input->requires_grad && GradMode::is_enabled();
+        auto result = Tensor::create(input->shape, track);
 
-        // Temporarily move params to CPU
-        gamma->to_inplace(whitematter::DeviceType::CPU);
-        beta->to_inplace(whitematter::DeviceType::CPU);
+        // Save mean/inv_var for backward
+        auto save_mean = std::make_shared<std::vector<float>>(channels);
+        auto save_inv_var = std::make_shared<std::vector<float>>(channels);
 
-        auto cpu_result = forward(cpu_input);  // recursive call on CPU path
+        whitematter::CUDABackend::instance().batchnorm_forward(
+            input->data(), result->data(),
+            gamma->data(), beta->data(),
+            running_mean->data(), running_var->data(),
+            save_mean->data(), save_inv_var->data(),
+            batch, channels, spatial, eps, momentum, training);
 
-        // Move params back to original device
-        gamma->to_inplace(orig_device);
-        beta->to_inplace(orig_device);
-
-        // Create CUDA result and copy forward data
-        auto result = Tensor::create_on_device(cpu_result->shape, cpu_result->requires_grad, orig_device);
-        whitematter::CUDABackend::instance().memcpy_h2d(result->data(), cpu_result->data(), cpu_result->size());
-
-        if (result->requires_grad && GradMode::is_enabled()) {
-            auto input_sptr = std::const_pointer_cast<Tensor>(input);
+        if (track) {
+            auto input_ptr = std::const_pointer_cast<Tensor>(input->shared_from_this());
             auto gamma_ptr = gamma;
             auto beta_ptr = beta;
-            result->parents = {input_sptr, gamma_ptr, beta_ptr};
-
-            // The CPU grad_fn captured gamma_ptr/beta_ptr (same shared_ptrs).
-            // After forward, gamma/beta are back on CUDA, so the CPU grad_fn
-            // would segfault trying to dereference CUDA pointers on CPU.
-            // Solution: move gamma/beta to CPU before invoking the CPU grad_fn,
-            // then move them back afterward.
-            result->grad_fn = [input_sptr, gamma_ptr, beta_ptr,
-                               cpu_input, cpu_result, result, orig_device]() {
-                // Move gamma/beta to CPU so the CPU grad_fn can read/write them
-                gamma_ptr->to_inplace(whitematter::DeviceType::CPU);
-                beta_ptr->to_inplace(whitematter::DeviceType::CPU);
-
-                // Copy grad from CUDA result to CPU result
-                whitematter::CUDABackend::instance().memcpy_d2h(
-                    cpu_result->grad(), result->grad(), result->size());
-
-                // Run the CPU backward pass for this node
-                if (cpu_result->grad_fn) cpu_result->grad_fn();
-
-                // Move gamma/beta back to CUDA (grads now updated on CPU, transferred with to_inplace)
-                gamma_ptr->to_inplace(orig_device);
-                beta_ptr->to_inplace(orig_device);
-
-                // Copy input grad from CPU to CUDA parent (accumulate)
-                if (input_sptr->requires_grad && cpu_input->grad()) {
-                    size_t n = input_sptr->size();
-                    std::vector<float> cpu_grad(n);
-                    std::memcpy(cpu_grad.data(), cpu_input->grad(), n * sizeof(float));
-                    std::vector<float> existing(n);
-                    whitematter::CUDABackend::instance().memcpy_d2h(
-                        existing.data(), input_sptr->grad(), n);
-                    for (size_t i = 0; i < n; i++) existing[i] += cpu_grad[i];
-                    whitematter::CUDABackend::instance().memcpy_h2d(
-                        input_sptr->grad(), existing.data(), n);
-                }
+            result->parents = {input_ptr, gamma_ptr, beta_ptr};
+            result->grad_fn = [input_ptr, gamma_ptr, beta_ptr, result,
+                               save_mean, save_inv_var,
+                               batch, channels, spatial, eps = this->eps]() {
+                whitematter::CUDABackend::instance().batchnorm_backward(
+                    input_ptr->data(), result->grad(),
+                    input_ptr->requires_grad ? input_ptr->grad() : nullptr,
+                    gamma_ptr->grad(), beta_ptr->grad(),
+                    gamma_ptr->data(), save_mean->data(), save_inv_var->data(),
+                    batch, channels, spatial, eps);
             };
         }
-
         return result;
-#endif
     }
+#endif
 
     size_t batch = input->shape[0];
     size_t channels = input->shape[1];

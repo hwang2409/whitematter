@@ -6,6 +6,7 @@
 #include <cublas_v2.h>
 #include <cstring>
 #include <cstdio>
+#include <cmath>
 #include <vector>
 #include <unordered_map>
 
@@ -364,8 +365,9 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
         CUDNN_CHECK(cudnnSetConvolutionGroupCount(conv_desc, (int)groups));
     }
 
-    // Use IMPLICIT_GEMM which is always safe and needs no workspace
-    cudnnConvolutionFwdAlgo_t algo = CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_GEMM;
+    // Use IMPLICIT_PRECOMP_GEMM — faster than IMPLICIT_GEMM, works for all sizes.
+    // Falls back to IMPLICIT_GEMM only if workspace allocation fails.
+    cudnnConvolutionFwdAlgo_t algo = CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_PRECOMP_GEMM;
 
     // Get workspace size
     size_t ws_size = 0;
@@ -488,7 +490,7 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
 
     // --- Backward data: gradient w.r.t. input ---
     if (d_grad_input) {
-        cudnnConvolutionBwdDataAlgo_t data_algo = CUDNN_CONVOLUTION_BWD_DATA_ALGO_0;
+        cudnnConvolutionBwdDataAlgo_t data_algo = CUDNN_CONVOLUTION_BWD_DATA_ALGO_1;
 
         size_t data_ws_size = 0;
         CUDNN_CHECK(cudnnGetConvolutionBackwardDataWorkspaceSize(dnn, weight_desc, output_desc,
@@ -512,7 +514,7 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
 
     // --- Backward filter: gradient w.r.t. weight ---
     if (d_grad_weight) {
-        cudnnConvolutionBwdFilterAlgo_t filter_algo = CUDNN_CONVOLUTION_BWD_FILTER_ALGO_0;
+        cudnnConvolutionBwdFilterAlgo_t filter_algo = CUDNN_CONVOLUTION_BWD_FILTER_ALGO_1;
 
         size_t filter_ws_size = 0;
         CUDNN_CHECK(cudnnGetConvolutionBackwardFilterWorkspaceSize(dnn, input_desc, output_desc,
@@ -580,21 +582,181 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
 }
 
 // ---------------------------------------------------------------------------
-// BatchNorm stubs (cuDNN)
+// BatchNorm via cuDNN
 // ---------------------------------------------------------------------------
 
-void CUDABackend::batchnorm_forward(const float*, float*,
-                                    const float*, const float*,
-                                    float*, float*,
-                                    float*, float*,
-                                    size_t, size_t, size_t,
-                                    float, float, bool) {}
+void CUDABackend::batchnorm_forward(const float* h_input, float* h_output,
+                                    const float* h_gamma, const float* h_beta,
+                                    float* h_running_mean, float* h_running_var,
+                                    float* h_save_mean, float* h_save_inv_var,
+                                    size_t batch, size_t channels, size_t spatial,
+                                    float eps, float momentum, bool training) {
+    init();
+    if (!initialized_ || !cudnn_handle_) return;
 
-void CUDABackend::batchnorm_backward(const float*, const float*,
-                                     float*, float*, float*,
-                                     const float*, const float*,
-                                     const float*,
-                                     size_t, size_t, size_t, float) {}
+    size_t total = batch * channels * spatial;
+    // Derive H and W from spatial (assumes square feature maps for cuDNN 4D descriptor)
+    size_t H = (size_t)sqrt((double)spatial);
+    size_t W = spatial / H;
+
+    // Allocate device buffers from cache
+    float* d_input        = g_buf_cache.get(total);
+    float* d_output       = g_buf_cache.get(total);
+    float* d_gamma        = g_buf_cache.get(channels);
+    float* d_beta         = g_buf_cache.get(channels);
+    float* d_running_mean = g_buf_cache.get(channels);
+    float* d_running_var  = g_buf_cache.get(channels);
+    float* d_save_mean    = g_buf_cache.get(channels);
+    float* d_save_inv_var = g_buf_cache.get(channels);
+
+    // H2D
+    CUDA_CHECK(cudaMemcpy(d_input, h_input, total * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_gamma, h_gamma, channels * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_beta, h_beta, channels * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_running_mean, h_running_mean, channels * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_running_var, h_running_var, channels * sizeof(float), cudaMemcpyHostToDevice));
+
+    // cuDNN descriptors
+    cudnnHandle_t dnn = static_cast<cudnnHandle_t>(cudnn_handle_);
+    cudnnTensorDescriptor_t input_desc, bn_desc;
+    CUDNN_CHECK(cudnnCreateTensorDescriptor(&input_desc));
+    CUDNN_CHECK(cudnnCreateTensorDescriptor(&bn_desc));
+    CUDNN_CHECK(cudnnSetTensor4dDescriptor(input_desc, CUDNN_TENSOR_NCHW, CUDNN_DATA_FLOAT,
+                                           (int)batch, (int)channels, (int)H, (int)W));
+    CUDNN_CHECK(cudnnDeriveBNTensorDescriptor(bn_desc, input_desc, CUDNN_BATCHNORM_SPATIAL));
+
+    float alpha = 1.0f, beta_val = 0.0f;
+
+    if (training) {
+        // exponentialAverageFactor = momentum (PyTorch convention)
+        CUDNN_CHECK(cudnnBatchNormalizationForwardTraining(dnn, CUDNN_BATCHNORM_SPATIAL,
+            &alpha, &beta_val,
+            input_desc, d_input, input_desc, d_output,
+            bn_desc, d_gamma, d_beta,
+            (double)momentum,
+            d_running_mean, d_running_var,
+            (double)eps,
+            d_save_mean, d_save_inv_var));
+    } else {
+        CUDNN_CHECK(cudnnBatchNormalizationForwardInference(dnn, CUDNN_BATCHNORM_SPATIAL,
+            &alpha, &beta_val,
+            input_desc, d_input, input_desc, d_output,
+            bn_desc, d_gamma, d_beta,
+            d_running_mean, d_running_var,
+            (double)eps));
+    }
+
+    cudaDeviceSynchronize();
+
+    // D2H
+    CUDA_CHECK(cudaMemcpy(h_output, d_output, total * sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(h_running_mean, d_running_mean, channels * sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(h_running_var, d_running_var, channels * sizeof(float), cudaMemcpyDeviceToHost));
+    if (h_save_mean)    CUDA_CHECK(cudaMemcpy(h_save_mean, d_save_mean, channels * sizeof(float), cudaMemcpyDeviceToHost));
+    if (h_save_inv_var) CUDA_CHECK(cudaMemcpy(h_save_inv_var, d_save_inv_var, channels * sizeof(float), cudaMemcpyDeviceToHost));
+
+    // Return buffers to cache
+    g_buf_cache.put(d_input, total);
+    g_buf_cache.put(d_output, total);
+    g_buf_cache.put(d_gamma, channels);
+    g_buf_cache.put(d_beta, channels);
+    g_buf_cache.put(d_running_mean, channels);
+    g_buf_cache.put(d_running_var, channels);
+    g_buf_cache.put(d_save_mean, channels);
+    g_buf_cache.put(d_save_inv_var, channels);
+
+    CUDNN_CHECK(cudnnDestroyTensorDescriptor(input_desc));
+    CUDNN_CHECK(cudnnDestroyTensorDescriptor(bn_desc));
+}
+
+void CUDABackend::batchnorm_backward(const float* h_input, const float* h_grad_output,
+                                     float* h_grad_input, float* h_grad_gamma, float* h_grad_beta,
+                                     const float* h_gamma, const float* h_save_mean,
+                                     const float* h_save_inv_var,
+                                     size_t batch, size_t channels, size_t spatial, float eps) {
+    init();
+    if (!initialized_ || !cudnn_handle_) return;
+
+    size_t total = batch * channels * spatial;
+    size_t H = (size_t)sqrt((double)spatial);
+    size_t W = spatial / H;
+
+    // Allocate device buffers from cache
+    float* d_input       = g_buf_cache.get(total);
+    float* d_grad_output = g_buf_cache.get(total);
+    float* d_grad_input  = h_grad_input ? g_buf_cache.get(total) : nullptr;
+    float* d_gamma       = g_buf_cache.get(channels);
+    float* d_grad_gamma  = g_buf_cache.get(channels);
+    float* d_grad_beta   = g_buf_cache.get(channels);
+    float* d_save_mean   = g_buf_cache.get(channels);
+    float* d_save_inv_var = g_buf_cache.get(channels);
+
+    // H2D
+    CUDA_CHECK(cudaMemcpy(d_input, h_input, total * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_grad_output, h_grad_output, total * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_gamma, h_gamma, channels * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_save_mean, h_save_mean, channels * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_save_inv_var, h_save_inv_var, channels * sizeof(float), cudaMemcpyHostToDevice));
+
+    // Zero gradient outputs on device
+    CUDA_CHECK(cudaMemset(d_grad_gamma, 0, channels * sizeof(float)));
+    CUDA_CHECK(cudaMemset(d_grad_beta, 0, channels * sizeof(float)));
+    if (d_grad_input) CUDA_CHECK(cudaMemset(d_grad_input, 0, total * sizeof(float)));
+
+    // cuDNN descriptors
+    cudnnHandle_t dnn = static_cast<cudnnHandle_t>(cudnn_handle_);
+    cudnnTensorDescriptor_t input_desc, bn_desc;
+    CUDNN_CHECK(cudnnCreateTensorDescriptor(&input_desc));
+    CUDNN_CHECK(cudnnCreateTensorDescriptor(&bn_desc));
+    CUDNN_CHECK(cudnnSetTensor4dDescriptor(input_desc, CUDNN_TENSOR_NCHW, CUDNN_DATA_FLOAT,
+                                           (int)batch, (int)channels, (int)H, (int)W));
+    CUDNN_CHECK(cudnnDeriveBNTensorDescriptor(bn_desc, input_desc, CUDNN_BATCHNORM_SPATIAL));
+
+    float alpha_data = 1.0f, beta_data = 0.0f;
+    float alpha_param = 1.0f, beta_param = 0.0f;
+
+    CUDNN_CHECK(cudnnBatchNormalizationBackward(dnn, CUDNN_BATCHNORM_SPATIAL,
+        &alpha_data, &beta_data,
+        &alpha_param, &beta_param,
+        input_desc, d_input,
+        input_desc, d_grad_output,
+        input_desc, d_grad_input ? d_grad_input : d_grad_output, // dummy if no grad_input needed
+        bn_desc, d_gamma, d_grad_gamma, d_grad_beta,
+        (double)eps,
+        d_save_mean, d_save_inv_var));
+
+    cudaDeviceSynchronize();
+
+    // D2H gradients and accumulate with existing host grads
+    if (h_grad_input && d_grad_input) {
+        std::vector<float> tmp(total);
+        CUDA_CHECK(cudaMemcpy(tmp.data(), d_grad_input, total * sizeof(float), cudaMemcpyDeviceToHost));
+        for (size_t i = 0; i < total; i++) h_grad_input[i] += tmp[i];
+    }
+    if (h_grad_gamma) {
+        std::vector<float> tmp(channels);
+        CUDA_CHECK(cudaMemcpy(tmp.data(), d_grad_gamma, channels * sizeof(float), cudaMemcpyDeviceToHost));
+        for (size_t i = 0; i < channels; i++) h_grad_gamma[i] += tmp[i];
+    }
+    if (h_grad_beta) {
+        std::vector<float> tmp(channels);
+        CUDA_CHECK(cudaMemcpy(tmp.data(), d_grad_beta, channels * sizeof(float), cudaMemcpyDeviceToHost));
+        for (size_t i = 0; i < channels; i++) h_grad_beta[i] += tmp[i];
+    }
+
+    // Return buffers to cache
+    g_buf_cache.put(d_input, total);
+    g_buf_cache.put(d_grad_output, total);
+    if (d_grad_input) g_buf_cache.put(d_grad_input, total);
+    g_buf_cache.put(d_gamma, channels);
+    g_buf_cache.put(d_grad_gamma, channels);
+    g_buf_cache.put(d_grad_beta, channels);
+    g_buf_cache.put(d_save_mean, channels);
+    g_buf_cache.put(d_save_inv_var, channels);
+
+    CUDNN_CHECK(cudnnDestroyTensorDescriptor(input_desc));
+    CUDNN_CHECK(cudnnDestroyTensorDescriptor(bn_desc));
+}
 
 // ---------------------------------------------------------------------------
 // Pooling stubs
