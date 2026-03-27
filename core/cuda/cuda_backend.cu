@@ -7,6 +7,43 @@
 #include <cstring>
 #include <cstdio>
 #include <vector>
+#include <unordered_map>
+
+// ---------------------------------------------------------------------------
+// Device buffer cache: reuses cudaMalloc'd buffers to avoid per-call
+// cudaMalloc/cudaFree overhead in cuDNN conv2d (eliminates ~62k allocs/epoch).
+// Keyed by size in floats; exact-match reuse.  Freed on process exit.
+// ---------------------------------------------------------------------------
+namespace {
+struct DeviceBufferCache {
+    std::unordered_map<size_t, std::vector<float*>> free_list;
+
+    float* get(size_t n_floats) {
+        if (n_floats == 0) return nullptr;
+        auto it = free_list.find(n_floats);
+        if (it != free_list.end() && !it->second.empty()) {
+            float* p = it->second.back();
+            it->second.pop_back();
+            return p;
+        }
+        float* p = nullptr;
+        cudaMalloc(&p, n_floats * sizeof(float));
+        return p;
+    }
+
+    void put(float* p, size_t n_floats) {
+        if (p && n_floats > 0) free_list[n_floats].push_back(p);
+    }
+
+    ~DeviceBufferCache() {
+        for (auto& kv : free_list) {
+            for (float* p : kv.second) cudaFree(p);
+        }
+    }
+};
+
+static DeviceBufferCache g_buf_cache;
+} // anonymous namespace
 
 namespace whitematter {
 
@@ -227,11 +264,11 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
     size_t weight_size = out_ch * (in_ch / groups) * kernel_h * kernel_w;
     size_t output_size = batch * out_ch * out_h * out_w;
 
-    // Allocate device memory directly (cuDNN requires real device memory, not managed)
+    // Acquire device buffers from cache (avoids cudaMalloc/cudaFree per call)
     float *d_input = nullptr, *d_weight = nullptr, *d_output = nullptr;
-    CUDA_CHECK(cudaMalloc(&d_input,  input_size  * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_weight, weight_size * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_output, output_size * sizeof(float)));
+    d_input  = g_buf_cache.get(input_size);
+    d_weight = g_buf_cache.get(weight_size);
+    d_output = g_buf_cache.get(output_size);
 
     // H2D transfer
     CUDA_CHECK(cudaMemcpy(d_input,  h_input,  input_size  * sizeof(float), cudaMemcpyHostToDevice));
@@ -273,10 +310,12 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
     CUDNN_CHECK(cudnnGetConvolutionForwardWorkspaceSize(dnn, input_desc, weight_desc, conv_desc,
                                                         output_desc, algo, &ws_size));
 
-    // Workspace: use device memory
+    // Workspace: acquire from cache
     void* ws = nullptr;
+    size_t ws_n_floats = 0;
     if (ws_size > 0) {
-        CUDA_CHECK(cudaMalloc(&ws, ws_size));
+        ws_n_floats = (ws_size + sizeof(float) - 1) / sizeof(float);
+        ws = (void*)g_buf_cache.get(ws_n_floats);
     }
 
     // Forward convolution
@@ -293,7 +332,7 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
         CUDNN_CHECK(cudnnSetTensor4dDescriptor(bias_desc, CUDNN_TENSOR_NCHW, CUDNN_DATA_FLOAT,
                                                1, (int)out_ch, 1, 1));
 
-        CUDA_CHECK(cudaMalloc(&d_bias, out_ch * sizeof(float)));
+        d_bias = g_buf_cache.get(out_ch);
         CUDA_CHECK(cudaMemcpy(d_bias, h_bias, out_ch * sizeof(float), cudaMemcpyHostToDevice));
 
         float bias_alpha = 1.0f, bias_beta = 1.0f;
@@ -314,11 +353,11 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
     CUDNN_CHECK(cudnnDestroyFilterDescriptor(weight_desc));
     CUDNN_CHECK(cudnnDestroyConvolutionDescriptor(conv_desc));
 
-    if (ws)     cudaFree(ws);
-    if (d_bias) cudaFree(d_bias);
-    cudaFree(d_input);
-    cudaFree(d_weight);
-    cudaFree(d_output);
+    if (ws)     g_buf_cache.put((float*)ws, ws_n_floats);
+    if (d_bias) g_buf_cache.put(d_bias, out_ch);
+    g_buf_cache.put(d_input, input_size);
+    g_buf_cache.put(d_weight, weight_size);
+    g_buf_cache.put(d_output, output_size);
 }
 
 void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
@@ -338,15 +377,15 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
     size_t weight_size     = out_ch * (in_ch / groups) * kernel_h * kernel_w;
     size_t output_size     = batch * out_ch * out_h * out_w;
 
-    // Allocate device memory (cuDNN requires real device memory)
+    // Acquire device buffers from cache (avoids cudaMalloc/cudaFree per call)
     float *d_input = nullptr, *d_weight = nullptr, *d_grad_output = nullptr;
     float *d_grad_input = nullptr, *d_grad_weight = nullptr, *d_grad_bias = nullptr;
-    CUDA_CHECK(cudaMalloc(&d_input,       input_size  * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_weight,      weight_size * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_grad_output, output_size * sizeof(float)));
-    if (h_grad_input)  CUDA_CHECK(cudaMalloc(&d_grad_input,  input_size  * sizeof(float)));
-    if (h_grad_weight) CUDA_CHECK(cudaMalloc(&d_grad_weight, weight_size * sizeof(float)));
-    if (h_grad_bias)   CUDA_CHECK(cudaMalloc(&d_grad_bias,   out_ch      * sizeof(float)));
+    d_input       = g_buf_cache.get(input_size);
+    d_weight      = g_buf_cache.get(weight_size);
+    d_grad_output = g_buf_cache.get(output_size);
+    if (h_grad_input)  d_grad_input  = g_buf_cache.get(input_size);
+    if (h_grad_weight) d_grad_weight = g_buf_cache.get(weight_size);
+    if (h_grad_bias)   d_grad_bias   = g_buf_cache.get(out_ch);
 
     // H2D transfers
     CUDA_CHECK(cudaMemcpy(d_input,       h_input,       input_size  * sizeof(float), cudaMemcpyHostToDevice));
@@ -398,14 +437,18 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
                                                                   data_algo, &data_ws_size));
 
         void* data_ws = nullptr;
-        if (data_ws_size > 0) CUDA_CHECK(cudaMalloc(&data_ws, data_ws_size));
+        size_t data_ws_n_floats = 0;
+        if (data_ws_size > 0) {
+            data_ws_n_floats = (data_ws_size + sizeof(float) - 1) / sizeof(float);
+            data_ws = (void*)g_buf_cache.get(data_ws_n_floats);
+        }
 
         CUDNN_CHECK(cudnnConvolutionBackwardData(dnn, &alpha, weight_desc, d_weight,
                                                   output_desc, d_grad_output,
                                                   conv_desc, data_algo, data_ws, data_ws_size,
                                                   &beta, input_desc, d_grad_input));
 
-        if (data_ws) cudaFree(data_ws);
+        if (data_ws) g_buf_cache.put((float*)data_ws, data_ws_n_floats);
     }
 
     // --- Backward filter: gradient w.r.t. weight ---
@@ -418,14 +461,18 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
                                                                     filter_algo, &filter_ws_size));
 
         void* filter_ws = nullptr;
-        if (filter_ws_size > 0) CUDA_CHECK(cudaMalloc(&filter_ws, filter_ws_size));
+        size_t filter_ws_n_floats = 0;
+        if (filter_ws_size > 0) {
+            filter_ws_n_floats = (filter_ws_size + sizeof(float) - 1) / sizeof(float);
+            filter_ws = (void*)g_buf_cache.get(filter_ws_n_floats);
+        }
 
         CUDNN_CHECK(cudnnConvolutionBackwardFilter(dnn, &alpha, input_desc, d_input,
                                                     output_desc, d_grad_output,
                                                     conv_desc, filter_algo, filter_ws, filter_ws_size,
                                                     &beta, weight_desc, d_grad_weight));
 
-        if (filter_ws) cudaFree(filter_ws);
+        if (filter_ws) g_buf_cache.put((float*)filter_ws, filter_ws_n_floats);
     }
 
     // --- Backward bias: gradient w.r.t. bias ---
@@ -466,12 +513,12 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
     CUDNN_CHECK(cudnnDestroyFilterDescriptor(weight_desc));
     CUDNN_CHECK(cudnnDestroyConvolutionDescriptor(conv_desc));
 
-    if (d_grad_bias)   cudaFree(d_grad_bias);
-    if (d_grad_weight) cudaFree(d_grad_weight);
-    if (d_grad_input)  cudaFree(d_grad_input);
-    cudaFree(d_grad_output);
-    cudaFree(d_weight);
-    cudaFree(d_input);
+    if (d_grad_bias)   g_buf_cache.put(d_grad_bias, out_ch);
+    if (d_grad_weight) g_buf_cache.put(d_grad_weight, weight_size);
+    if (d_grad_input)  g_buf_cache.put(d_grad_input, input_size);
+    g_buf_cache.put(d_grad_output, output_size);
+    g_buf_cache.put(d_weight, weight_size);
+    g_buf_cache.put(d_input, input_size);
 }
 
 // ---------------------------------------------------------------------------
