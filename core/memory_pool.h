@@ -28,6 +28,12 @@ public:
     // Round requested size up to the pool's size class (for tests/tooling).
     static size_t size_class(size_t n);
 
+    // Custom allocator hooks (for CUDA managed memory).
+    // When set, these replace std::malloc/std::free for all pool allocations.
+    using AllocFn = float*(*)(size_t n_bytes);
+    using FreeFn = void(*)(float* ptr);
+    static void set_allocator(AllocFn alloc, FreeFn free);
+
 private:
     MemoryPool() = default;
     ~MemoryPool() = default;

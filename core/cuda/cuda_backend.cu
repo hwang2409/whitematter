@@ -2,6 +2,7 @@
 #include "cuda_memory.h"
 #include "cuda_check.h"
 #include "../device.h"
+#include "../memory_pool.h"
 #include <cuda_runtime.h>
 #include <cublas_v2.h>
 #include <cstring>
@@ -203,6 +204,31 @@ void CUDABackend::init() {
     cudnn_handle_ = static_cast<void*>(dnn);
 
     initialized_ = true;
+
+    // Hook MemoryPool to use cudaMallocManaged so all tensor data is GPU-accessible.
+    // This eliminates H2D/D2H transfers — cuDNN can read tensor data directly.
+    // CPU code also works (managed memory is CPU-accessible via page migration).
+    MemoryPool::set_allocator(
+        [](size_t n_bytes) -> float* {
+            float* ptr = nullptr;
+            cudaError_t err = cudaMallocManaged(&ptr, n_bytes);
+            if (err != cudaSuccess) {
+                // Fallback to regular malloc if managed alloc fails
+                return static_cast<float*>(std::malloc(n_bytes));
+            }
+            return ptr;
+        },
+        [](float* ptr) {
+            cudaPointerAttributes attrs;
+            cudaError_t err = cudaPointerGetAttributes(&attrs, ptr);
+            if (err == cudaSuccess && (attrs.type == cudaMemoryTypeManaged || attrs.type == cudaMemoryTypeDevice)) {
+                cudaFree(ptr);
+            } else {
+                cudaGetLastError();  // clear error
+                std::free(ptr);
+            }
+        }
+    );
 }
 
 bool CUDABackend::is_available() const {
@@ -384,17 +410,30 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
     // Get CUDA stream for async operations
     cudaStream_t stream = static_cast<cudaStream_t>(stream_);
 
-    // Acquire device buffers from cache
-    float *d_input = nullptr, *d_output = nullptr;
-    d_input = g_buf_cache.get(input_size);
-    d_output = g_buf_cache.get(output_size);
-    float* d_weight = g_weight_cache.get(h_weight, weight_size);
+    // Check if input/output are already device-accessible (managed memory).
+    // When MemoryPool uses cudaMallocManaged, tensor data is GPU-readable — skip H2D.
+    bool input_managed = is_device_accessible(h_input);
+    bool output_managed = is_device_accessible(h_output);
 
-    // Pinned staging buffer for async H2D of input
-    float* p_input = g_pinned_cache.get(input_size);
-    memcpy(p_input, h_input, input_size * sizeof(float));
-    CUDA_CHECK(cudaMemcpyAsync(d_input, p_input, input_size * sizeof(float),
-                                cudaMemcpyHostToDevice, stream));
+    float *d_input = nullptr, *d_output = nullptr;
+    float* p_input = nullptr;  // pinned staging (only used if not managed)
+
+    if (input_managed) {
+        d_input = const_cast<float*>(h_input);  // cuDNN reads directly
+    } else {
+        d_input = g_buf_cache.get(input_size);
+        p_input = g_pinned_cache.get(input_size);
+        memcpy(p_input, h_input, input_size * sizeof(float));
+        CUDA_CHECK(cudaMemcpyAsync(d_input, p_input, input_size * sizeof(float),
+                                    cudaMemcpyHostToDevice, stream));
+    }
+
+    if (output_managed) {
+        d_output = h_output;  // cuDNN writes directly
+    } else {
+        d_output = g_buf_cache.get(output_size);
+    }
+    float* d_weight = g_weight_cache.get(h_weight, weight_size);
 
     // Create cuDNN descriptors
     cudnnHandle_t dnn = static_cast<cudnnHandle_t>(cudnn_handle_);
@@ -464,20 +503,21 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
         CUDNN_CHECK(cudnnDestroyTensorDescriptor(bias_desc));
     }
 
-    // Async D2H result via pinned staging buffer
-    float* p_output = g_pinned_cache.get(output_size);
-    CUDA_CHECK(cudaMemcpyAsync(p_output, d_output, output_size * sizeof(float),
-                                cudaMemcpyDeviceToHost, stream));
+    // D2H result — skip if output is managed (cuDNN wrote directly)
+    if (!output_managed) {
+        float* p_output = g_pinned_cache.get(output_size);
+        CUDA_CHECK(cudaMemcpyAsync(p_output, d_output, output_size * sizeof(float),
+                                    cudaMemcpyDeviceToHost, stream));
+        CUDA_CHECK(cudaStreamSynchronize(stream));
+        memcpy(h_output, p_output, output_size * sizeof(float));
+        g_pinned_cache.put(p_output, output_size);
+    } else {
+        // Managed output: just sync to ensure cuDNN write is visible to CPU
+        CUDA_CHECK(cudaStreamSynchronize(stream));
+    }
 
-    // Synchronize stream — all async ops (H2D, cuDNN, D2H) complete here
-    CUDA_CHECK(cudaStreamSynchronize(stream));
-
-    // Copy from pinned staging to caller's output buffer
-    memcpy(h_output, p_output, output_size * sizeof(float));
-
-    // Return pinned buffers to cache
-    g_pinned_cache.put(p_input, input_size);
-    g_pinned_cache.put(p_output, output_size);
+    // Return pinned/buf cache buffers (only if we allocated them)
+    if (p_input) g_pinned_cache.put(p_input, input_size);
 
     // Cleanup
     CUDNN_CHECK(cudnnDestroyTensorDescriptor(input_desc));
@@ -486,8 +526,8 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
     CUDNN_CHECK(cudnnDestroyConvolutionDescriptor(conv_desc));
 
     if (ws) g_buf_cache.put((float*)ws, ws_n_floats);
-    g_buf_cache.put(d_input, input_size);
-    g_buf_cache.put(d_output, output_size);
+    if (!input_managed)  g_buf_cache.put(d_input, input_size);
+    if (!output_managed) g_buf_cache.put(d_output, output_size);
 }
 
 void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,

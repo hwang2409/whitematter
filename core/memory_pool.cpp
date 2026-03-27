@@ -6,6 +6,25 @@
 #include <algorithm>
 #include <cmath>
 
+// Custom allocator hooks (default to malloc/free)
+static MemoryPool::AllocFn g_alloc_fn = nullptr;
+static MemoryPool::FreeFn g_free_fn = nullptr;
+
+static float* pool_alloc(size_t n_bytes) {
+    if (g_alloc_fn) return g_alloc_fn(n_bytes);
+    return static_cast<float*>(std::malloc(n_bytes));
+}
+
+static void pool_free(float* ptr) {
+    if (g_free_fn) g_free_fn(ptr);
+    else std::free(ptr);
+}
+
+void MemoryPool::set_allocator(AllocFn alloc, FreeFn free) {
+    g_alloc_fn = alloc;
+    g_free_fn = free;
+}
+
 namespace {
 
 const size_t kMaxPerClassPerThread = 64;
@@ -45,7 +64,7 @@ struct MemoryPool::Impl {
             free_list.pop_back();
             return ptr;
         }
-        float* ptr = static_cast<float*>(std::malloc(cls * sizeof(float)));
+        float* ptr = pool_alloc(cls * sizeof(float));
         if (!ptr) return nullptr;
         return ptr;
     }
@@ -67,7 +86,7 @@ struct MemoryPool::Impl {
                 out.push_back(free_list.back());
                 free_list.pop_back();
             } else {
-                float* ptr = static_cast<float*>(std::malloc(cls * sizeof(float)));
+                float* ptr = pool_alloc(cls * sizeof(float));
                 if (!ptr) break;
                 out.push_back(ptr);
             }
