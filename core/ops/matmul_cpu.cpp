@@ -37,10 +37,11 @@ static constexpr size_t BLOCK_SIZE = 32;
 
 void matmul_blocked(float* C, const float* A, const float* B,
                     size_t M, size_t K, size_t N) {
-#if defined(WHITEMATTER_CUDA)
-    // Transparent GPU offload: data stays in CPU memory, GPU used as accelerator.
-    // Only offload if matrix is large enough to justify H2D + kernel + D2H overhead.
-    if (whitematter::cuda_backend_available() && M * N * K > 32768) {
+#if defined(WHITEMATTER_CUDA) && !defined(USE_BLAS)
+    // Transparent GPU offload: only when no CPU BLAS is available.
+    // When OpenBLAS/Accelerate exists, CPU BLAS is faster than GPU+transfer for most sizes.
+    // Only offload truly large matmuls where GPU compute dominates transfer cost.
+    if (whitematter::cuda_backend_available() && M >= 256 && N >= 256 && K >= 256) {
         whitematter::CUDABackend::instance().matmul(A, B, C, (int)M, (int)N, (int)K);
         return;
     }
