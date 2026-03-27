@@ -105,15 +105,18 @@ void CUDABackend::bmm(const float* d_A, const float* d_B, float* d_C,
 // ---------------------------------------------------------------------------
 
 void CUDABackend::memcpy_h2d(float* d_dst, const float* h_src, size_t n_floats) {
-    CUDA_CHECK(cudaMemcpy(d_dst, h_src, n_floats * sizeof(float), cudaMemcpyHostToDevice));
+    if (n_floats == 0) return;
+    CUDA_CHECK(cudaMemcpy(d_dst, h_src, n_floats * sizeof(float), cudaMemcpyDefault));
 }
 
 void CUDABackend::memcpy_d2h(float* h_dst, const float* d_src, size_t n_floats) {
-    CUDA_CHECK(cudaMemcpy(h_dst, d_src, n_floats * sizeof(float), cudaMemcpyDeviceToHost));
+    if (n_floats == 0) return;
+    CUDA_CHECK(cudaMemcpy(h_dst, d_src, n_floats * sizeof(float), cudaMemcpyDefault));
 }
 
 void CUDABackend::memcpy_d2d(float* d_dst, const float* d_src, size_t n_floats) {
-    CUDA_CHECK(cudaMemcpy(d_dst, d_src, n_floats * sizeof(float), cudaMemcpyDeviceToDevice));
+    if (n_floats == 0) return;
+    CUDA_CHECK(cudaMemcpy(d_dst, d_src, n_floats * sizeof(float), cudaMemcpyDefault));
 }
 
 void CUDABackend::memset_zero(float* d_ptr, size_t n_floats) {
