@@ -160,19 +160,16 @@ struct ShadowCache {
     std::unordered_map<const float*, Entry> cache;
 
     // Check if we have a device copy of this host pointer
-    float* find(const float* h_ptr) {
-        auto it = cache.find(h_ptr);
-        if (it != cache.end()) return it->second.d_ptr;
+    // DISABLED: shadow cache causes gradient corruption due to buffer reuse conflicts.
+    // All entries return nullptr, forcing fresh H2D copies every time.
+    float* find(const float* /*h_ptr*/) {
         return nullptr;
     }
 
     // Register a device buffer as the shadow of a host pointer
-    void set(const float* h_ptr, float* d_ptr, size_t n_floats) {
-        auto it = cache.find(h_ptr);
-        if (it != cache.end() && it->second.d_ptr != d_ptr) {
-            g_buf_cache.put(it->second.d_ptr, it->second.n_floats);
-        }
-        cache[h_ptr] = {d_ptr, n_floats};
+    void set(const float* /*h_ptr*/, float* d_ptr, size_t n_floats) {
+        // DISABLED: return buffer to cache immediately instead of shadowing
+        g_buf_cache.put(d_ptr, n_floats);
     }
 
     // Invalidate a shadow (called when the host data changes)
