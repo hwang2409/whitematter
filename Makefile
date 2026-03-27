@@ -34,6 +34,13 @@ ifeq ($(UNAME_S),Darwin)
     LDFLAGS += -framework Accelerate
 endif
 
+# Use OpenBLAS for fast matmul on Linux: make OPENBLAS=1
+OPENBLAS ?= 0
+ifeq ($(OPENBLAS),1)
+    CXXFLAGS += -DWHITEMATTER_OPENBLAS
+    LDFLAGS += -lopenblas
+endif
+
 METAL ?= 0
 CUDA ?= 0
 
