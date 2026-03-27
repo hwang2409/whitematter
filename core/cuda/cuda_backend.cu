@@ -154,40 +154,61 @@ static WeightCache g_weight_cache;
 // ---------------------------------------------------------------------------
 struct ShadowCache {
     struct Entry {
-        float* d_ptr;
+        float* d_ptr;      // Exclusively owned device buffer (NOT from g_buf_cache)
         size_t n_floats;
     };
     std::unordered_map<const float*, Entry> cache;
 
     // Check if we have a device copy of this host pointer
-    // DISABLED: shadow cache causes gradient corruption due to buffer reuse conflicts.
-    // All entries return nullptr, forcing fresh H2D copies every time.
-    float* find(const float* /*h_ptr*/) {
+    float* find(const float* h_ptr) {
+        auto it = cache.find(h_ptr);
+        if (it != cache.end()) return it->second.d_ptr;
         return nullptr;
     }
 
-    // Register a device buffer as the shadow of a host pointer
-    void set(const float* /*h_ptr*/, float* d_ptr, size_t n_floats) {
-        // DISABLED: return buffer to cache immediately instead of shadowing
-        g_buf_cache.put(d_ptr, n_floats);
+    // Register a device buffer as the shadow of a host pointer.
+    // The shadow takes exclusive ownership — caller must NOT return d_ptr to g_buf_cache.
+    // If d_ptr came from g_buf_cache, this method allocates a NEW exclusive copy.
+    void set(const float* h_ptr, float* d_ptr_from_pool, size_t n_floats) {
+        // Allocate an exclusive device buffer (not from pool — prevents reuse conflicts)
+        float* exclusive = nullptr;
+        cudaMalloc(&exclusive, n_floats * sizeof(float));
+        if (!exclusive) {
+            // OOM fallback: just return the pool buffer, skip caching
+            g_buf_cache.put(d_ptr_from_pool, n_floats);
+            return;
+        }
+        // Copy data from the pool buffer to the exclusive buffer
+        cudaMemcpy(exclusive, d_ptr_from_pool, n_floats * sizeof(float), cudaMemcpyDeviceToDevice);
+        // Return the pool buffer immediately
+        g_buf_cache.put(d_ptr_from_pool, n_floats);
+
+        // If there's an existing shadow for this host ptr, free it
+        auto it = cache.find(h_ptr);
+        if (it != cache.end()) {
+            cudaFree(it->second.d_ptr);
+        }
+        cache[h_ptr] = {exclusive, n_floats};
     }
 
-    // Invalidate a shadow (called when the host data changes)
+    // Invalidate a shadow (free the exclusive buffer)
     void invalidate(const float* h_ptr) {
         auto it = cache.find(h_ptr);
         if (it != cache.end()) {
-            g_buf_cache.put(it->second.d_ptr, it->second.n_floats);
+            cudaFree(it->second.d_ptr);
             cache.erase(it);
         }
     }
 
-    // Invalidate all shadows (called after backward pass modifies data)
+    // Invalidate all shadows
     void invalidate_all() {
         for (auto& kv : cache) {
-            g_buf_cache.put(kv.second.d_ptr, kv.second.n_floats);
+            cudaFree(kv.second.d_ptr);
         }
         cache.clear();
     }
+
+    ~ShadowCache() { invalidate_all(); }
 };
 static ShadowCache g_shadow_cache;
 
