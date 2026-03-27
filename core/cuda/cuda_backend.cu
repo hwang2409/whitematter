@@ -1,4 +1,5 @@
 #include "cuda_backend.h"
+#include "cuda_memory.h"
 #include "cuda_check.h"
 #include "../device.h"
 #include <cuda_runtime.h>
