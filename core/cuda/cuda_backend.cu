@@ -208,12 +208,16 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
                                  size_t stride, size_t padding, size_t groups) {
     init();
     if (!initialized_ || !cudnn_handle_) {
+#ifdef WHITEMATTER_DEBUG
         fprintf(stderr, "cuDNN conv2d_forward: backend not ready\n");
+#endif
         return;
     }
+#ifdef WHITEMATTER_DEBUG
     fprintf(stderr, "cuDNN conv2d: [%zu,%zu,%zu,%zu] k=%zux%zu s=%zu p=%zu g=%zu\n",
             batch, in_ch, in_h, in_w, kernel_h, kernel_w, stride, padding, groups);
     fflush(stderr);
+#endif
 
     size_t out_h = (in_h + 2 * padding - kernel_h) / stride + 1;
     size_t out_w = (in_w + 2 * padding - kernel_w) / stride + 1;

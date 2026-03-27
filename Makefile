@@ -34,6 +34,12 @@ ifeq ($(UNAME_S),Darwin)
     LDFLAGS += -framework Accelerate
 endif
 
+# Debug mode: make DEBUG=1 for verbose CUDA/cuDNN logging
+DEBUG ?= 0
+ifeq ($(DEBUG),1)
+    CXXFLAGS += -DWHITEMATTER_DEBUG
+endif
+
 # Use OpenBLAS for fast matmul on Linux: make OPENBLAS=1
 OPENBLAS ?= 0
 ifeq ($(OPENBLAS),1)
