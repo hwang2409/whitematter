@@ -9,6 +9,7 @@
 #include <cmath>
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 
 // ---------------------------------------------------------------------------
 // Device buffer cache: reuses cudaMalloc'd buffers to avoid per-call
@@ -44,6 +45,56 @@ struct DeviceBufferCache {
 };
 
 static DeviceBufferCache g_buf_cache;
+
+// ---------------------------------------------------------------------------
+// Pinned (page-locked) host buffer cache: uses cudaHostAlloc/cudaFreeHost
+// for DMA-capable staging buffers that enable 2-3x faster cudaMemcpyAsync.
+// Falls back to regular malloc if cudaHostAlloc fails (e.g. WSL2).
+// ---------------------------------------------------------------------------
+struct PinnedBufferCache {
+    std::unordered_map<size_t, std::vector<float*>> free_list;
+    std::unordered_set<float*> pinned_set;  // track which ptrs are truly pinned
+
+    float* get(size_t n_floats) {
+        if (n_floats == 0) return nullptr;
+        auto it = free_list.find(n_floats);
+        if (it != free_list.end() && !it->second.empty()) {
+            float* p = it->second.back();
+            it->second.pop_back();
+            return p;
+        }
+        float* p = nullptr;
+        cudaError_t err = cudaHostAlloc(&p, n_floats * sizeof(float), cudaHostAllocDefault);
+        if (err != cudaSuccess || !p) {
+            cudaGetLastError();  // clear error state
+            p = (float*)malloc(n_floats * sizeof(float));
+        } else {
+            pinned_set.insert(p);
+        }
+        return p;
+    }
+
+    void put(float* p, size_t n_floats) {
+        if (p && n_floats > 0) free_list[n_floats].push_back(p);
+    }
+
+    bool is_pinned(float* p) const {
+        return pinned_set.count(p) > 0;
+    }
+
+    ~PinnedBufferCache() {
+        for (auto& kv : free_list) {
+            for (float* p : kv.second) {
+                if (pinned_set.count(p) > 0)
+                    cudaFreeHost(p);
+                else
+                    free(p);
+            }
+        }
+    }
+};
+
+static PinnedBufferCache g_pinned_cache;
 
 // ---------------------------------------------------------------------------
 // Weight cache: avoids redundant H2D uploads of conv2d weights and biases.
@@ -330,12 +381,20 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
     size_t weight_size = out_ch * (in_ch / groups) * kernel_h * kernel_w;
     size_t output_size = batch * out_ch * out_h * out_w;
 
-    // Acquire device buffers from cache + explicit H2D (faster than managed on WSL2)
+    // Get CUDA stream for async operations
+    cudaStream_t stream = static_cast<cudaStream_t>(stream_);
+
+    // Acquire device buffers from cache
     float *d_input = nullptr, *d_output = nullptr;
     d_input = g_buf_cache.get(input_size);
-    CUDA_CHECK(cudaMemcpy(d_input, h_input, input_size * sizeof(float), cudaMemcpyHostToDevice));
-    float* d_weight = g_weight_cache.get(h_weight, weight_size);
     d_output = g_buf_cache.get(output_size);
+    float* d_weight = g_weight_cache.get(h_weight, weight_size);
+
+    // Pinned staging buffer for async H2D of input
+    float* p_input = g_pinned_cache.get(input_size);
+    memcpy(p_input, h_input, input_size * sizeof(float));
+    CUDA_CHECK(cudaMemcpyAsync(d_input, p_input, input_size * sizeof(float),
+                                cudaMemcpyHostToDevice, stream));
 
     // Create cuDNN descriptors
     cudnnHandle_t dnn = static_cast<cudnnHandle_t>(cudnn_handle_);
@@ -405,10 +464,20 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
         CUDNN_CHECK(cudnnDestroyTensorDescriptor(bias_desc));
     }
 
-    cudaDeviceSynchronize();
+    // Async D2H result via pinned staging buffer
+    float* p_output = g_pinned_cache.get(output_size);
+    CUDA_CHECK(cudaMemcpyAsync(p_output, d_output, output_size * sizeof(float),
+                                cudaMemcpyDeviceToHost, stream));
 
-    // D2H result
-    CUDA_CHECK(cudaMemcpy(h_output, d_output, output_size * sizeof(float), cudaMemcpyDeviceToHost));
+    // Synchronize stream — all async ops (H2D, cuDNN, D2H) complete here
+    CUDA_CHECK(cudaStreamSynchronize(stream));
+
+    // Copy from pinned staging to caller's output buffer
+    memcpy(h_output, p_output, output_size * sizeof(float));
+
+    // Return pinned buffers to cache
+    g_pinned_cache.put(p_input, input_size);
+    g_pinned_cache.put(p_output, output_size);
 
     // Cleanup
     CUDNN_CHECK(cudnnDestroyTensorDescriptor(input_desc));
@@ -438,25 +507,37 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
     size_t weight_size     = out_ch * (in_ch / groups) * kernel_h * kernel_w;
     size_t output_size     = batch * out_ch * out_h * out_w;
 
-    // Check if pointers are already device-accessible (cudaMallocManaged).
-    // Acquire device buffers from cache + explicit H2D
+    // Get CUDA stream for async operations
+    cudaStream_t stream = static_cast<cudaStream_t>(stream_);
+
+    // Acquire device buffers from cache
     float *d_input = nullptr, *d_grad_output = nullptr;
     float *d_grad_input = nullptr, *d_grad_weight = nullptr, *d_grad_bias = nullptr;
 
     d_input = g_buf_cache.get(input_size);
-    CUDA_CHECK(cudaMemcpy(d_input, h_input, input_size * sizeof(float), cudaMemcpyHostToDevice));
-    float* d_weight = g_weight_cache.get(h_weight, weight_size);
     d_grad_output = g_buf_cache.get(output_size);
-    CUDA_CHECK(cudaMemcpy(d_grad_output, h_grad_output, output_size * sizeof(float), cudaMemcpyHostToDevice));
+    float* d_weight = g_weight_cache.get(h_weight, weight_size);
+
+    // Pinned staging buffers for async H2D
+    float* p_input = g_pinned_cache.get(input_size);
+    float* p_grad_output = g_pinned_cache.get(output_size);
+
+    memcpy(p_input, h_input, input_size * sizeof(float));
+    memcpy(p_grad_output, h_grad_output, output_size * sizeof(float));
+
+    CUDA_CHECK(cudaMemcpyAsync(d_input, p_input, input_size * sizeof(float),
+                                cudaMemcpyHostToDevice, stream));
+    CUDA_CHECK(cudaMemcpyAsync(d_grad_output, p_grad_output, output_size * sizeof(float),
+                                cudaMemcpyHostToDevice, stream));
 
     if (h_grad_input)  d_grad_input  = g_buf_cache.get(input_size);
     if (h_grad_weight) d_grad_weight = g_buf_cache.get(weight_size);
     if (h_grad_bias)   d_grad_bias   = g_buf_cache.get(out_ch);
 
     // Zero gradient outputs on device
-    if (d_grad_input)  CUDA_CHECK(cudaMemset(d_grad_input,  0, input_size  * sizeof(float)));
-    if (d_grad_weight) CUDA_CHECK(cudaMemset(d_grad_weight, 0, weight_size * sizeof(float)));
-    if (d_grad_bias)   CUDA_CHECK(cudaMemset(d_grad_bias,   0, out_ch      * sizeof(float)));
+    if (d_grad_input)  CUDA_CHECK(cudaMemsetAsync(d_grad_input,  0, input_size  * sizeof(float), stream));
+    if (d_grad_weight) CUDA_CHECK(cudaMemsetAsync(d_grad_weight, 0, weight_size * sizeof(float), stream));
+    if (d_grad_bias)   CUDA_CHECK(cudaMemsetAsync(d_grad_bias,   0, out_ch      * sizeof(float), stream));
 
     // Create cuDNN descriptors
     cudnnHandle_t dnn = static_cast<cudnnHandle_t>(cudnn_handle_);
@@ -549,24 +630,41 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
         CUDNN_CHECK(cudnnDestroyTensorDescriptor(bias_desc));
     }
 
-    cudaDeviceSynchronize();
+    // Async D2H gradients via pinned staging buffers
+    float* p_grad_input  = (h_grad_input  && d_grad_input)  ? g_pinned_cache.get(input_size)  : nullptr;
+    float* p_grad_weight = (h_grad_weight && d_grad_weight) ? g_pinned_cache.get(weight_size) : nullptr;
+    float* p_grad_bias   = (h_grad_bias   && d_grad_bias)   ? g_pinned_cache.get(out_ch)      : nullptr;
 
-    // D2H gradients and accumulate with existing host grads
-    if (h_grad_input && d_grad_input) {
-        std::vector<float> tmp(input_size);
-        CUDA_CHECK(cudaMemcpy(tmp.data(), d_grad_input, input_size * sizeof(float), cudaMemcpyDeviceToHost));
-        for (size_t i = 0; i < input_size; i++) h_grad_input[i] += tmp[i];
+    if (p_grad_input)
+        CUDA_CHECK(cudaMemcpyAsync(p_grad_input, d_grad_input, input_size * sizeof(float),
+                                    cudaMemcpyDeviceToHost, stream));
+    if (p_grad_weight)
+        CUDA_CHECK(cudaMemcpyAsync(p_grad_weight, d_grad_weight, weight_size * sizeof(float),
+                                    cudaMemcpyDeviceToHost, stream));
+    if (p_grad_bias)
+        CUDA_CHECK(cudaMemcpyAsync(p_grad_bias, d_grad_bias, out_ch * sizeof(float),
+                                    cudaMemcpyDeviceToHost, stream));
+
+    // Synchronize stream — all async ops complete here
+    CUDA_CHECK(cudaStreamSynchronize(stream));
+
+    // Accumulate gradients from pinned staging into host buffers
+    if (p_grad_input) {
+        for (size_t i = 0; i < input_size; i++) h_grad_input[i] += p_grad_input[i];
+        g_pinned_cache.put(p_grad_input, input_size);
     }
-    if (h_grad_weight && d_grad_weight) {
-        std::vector<float> tmp(weight_size);
-        CUDA_CHECK(cudaMemcpy(tmp.data(), d_grad_weight, weight_size * sizeof(float), cudaMemcpyDeviceToHost));
-        for (size_t i = 0; i < weight_size; i++) h_grad_weight[i] += tmp[i];
+    if (p_grad_weight) {
+        for (size_t i = 0; i < weight_size; i++) h_grad_weight[i] += p_grad_weight[i];
+        g_pinned_cache.put(p_grad_weight, weight_size);
     }
-    if (h_grad_bias && d_grad_bias) {
-        std::vector<float> tmp(out_ch);
-        CUDA_CHECK(cudaMemcpy(tmp.data(), d_grad_bias, out_ch * sizeof(float), cudaMemcpyDeviceToHost));
-        for (size_t i = 0; i < out_ch; i++) h_grad_bias[i] += tmp[i];
+    if (p_grad_bias) {
+        for (size_t i = 0; i < out_ch; i++) h_grad_bias[i] += p_grad_bias[i];
+        g_pinned_cache.put(p_grad_bias, out_ch);
     }
+
+    // Return H2D pinned buffers to cache
+    g_pinned_cache.put(p_input, input_size);
+    g_pinned_cache.put(p_grad_output, output_size);
 
     // Cleanup
     CUDNN_CHECK(cudnnDestroyTensorDescriptor(input_desc));
@@ -599,6 +697,9 @@ void CUDABackend::batchnorm_forward(const float* h_input, float* h_output,
     size_t H = (size_t)sqrt((double)spatial);
     size_t W = spatial / H;
 
+    // Get CUDA stream for async operations
+    cudaStream_t stream = static_cast<cudaStream_t>(stream_);
+
     // Allocate device buffers from cache
     float* d_input        = g_buf_cache.get(total);
     float* d_output       = g_buf_cache.get(total);
@@ -609,12 +710,30 @@ void CUDABackend::batchnorm_forward(const float* h_input, float* h_output,
     float* d_save_mean    = g_buf_cache.get(channels);
     float* d_save_inv_var = g_buf_cache.get(channels);
 
-    // H2D
-    CUDA_CHECK(cudaMemcpy(d_input, h_input, total * sizeof(float), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_gamma, h_gamma, channels * sizeof(float), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_beta, h_beta, channels * sizeof(float), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_running_mean, h_running_mean, channels * sizeof(float), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_running_var, h_running_var, channels * sizeof(float), cudaMemcpyHostToDevice));
+    // Pinned staging buffers for async H2D
+    float* p_input        = g_pinned_cache.get(total);
+    float* p_gamma        = g_pinned_cache.get(channels);
+    float* p_beta         = g_pinned_cache.get(channels);
+    float* p_running_mean = g_pinned_cache.get(channels);
+    float* p_running_var  = g_pinned_cache.get(channels);
+
+    memcpy(p_input, h_input, total * sizeof(float));
+    memcpy(p_gamma, h_gamma, channels * sizeof(float));
+    memcpy(p_beta, h_beta, channels * sizeof(float));
+    memcpy(p_running_mean, h_running_mean, channels * sizeof(float));
+    memcpy(p_running_var, h_running_var, channels * sizeof(float));
+
+    // Async H2D via pinned memory
+    CUDA_CHECK(cudaMemcpyAsync(d_input, p_input, total * sizeof(float),
+                                cudaMemcpyHostToDevice, stream));
+    CUDA_CHECK(cudaMemcpyAsync(d_gamma, p_gamma, channels * sizeof(float),
+                                cudaMemcpyHostToDevice, stream));
+    CUDA_CHECK(cudaMemcpyAsync(d_beta, p_beta, channels * sizeof(float),
+                                cudaMemcpyHostToDevice, stream));
+    CUDA_CHECK(cudaMemcpyAsync(d_running_mean, p_running_mean, channels * sizeof(float),
+                                cudaMemcpyHostToDevice, stream));
+    CUDA_CHECK(cudaMemcpyAsync(d_running_var, p_running_var, channels * sizeof(float),
+                                cudaMemcpyHostToDevice, stream));
 
     // cuDNN descriptors
     cudnnHandle_t dnn = static_cast<cudnnHandle_t>(cudnn_handle_);
@@ -646,16 +765,49 @@ void CUDABackend::batchnorm_forward(const float* h_input, float* h_output,
             (double)eps));
     }
 
-    cudaDeviceSynchronize();
+    // Async D2H via pinned staging buffers
+    float* p_output       = g_pinned_cache.get(total);
+    float* p_rm_out       = g_pinned_cache.get(channels);
+    float* p_rv_out       = g_pinned_cache.get(channels);
+    float* p_save_mean    = h_save_mean    ? g_pinned_cache.get(channels) : nullptr;
+    float* p_save_inv_var = h_save_inv_var ? g_pinned_cache.get(channels) : nullptr;
 
-    // D2H
-    CUDA_CHECK(cudaMemcpy(h_output, d_output, total * sizeof(float), cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(h_running_mean, d_running_mean, channels * sizeof(float), cudaMemcpyDeviceToHost));
-    CUDA_CHECK(cudaMemcpy(h_running_var, d_running_var, channels * sizeof(float), cudaMemcpyDeviceToHost));
-    if (h_save_mean)    CUDA_CHECK(cudaMemcpy(h_save_mean, d_save_mean, channels * sizeof(float), cudaMemcpyDeviceToHost));
-    if (h_save_inv_var) CUDA_CHECK(cudaMemcpy(h_save_inv_var, d_save_inv_var, channels * sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpyAsync(p_output, d_output, total * sizeof(float),
+                                cudaMemcpyDeviceToHost, stream));
+    CUDA_CHECK(cudaMemcpyAsync(p_rm_out, d_running_mean, channels * sizeof(float),
+                                cudaMemcpyDeviceToHost, stream));
+    CUDA_CHECK(cudaMemcpyAsync(p_rv_out, d_running_var, channels * sizeof(float),
+                                cudaMemcpyDeviceToHost, stream));
+    if (p_save_mean)
+        CUDA_CHECK(cudaMemcpyAsync(p_save_mean, d_save_mean, channels * sizeof(float),
+                                    cudaMemcpyDeviceToHost, stream));
+    if (p_save_inv_var)
+        CUDA_CHECK(cudaMemcpyAsync(p_save_inv_var, d_save_inv_var, channels * sizeof(float),
+                                    cudaMemcpyDeviceToHost, stream));
 
-    // Return buffers to cache
+    // Synchronize stream — all async ops complete here
+    CUDA_CHECK(cudaStreamSynchronize(stream));
+
+    // Copy from pinned staging to caller's output buffers
+    memcpy(h_output, p_output, total * sizeof(float));
+    memcpy(h_running_mean, p_rm_out, channels * sizeof(float));
+    memcpy(h_running_var, p_rv_out, channels * sizeof(float));
+    if (h_save_mean)    memcpy(h_save_mean, p_save_mean, channels * sizeof(float));
+    if (h_save_inv_var) memcpy(h_save_inv_var, p_save_inv_var, channels * sizeof(float));
+
+    // Return pinned buffers to cache
+    g_pinned_cache.put(p_input, total);
+    g_pinned_cache.put(p_gamma, channels);
+    g_pinned_cache.put(p_beta, channels);
+    g_pinned_cache.put(p_running_mean, channels);
+    g_pinned_cache.put(p_running_var, channels);
+    g_pinned_cache.put(p_output, total);
+    g_pinned_cache.put(p_rm_out, channels);
+    g_pinned_cache.put(p_rv_out, channels);
+    if (p_save_mean)    g_pinned_cache.put(p_save_mean, channels);
+    if (p_save_inv_var) g_pinned_cache.put(p_save_inv_var, channels);
+
+    // Return device buffers to cache
     g_buf_cache.put(d_input, total);
     g_buf_cache.put(d_output, total);
     g_buf_cache.put(d_gamma, channels);
@@ -681,6 +833,9 @@ void CUDABackend::batchnorm_backward(const float* h_input, const float* h_grad_o
     size_t H = (size_t)sqrt((double)spatial);
     size_t W = spatial / H;
 
+    // Get CUDA stream for async operations
+    cudaStream_t stream = static_cast<cudaStream_t>(stream_);
+
     // Allocate device buffers from cache
     float* d_input       = g_buf_cache.get(total);
     float* d_grad_output = g_buf_cache.get(total);
@@ -691,17 +846,35 @@ void CUDABackend::batchnorm_backward(const float* h_input, const float* h_grad_o
     float* d_save_mean   = g_buf_cache.get(channels);
     float* d_save_inv_var = g_buf_cache.get(channels);
 
-    // H2D
-    CUDA_CHECK(cudaMemcpy(d_input, h_input, total * sizeof(float), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_grad_output, h_grad_output, total * sizeof(float), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_gamma, h_gamma, channels * sizeof(float), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_save_mean, h_save_mean, channels * sizeof(float), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_save_inv_var, h_save_inv_var, channels * sizeof(float), cudaMemcpyHostToDevice));
+    // Pinned staging buffers for async H2D
+    float* p_input        = g_pinned_cache.get(total);
+    float* p_grad_output  = g_pinned_cache.get(total);
+    float* p_gamma        = g_pinned_cache.get(channels);
+    float* p_save_mean    = g_pinned_cache.get(channels);
+    float* p_save_inv_var = g_pinned_cache.get(channels);
+
+    memcpy(p_input, h_input, total * sizeof(float));
+    memcpy(p_grad_output, h_grad_output, total * sizeof(float));
+    memcpy(p_gamma, h_gamma, channels * sizeof(float));
+    memcpy(p_save_mean, h_save_mean, channels * sizeof(float));
+    memcpy(p_save_inv_var, h_save_inv_var, channels * sizeof(float));
+
+    // Async H2D via pinned memory
+    CUDA_CHECK(cudaMemcpyAsync(d_input, p_input, total * sizeof(float),
+                                cudaMemcpyHostToDevice, stream));
+    CUDA_CHECK(cudaMemcpyAsync(d_grad_output, p_grad_output, total * sizeof(float),
+                                cudaMemcpyHostToDevice, stream));
+    CUDA_CHECK(cudaMemcpyAsync(d_gamma, p_gamma, channels * sizeof(float),
+                                cudaMemcpyHostToDevice, stream));
+    CUDA_CHECK(cudaMemcpyAsync(d_save_mean, p_save_mean, channels * sizeof(float),
+                                cudaMemcpyHostToDevice, stream));
+    CUDA_CHECK(cudaMemcpyAsync(d_save_inv_var, p_save_inv_var, channels * sizeof(float),
+                                cudaMemcpyHostToDevice, stream));
 
     // Zero gradient outputs on device
-    CUDA_CHECK(cudaMemset(d_grad_gamma, 0, channels * sizeof(float)));
-    CUDA_CHECK(cudaMemset(d_grad_beta, 0, channels * sizeof(float)));
-    if (d_grad_input) CUDA_CHECK(cudaMemset(d_grad_input, 0, total * sizeof(float)));
+    CUDA_CHECK(cudaMemsetAsync(d_grad_gamma, 0, channels * sizeof(float), stream));
+    CUDA_CHECK(cudaMemsetAsync(d_grad_beta, 0, channels * sizeof(float), stream));
+    if (d_grad_input) CUDA_CHECK(cudaMemsetAsync(d_grad_input, 0, total * sizeof(float), stream));
 
     // cuDNN descriptors
     cudnnHandle_t dnn = static_cast<cudnnHandle_t>(cudnn_handle_);
@@ -725,26 +898,46 @@ void CUDABackend::batchnorm_backward(const float* h_input, const float* h_grad_o
         (double)eps,
         d_save_mean, d_save_inv_var));
 
-    cudaDeviceSynchronize();
+    // Async D2H gradients via pinned staging buffers
+    float* p_dgi = (h_grad_input && d_grad_input) ? g_pinned_cache.get(total)    : nullptr;
+    float* p_dgw = h_grad_gamma                   ? g_pinned_cache.get(channels) : nullptr;
+    float* p_dgb = h_grad_beta                    ? g_pinned_cache.get(channels) : nullptr;
 
-    // D2H gradients and accumulate with existing host grads
-    if (h_grad_input && d_grad_input) {
-        std::vector<float> tmp(total);
-        CUDA_CHECK(cudaMemcpy(tmp.data(), d_grad_input, total * sizeof(float), cudaMemcpyDeviceToHost));
-        for (size_t i = 0; i < total; i++) h_grad_input[i] += tmp[i];
+    if (p_dgi)
+        CUDA_CHECK(cudaMemcpyAsync(p_dgi, d_grad_input, total * sizeof(float),
+                                    cudaMemcpyDeviceToHost, stream));
+    if (p_dgw)
+        CUDA_CHECK(cudaMemcpyAsync(p_dgw, d_grad_gamma, channels * sizeof(float),
+                                    cudaMemcpyDeviceToHost, stream));
+    if (p_dgb)
+        CUDA_CHECK(cudaMemcpyAsync(p_dgb, d_grad_beta, channels * sizeof(float),
+                                    cudaMemcpyDeviceToHost, stream));
+
+    // Synchronize stream — all async ops complete here
+    CUDA_CHECK(cudaStreamSynchronize(stream));
+
+    // Accumulate gradients from pinned staging into host buffers
+    if (p_dgi) {
+        for (size_t i = 0; i < total; i++) h_grad_input[i] += p_dgi[i];
+        g_pinned_cache.put(p_dgi, total);
     }
-    if (h_grad_gamma) {
-        std::vector<float> tmp(channels);
-        CUDA_CHECK(cudaMemcpy(tmp.data(), d_grad_gamma, channels * sizeof(float), cudaMemcpyDeviceToHost));
-        for (size_t i = 0; i < channels; i++) h_grad_gamma[i] += tmp[i];
+    if (p_dgw) {
+        for (size_t i = 0; i < channels; i++) h_grad_gamma[i] += p_dgw[i];
+        g_pinned_cache.put(p_dgw, channels);
     }
-    if (h_grad_beta) {
-        std::vector<float> tmp(channels);
-        CUDA_CHECK(cudaMemcpy(tmp.data(), d_grad_beta, channels * sizeof(float), cudaMemcpyDeviceToHost));
-        for (size_t i = 0; i < channels; i++) h_grad_beta[i] += tmp[i];
+    if (p_dgb) {
+        for (size_t i = 0; i < channels; i++) h_grad_beta[i] += p_dgb[i];
+        g_pinned_cache.put(p_dgb, channels);
     }
 
-    // Return buffers to cache
+    // Return H2D pinned buffers to cache
+    g_pinned_cache.put(p_input, total);
+    g_pinned_cache.put(p_grad_output, total);
+    g_pinned_cache.put(p_gamma, channels);
+    g_pinned_cache.put(p_save_mean, channels);
+    g_pinned_cache.put(p_save_inv_var, channels);
+
+    // Return device buffers to cache
     g_buf_cache.put(d_input, total);
     g_buf_cache.put(d_grad_output, total);
     if (d_grad_input) g_buf_cache.put(d_grad_input, total);
