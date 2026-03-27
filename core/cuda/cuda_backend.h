@@ -101,14 +101,6 @@ public:
     void relu_forward_host(const float* h_input, float* h_output, size_t n);
     void relu_backward_host(const float* h_grad_out, const float* h_input, float* h_grad_in, size_t n);
     void elementwise_add_host(const float* h_a, const float* h_b, float* h_c, size_t n);
-    void matmul_backward_host(const float* h_grad_C, const float* h_A, const float* h_B,
-                              float* h_grad_A, float* h_grad_B, int M, int K, int N);
-    void cross_entropy_backward_host(const float* h_logits, const float* h_targets,
-                                     float* h_grad_logits, size_t batch, size_t num_classes,
-                                     float upstream_grad);
-    void adaptive_avgpool_backward_host(const float* h_grad_out, float* h_grad_in,
-                                        size_t batch, size_t channels, size_t spatial);
-    void elementwise_accumulate_host(float* h_target, const float* h_source, size_t n);
 
     // --- Weight cache management ---
     // Call after optimizer.step() to mark cached weight buffers as stale.
