@@ -2267,14 +2267,32 @@ TensorPtr Tensor::reshape(const std::vector<size_t>& new_shape) const {
 
     bool track = requires_grad && GradMode::is_enabled();
     auto result = std::make_shared<Tensor>(data_storage_, data_size_, new_shape, track);
-    if (track && !grad_empty()) std::memcpy(result->grad(), grad(), size() * sizeof(float));
+    result->device = device;
+    if (track && !grad_empty()) {
+#if defined(WHITEMATTER_CUDA)
+        if (device == whitematter::DeviceType::CUDA) {
+            whitematter::CUDABackend::instance().memcpy_d2d(result->grad(), grad(), size());
+        } else
+#endif
+        {
+            std::memcpy(result->grad(), grad(), size() * sizeof(float));
+        }
+    }
 
     if (track) {
         auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
         result->parents = {self_ptr};
         result->grad_fn = [self_ptr, result]() {
-            simd_add(self_ptr->grad(), self_ptr->grad(),
-                     result->grad(), self_ptr->size());
+#if defined(WHITEMATTER_CUDA)
+            if (self_ptr->device == whitematter::DeviceType::CUDA) {
+                whitematter::CUDABackend::instance().elementwise_add(
+                    self_ptr->grad(), result->grad(), self_ptr->grad(), self_ptr->size());
+            } else
+#endif
+            {
+                simd_add(self_ptr->grad(), self_ptr->grad(),
+                         result->grad(), self_ptr->size());
+            }
         };
     }
     return result;
