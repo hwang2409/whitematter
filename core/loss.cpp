@@ -1,4 +1,5 @@
 #include "loss.h"
+#include "device.h"
 #include <cmath>
 
 TensorPtr MSELoss::forward(const TensorPtr& prediction, const TensorPtr& target) {
@@ -60,6 +61,15 @@ TensorPtr SmoothL1Loss::forward(const TensorPtr& prediction, const TensorPtr& ta
 TensorPtr CrossEntropyLoss::forward(const TensorPtr& prediction, const TensorPtr& target) {
     assert(prediction->shape.size() == 2);
     assert(target->shape.size() == 1 || (target->shape.size() == 2 && target->shape[1] == 1));
+
+    // CPU fallback for non-CPU tensors
+    if (prediction->device != whitematter::DeviceType::CPU) {
+        auto cpu_pred = prediction->to(whitematter::DeviceType::CPU);
+        auto cpu_tgt = target->to(whitematter::DeviceType::CPU);
+        auto cpu_result = forward(cpu_pred, cpu_tgt);
+        cpu_result->to_inplace(prediction->device);
+        return cpu_result;
+    }
 
     size_t batch_size = prediction->shape[0];
     size_t num_classes = prediction->shape[1];

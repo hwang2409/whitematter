@@ -1102,6 +1102,14 @@ TensorPtr Tensor::upsample(size_t scale_factor, const std::string& mode) const {
 TensorPtr Tensor::adaptive_avgpool2d(size_t output_h, size_t output_w) const {
     assert(shape.size() == 4);  // [batch, channels, H, W]
 
+    // CPU fallback for CUDA tensors
+    if (device != whitematter::DeviceType::CPU) {
+        auto cpu_self = to(whitematter::DeviceType::CPU);
+        auto cpu_result = cpu_self->adaptive_avgpool2d(output_h, output_w);
+        cpu_result->to_inplace(device);
+        return cpu_result;
+    }
+
     size_t batch = shape[0];
     size_t channels = shape[1];
     size_t in_h = shape[2];

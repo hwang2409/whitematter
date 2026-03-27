@@ -14,6 +14,21 @@ TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
     assert(input->shape.size() == 4);
     assert(input->shape[1] == num_features);
 
+    // CUDA fallback: transfer to CPU, compute, transfer back
+    if (input->device != whitematter::DeviceType::CPU) {
+        auto cpu_input = input->to(whitematter::DeviceType::CPU);
+        // Temporarily move params to CPU
+        auto orig_device = input->device;
+        gamma->to_inplace(whitematter::DeviceType::CPU);
+        beta->to_inplace(whitematter::DeviceType::CPU);
+        auto cpu_result = forward(cpu_input);
+        // Move everything back
+        gamma->to_inplace(orig_device);
+        beta->to_inplace(orig_device);
+        cpu_result->to_inplace(orig_device);
+        return cpu_result;
+    }
+
     size_t batch = input->shape[0];
     size_t channels = input->shape[1];
     size_t height = input->shape[2];
@@ -166,6 +181,18 @@ LayerNorm::LayerNorm(size_t dim, float eps)
     : LayerNorm(std::vector<size_t>{dim}, eps) {}
 
 TensorPtr LayerNorm::forward(const TensorPtr& input) {
+    if (input->device != whitematter::DeviceType::CPU) {
+        auto cpu_input = input->to(whitematter::DeviceType::CPU);
+        auto orig_device = input->device;
+        gamma->to_inplace(whitematter::DeviceType::CPU);
+        beta->to_inplace(whitematter::DeviceType::CPU);
+        auto cpu_result = forward(cpu_input);
+        gamma->to_inplace(orig_device);
+        beta->to_inplace(orig_device);
+        cpu_result->to_inplace(orig_device);
+        return cpu_result;
+    }
+
     size_t norm_size = 1;
     for (auto s : normalized_shape) norm_size *= s;
 
