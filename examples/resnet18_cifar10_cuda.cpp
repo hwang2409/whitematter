@@ -15,6 +15,7 @@
 #include <cmath>
 #include <chrono>
 #include <vector>
+#include <sys/stat.h>
 #include <string>
 #include <algorithm>
 #include "tensor.h"
@@ -574,6 +575,11 @@ int main(int argc, char* argv[]) {
     }
 
     // ------------------------------------------------------------------
+    // Create checkpoint directory
+    // ------------------------------------------------------------------
+    mkdir("checkpoints", 0755);
+
+    // ------------------------------------------------------------------
     // Training loop
     // ------------------------------------------------------------------
     printf("Training...\n");
@@ -653,12 +659,12 @@ int main(int argc, char* argv[]) {
         bool saved_best = false;
         if (test_acc > best_test_acc) {
             best_test_acc = test_acc;
-            save_checkpoint("resnet18_best.ckpt", epoch + 1, best_test_acc,
+            save_checkpoint("checkpoints/resnet18_best.ckpt", epoch + 1, best_test_acc,
                             optimizer.lr, all_params, optimizer.velocity);
             saved_best = true;
         }
         if ((epoch + 1) % 10 == 0) {
-            save_checkpoint("resnet18_latest.ckpt", epoch + 1, best_test_acc,
+            save_checkpoint("checkpoints/resnet18_latest.ckpt", epoch + 1, best_test_acc,
                             optimizer.lr, all_params, optimizer.velocity);
         }
 
@@ -670,7 +676,7 @@ int main(int argc, char* argv[]) {
     }
 
     printf("--------------------------------------------------------------------------------\n");
-    save_checkpoint("resnet18_final.ckpt", num_epochs, best_test_acc,
+    save_checkpoint("checkpoints/resnet18_final.ckpt", num_epochs, best_test_acc,
                     optimizer.lr, all_params, optimizer.velocity);
     printf("Training complete! Best test accuracy: %.2f%%\n\n", best_test_acc);
 
