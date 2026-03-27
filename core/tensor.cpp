@@ -767,8 +767,16 @@ TensorPtr Tensor::add(const TensorPtr& other) const {
 
 #if defined(WHITEMATTER_CUDA)
     if (device == whitematter::DeviceType::CUDA && other->device == whitematter::DeviceType::CUDA &&
-        whitematter::cuda_backend_available() && shape == other->shape) {
-        return cuda_ops::add(this, other);
+        whitematter::cuda_backend_available()) {
+        if (shape == other->shape) {
+            return cuda_ops::add(this, other);
+        }
+        // Broadcasting case: fall back to CPU
+        auto cpu_self = to(whitematter::DeviceType::CPU);
+        auto cpu_other = other->to(whitematter::DeviceType::CPU);
+        auto cpu_result = cpu_self->add(cpu_other);
+        cpu_result->to_inplace(whitematter::DeviceType::CUDA);
+        return cpu_result;
     }
 #endif
 
@@ -859,8 +867,15 @@ TensorPtr Tensor::sub(const TensorPtr& other) const {
 
 #if defined(WHITEMATTER_CUDA)
     if (device == whitematter::DeviceType::CUDA && other->device == whitematter::DeviceType::CUDA &&
-        whitematter::cuda_backend_available() && shape == other->shape) {
-        return cuda_ops::sub(this, other);
+        whitematter::cuda_backend_available()) {
+        if (shape == other->shape) {
+            return cuda_ops::sub(this, other);
+        }
+        auto cpu_self = to(whitematter::DeviceType::CPU);
+        auto cpu_other = other->to(whitematter::DeviceType::CPU);
+        auto cpu_result = cpu_self->sub(cpu_other);
+        cpu_result->to_inplace(whitematter::DeviceType::CUDA);
+        return cpu_result;
     }
 #endif
 
@@ -952,8 +967,15 @@ TensorPtr Tensor::mul(const TensorPtr& other) const {
 
 #if defined(WHITEMATTER_CUDA)
     if (device == whitematter::DeviceType::CUDA && other->device == whitematter::DeviceType::CUDA &&
-        whitematter::cuda_backend_available() && shape == other->shape) {
-        return cuda_ops::mul(this, other);
+        whitematter::cuda_backend_available()) {
+        if (shape == other->shape) {
+            return cuda_ops::mul(this, other);
+        }
+        auto cpu_self = to(whitematter::DeviceType::CPU);
+        auto cpu_other = other->to(whitematter::DeviceType::CPU);
+        auto cpu_result = cpu_self->mul(cpu_other);
+        cpu_result->to_inplace(whitematter::DeviceType::CUDA);
+        return cpu_result;
     }
 #endif
 
