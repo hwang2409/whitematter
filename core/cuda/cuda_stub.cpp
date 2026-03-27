@@ -105,6 +105,9 @@ void CUDABackend::adam_step(float*, const float*, float*, float*,
 // Weight cache (no-op without CUDA)
 void CUDABackend::invalidate_weight_cache() {}
 
+// Shadow cache (no-op without CUDA)
+void CUDABackend::invalidate_shadow_cache() {}
+
 // Memory transfers (no-op without CUDA)
 void CUDABackend::memcpy_h2d(float*, const float*, size_t) {}
 void CUDABackend::memcpy_d2h(float*, const float*, size_t) {}

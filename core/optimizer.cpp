@@ -59,6 +59,7 @@ void SGD::step() {
 #if defined(WHITEMATTER_CUDA)
     if (whitematter::cuda_backend_available()) {
         whitematter::CUDABackend::instance().invalidate_weight_cache();
+        whitematter::CUDABackend::instance().invalidate_shadow_cache();
     }
 #endif
 }
@@ -104,6 +105,7 @@ void Adam::step() {
 #if defined(WHITEMATTER_CUDA)
     if (whitematter::cuda_backend_available()) {
         whitematter::CUDABackend::instance().invalidate_weight_cache();
+        whitematter::CUDABackend::instance().invalidate_shadow_cache();
     }
 #endif
 }
@@ -150,6 +152,7 @@ void AdamW::step() {
 #if defined(WHITEMATTER_CUDA)
     if (whitematter::cuda_backend_available()) {
         whitematter::CUDABackend::instance().invalidate_weight_cache();
+        whitematter::CUDABackend::instance().invalidate_shadow_cache();
     }
 #endif
 }
@@ -200,6 +203,7 @@ void RMSprop::step() {
 #if defined(WHITEMATTER_CUDA)
     if (whitematter::cuda_backend_available()) {
         whitematter::CUDABackend::instance().invalidate_weight_cache();
+        whitematter::CUDABackend::instance().invalidate_shadow_cache();
     }
 #endif
 }

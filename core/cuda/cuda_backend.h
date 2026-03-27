@@ -100,6 +100,12 @@ public:
     // Next conv2d call will re-upload weights that have changed.
     void invalidate_weight_cache();
 
+    // --- Shadow cache management ---
+    // Call after optimizer.step() to clear device-side shadow buffers.
+    // Shadows hold conv2d/batchnorm outputs on the GPU so the next layer
+    // can skip H2D.  After parameter updates the forward outputs are stale.
+    void invalidate_shadow_cache();
+
     // --- Memory transfers ---
     void memcpy_h2d(float* d_dst, const float* h_src, size_t n_floats);
     void memcpy_d2h(float* h_dst, const float* d_src, size_t n_floats);

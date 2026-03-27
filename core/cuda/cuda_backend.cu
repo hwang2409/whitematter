@@ -147,6 +147,54 @@ struct WeightCache {
 static WeightCache g_weight_cache;
 
 // ---------------------------------------------------------------------------
+// Shadow cache: keeps conv2d/batchnorm output buffers alive on the device
+// so the next layer can skip the H2D upload of its input.  The D2H copy
+// still happens (CPU code needs the data), but the H2D on the *next* layer
+// is eliminated when its host input pointer matches a shadow entry.
+// ---------------------------------------------------------------------------
+struct ShadowCache {
+    struct Entry {
+        float* d_ptr;
+        size_t n_floats;
+    };
+    std::unordered_map<const float*, Entry> cache;
+
+    // Check if we have a device copy of this host pointer
+    float* find(const float* h_ptr) {
+        auto it = cache.find(h_ptr);
+        if (it != cache.end()) return it->second.d_ptr;
+        return nullptr;
+    }
+
+    // Register a device buffer as the shadow of a host pointer
+    void set(const float* h_ptr, float* d_ptr, size_t n_floats) {
+        auto it = cache.find(h_ptr);
+        if (it != cache.end() && it->second.d_ptr != d_ptr) {
+            g_buf_cache.put(it->second.d_ptr, it->second.n_floats);
+        }
+        cache[h_ptr] = {d_ptr, n_floats};
+    }
+
+    // Invalidate a shadow (called when the host data changes)
+    void invalidate(const float* h_ptr) {
+        auto it = cache.find(h_ptr);
+        if (it != cache.end()) {
+            g_buf_cache.put(it->second.d_ptr, it->second.n_floats);
+            cache.erase(it);
+        }
+    }
+
+    // Invalidate all shadows (called after backward pass modifies data)
+    void invalidate_all() {
+        for (auto& kv : cache) {
+            g_buf_cache.put(kv.second.d_ptr, kv.second.n_floats);
+        }
+        cache.clear();
+    }
+};
+static ShadowCache g_shadow_cache;
+
+// ---------------------------------------------------------------------------
 // is_device_accessible: checks if a pointer is managed or device memory,
 // meaning cuDNN/CUDA kernels can read/write it directly without H2D/D2H.
 // ---------------------------------------------------------------------------
@@ -387,6 +435,9 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
     // Get CUDA stream for async operations
     cudaStream_t stream = static_cast<cudaStream_t>(stream_);
 
+    // Invalidate shadow for the output pointer — we are about to overwrite it
+    g_shadow_cache.invalidate(h_output);
+
     // Check if input/output are already device-accessible (managed memory).
     // When MemoryPool uses cudaMallocManaged, tensor data is GPU-readable — skip H2D.
     bool input_managed = is_device_accessible(h_input);
@@ -394,15 +445,23 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
 
     float *d_input = nullptr, *d_output = nullptr;
     float* p_input = nullptr;  // pinned staging (only used if not managed)
+    bool input_from_shadow = false;
 
     if (input_managed) {
         d_input = const_cast<float*>(h_input);  // cuDNN reads directly
     } else {
-        d_input = g_buf_cache.get(input_size);
-        p_input = g_pinned_cache.get(input_size);
-        memcpy(p_input, h_input, input_size * sizeof(float));
-        CUDA_CHECK(cudaMemcpyAsync(d_input, p_input, input_size * sizeof(float),
-                                    cudaMemcpyHostToDevice, stream));
+        // Check if input already has a device shadow (from previous layer's output)
+        d_input = g_shadow_cache.find(h_input);
+        if (d_input) {
+            input_from_shadow = true;
+        } else {
+            // No shadow — need H2D transfer
+            d_input = g_buf_cache.get(input_size);
+            p_input = g_pinned_cache.get(input_size);
+            memcpy(p_input, h_input, input_size * sizeof(float));
+            CUDA_CHECK(cudaMemcpyAsync(d_input, p_input, input_size * sizeof(float),
+                                        cudaMemcpyHostToDevice, stream));
+        }
     }
 
     if (output_managed) {
@@ -488,6 +547,10 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
         CUDA_CHECK(cudaStreamSynchronize(stream));
         memcpy(h_output, p_output, output_size * sizeof(float));
         g_pinned_cache.put(p_output, output_size);
+
+        // Register d_output as a shadow of h_output — keep it alive on device
+        // so the next layer can skip its H2D upload.
+        g_shadow_cache.set(h_output, d_output, output_size);
     } else {
         // Managed output: just sync to ensure cuDNN write is visible to CPU
         CUDA_CHECK(cudaStreamSynchronize(stream));
@@ -503,8 +566,10 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
     CUDNN_CHECK(cudnnDestroyConvolutionDescriptor(conv_desc));
 
     if (ws) g_buf_cache.put((float*)ws, ws_n_floats);
-    if (!input_managed)  g_buf_cache.put(d_input, input_size);
-    if (!output_managed) g_buf_cache.put(d_output, output_size);
+    // Only return input to buf_cache if we allocated it (not from shadow)
+    if (!input_managed && !input_from_shadow) g_buf_cache.put(d_input, input_size);
+    // d_output: if not managed, it's now owned by shadow_cache — do NOT put back
+    if (output_managed) { /* nothing — managed memory, not from buf_cache */ }
 }
 
 void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
@@ -527,25 +592,44 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
     // Get CUDA stream for async operations
     cudaStream_t stream = static_cast<cudaStream_t>(stream_);
 
-    // Acquire device buffers from cache
+    // Acquire device buffers from cache (check shadow cache first)
     float *d_input = nullptr, *d_grad_output = nullptr;
     float *d_grad_input = nullptr, *d_grad_weight = nullptr, *d_grad_bias = nullptr;
+    bool input_from_shadow = false;
+    bool grad_output_from_shadow = false;
 
-    d_input = g_buf_cache.get(input_size);
-    d_grad_output = g_buf_cache.get(output_size);
+    // Check if input has a shadow (from this layer's forward pass)
+    d_input = g_shadow_cache.find(h_input);
+    if (d_input) {
+        input_from_shadow = true;
+    } else {
+        d_input = g_buf_cache.get(input_size);
+    }
+
+    // Check if grad_output has a shadow (from next layer's forward output)
+    d_grad_output = g_shadow_cache.find(h_grad_output);
+    if (d_grad_output) {
+        grad_output_from_shadow = true;
+    } else {
+        d_grad_output = g_buf_cache.get(output_size);
+    }
+
     float* d_weight = g_weight_cache.get(h_weight, weight_size);
 
-    // Pinned staging buffers for async H2D
-    float* p_input = g_pinned_cache.get(input_size);
-    float* p_grad_output = g_pinned_cache.get(output_size);
+    // Pinned staging buffers for async H2D (only if not from shadow)
+    float* p_input = input_from_shadow ? nullptr : g_pinned_cache.get(input_size);
+    float* p_grad_output = grad_output_from_shadow ? nullptr : g_pinned_cache.get(output_size);
 
-    memcpy(p_input, h_input, input_size * sizeof(float));
-    memcpy(p_grad_output, h_grad_output, output_size * sizeof(float));
-
-    CUDA_CHECK(cudaMemcpyAsync(d_input, p_input, input_size * sizeof(float),
-                                cudaMemcpyHostToDevice, stream));
-    CUDA_CHECK(cudaMemcpyAsync(d_grad_output, p_grad_output, output_size * sizeof(float),
-                                cudaMemcpyHostToDevice, stream));
+    if (p_input) {
+        memcpy(p_input, h_input, input_size * sizeof(float));
+        CUDA_CHECK(cudaMemcpyAsync(d_input, p_input, input_size * sizeof(float),
+                                    cudaMemcpyHostToDevice, stream));
+    }
+    if (p_grad_output) {
+        memcpy(p_grad_output, h_grad_output, output_size * sizeof(float));
+        CUDA_CHECK(cudaMemcpyAsync(d_grad_output, p_grad_output, output_size * sizeof(float),
+                                    cudaMemcpyHostToDevice, stream));
+    }
 
     if (h_grad_input)  d_grad_input  = g_buf_cache.get(input_size);
     if (h_grad_weight) d_grad_weight = g_buf_cache.get(weight_size);
@@ -679,9 +763,9 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
         g_pinned_cache.put(p_grad_bias, out_ch);
     }
 
-    // Return H2D pinned buffers to cache
-    g_pinned_cache.put(p_input, input_size);
-    g_pinned_cache.put(p_grad_output, output_size);
+    // Return H2D pinned buffers to cache (only if we allocated them)
+    if (p_input) g_pinned_cache.put(p_input, input_size);
+    if (p_grad_output) g_pinned_cache.put(p_grad_output, output_size);
 
     // Cleanup
     CUDNN_CHECK(cudnnDestroyTensorDescriptor(input_desc));
@@ -692,8 +776,8 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
     if (d_grad_bias)   g_buf_cache.put(d_grad_bias, out_ch);
     if (d_grad_weight) g_buf_cache.put(d_grad_weight, weight_size);
     if (d_grad_input)  g_buf_cache.put(d_grad_input, input_size);
-    g_buf_cache.put(d_grad_output, output_size);
-    g_buf_cache.put(d_input, input_size);
+    if (!grad_output_from_shadow) g_buf_cache.put(d_grad_output, output_size);
+    if (!input_from_shadow)       g_buf_cache.put(d_input, input_size);
 }
 
 // ---------------------------------------------------------------------------
@@ -717,8 +801,19 @@ void CUDABackend::batchnorm_forward(const float* h_input, float* h_output,
     // Get CUDA stream for async operations
     cudaStream_t stream = static_cast<cudaStream_t>(stream_);
 
+    // Invalidate shadow for the output pointer — we are about to overwrite it
+    g_shadow_cache.invalidate(h_output);
+
+    // Check if input already has a device shadow (from previous layer's output)
+    bool input_from_shadow = false;
+    float* d_input = g_shadow_cache.find(h_input);
+    if (d_input) {
+        input_from_shadow = true;
+    } else {
+        d_input = g_buf_cache.get(total);
+    }
+
     // Allocate device buffers from cache
-    float* d_input        = g_buf_cache.get(total);
     float* d_output       = g_buf_cache.get(total);
     float* d_gamma        = g_buf_cache.get(channels);
     float* d_beta         = g_buf_cache.get(channels);
@@ -727,22 +822,26 @@ void CUDABackend::batchnorm_forward(const float* h_input, float* h_output,
     float* d_save_mean    = g_buf_cache.get(channels);
     float* d_save_inv_var = g_buf_cache.get(channels);
 
-    // Pinned staging buffers for async H2D
-    float* p_input        = g_pinned_cache.get(total);
+    // Pinned staging buffers for async H2D (input only if not from shadow)
+    float* p_input        = input_from_shadow ? nullptr : g_pinned_cache.get(total);
     float* p_gamma        = g_pinned_cache.get(channels);
     float* p_beta         = g_pinned_cache.get(channels);
     float* p_running_mean = g_pinned_cache.get(channels);
     float* p_running_var  = g_pinned_cache.get(channels);
 
-    memcpy(p_input, h_input, total * sizeof(float));
+    if (p_input) {
+        memcpy(p_input, h_input, total * sizeof(float));
+    }
     memcpy(p_gamma, h_gamma, channels * sizeof(float));
     memcpy(p_beta, h_beta, channels * sizeof(float));
     memcpy(p_running_mean, h_running_mean, channels * sizeof(float));
     memcpy(p_running_var, h_running_var, channels * sizeof(float));
 
-    // Async H2D via pinned memory
-    CUDA_CHECK(cudaMemcpyAsync(d_input, p_input, total * sizeof(float),
-                                cudaMemcpyHostToDevice, stream));
+    // Async H2D via pinned memory (input only if not from shadow)
+    if (p_input) {
+        CUDA_CHECK(cudaMemcpyAsync(d_input, p_input, total * sizeof(float),
+                                    cudaMemcpyHostToDevice, stream));
+    }
     CUDA_CHECK(cudaMemcpyAsync(d_gamma, p_gamma, channels * sizeof(float),
                                 cudaMemcpyHostToDevice, stream));
     CUDA_CHECK(cudaMemcpyAsync(d_beta, p_beta, channels * sizeof(float),
@@ -812,8 +911,11 @@ void CUDABackend::batchnorm_forward(const float* h_input, float* h_output,
     if (h_save_mean)    memcpy(h_save_mean, p_save_mean, channels * sizeof(float));
     if (h_save_inv_var) memcpy(h_save_inv_var, p_save_inv_var, channels * sizeof(float));
 
+    // Register d_output as a shadow of h_output — keep it alive on device
+    g_shadow_cache.set(h_output, d_output, total);
+
     // Return pinned buffers to cache
-    g_pinned_cache.put(p_input, total);
+    if (p_input) g_pinned_cache.put(p_input, total);
     g_pinned_cache.put(p_gamma, channels);
     g_pinned_cache.put(p_beta, channels);
     g_pinned_cache.put(p_running_mean, channels);
@@ -825,8 +927,9 @@ void CUDABackend::batchnorm_forward(const float* h_input, float* h_output,
     if (p_save_inv_var) g_pinned_cache.put(p_save_inv_var, channels);
 
     // Return device buffers to cache
-    g_buf_cache.put(d_input, total);
-    g_buf_cache.put(d_output, total);
+    // d_input: only return if we allocated it (not from shadow)
+    if (!input_from_shadow) g_buf_cache.put(d_input, total);
+    // d_output is now owned by shadow_cache — do NOT put back
     g_buf_cache.put(d_gamma, channels);
     g_buf_cache.put(d_beta, channels);
     g_buf_cache.put(d_running_mean, channels);
@@ -853,9 +956,25 @@ void CUDABackend::batchnorm_backward(const float* h_input, const float* h_grad_o
     // Get CUDA stream for async operations
     cudaStream_t stream = static_cast<cudaStream_t>(stream_);
 
+    // Check shadow cache for input and grad_output
+    bool input_from_shadow = false;
+    bool grad_output_from_shadow = false;
+
+    float* d_input = g_shadow_cache.find(h_input);
+    if (d_input) {
+        input_from_shadow = true;
+    } else {
+        d_input = g_buf_cache.get(total);
+    }
+
+    float* d_grad_output = g_shadow_cache.find(h_grad_output);
+    if (d_grad_output) {
+        grad_output_from_shadow = true;
+    } else {
+        d_grad_output = g_buf_cache.get(total);
+    }
+
     // Allocate device buffers from cache
-    float* d_input       = g_buf_cache.get(total);
-    float* d_grad_output = g_buf_cache.get(total);
     float* d_grad_input  = h_grad_input ? g_buf_cache.get(total) : nullptr;
     float* d_gamma       = g_buf_cache.get(channels);
     float* d_grad_gamma  = g_buf_cache.get(channels);
@@ -863,24 +982,28 @@ void CUDABackend::batchnorm_backward(const float* h_input, const float* h_grad_o
     float* d_save_mean   = g_buf_cache.get(channels);
     float* d_save_inv_var = g_buf_cache.get(channels);
 
-    // Pinned staging buffers for async H2D
-    float* p_input        = g_pinned_cache.get(total);
-    float* p_grad_output  = g_pinned_cache.get(total);
+    // Pinned staging buffers for async H2D (only if not from shadow)
+    float* p_input        = input_from_shadow ? nullptr : g_pinned_cache.get(total);
+    float* p_grad_output  = grad_output_from_shadow ? nullptr : g_pinned_cache.get(total);
     float* p_gamma        = g_pinned_cache.get(channels);
     float* p_save_mean    = g_pinned_cache.get(channels);
     float* p_save_inv_var = g_pinned_cache.get(channels);
 
-    memcpy(p_input, h_input, total * sizeof(float));
-    memcpy(p_grad_output, h_grad_output, total * sizeof(float));
+    if (p_input) memcpy(p_input, h_input, total * sizeof(float));
+    if (p_grad_output) memcpy(p_grad_output, h_grad_output, total * sizeof(float));
     memcpy(p_gamma, h_gamma, channels * sizeof(float));
     memcpy(p_save_mean, h_save_mean, channels * sizeof(float));
     memcpy(p_save_inv_var, h_save_inv_var, channels * sizeof(float));
 
-    // Async H2D via pinned memory
-    CUDA_CHECK(cudaMemcpyAsync(d_input, p_input, total * sizeof(float),
-                                cudaMemcpyHostToDevice, stream));
-    CUDA_CHECK(cudaMemcpyAsync(d_grad_output, p_grad_output, total * sizeof(float),
-                                cudaMemcpyHostToDevice, stream));
+    // Async H2D via pinned memory (only if not from shadow)
+    if (p_input) {
+        CUDA_CHECK(cudaMemcpyAsync(d_input, p_input, total * sizeof(float),
+                                    cudaMemcpyHostToDevice, stream));
+    }
+    if (p_grad_output) {
+        CUDA_CHECK(cudaMemcpyAsync(d_grad_output, p_grad_output, total * sizeof(float),
+                                    cudaMemcpyHostToDevice, stream));
+    }
     CUDA_CHECK(cudaMemcpyAsync(d_gamma, p_gamma, channels * sizeof(float),
                                 cudaMemcpyHostToDevice, stream));
     CUDA_CHECK(cudaMemcpyAsync(d_save_mean, p_save_mean, channels * sizeof(float),
@@ -947,16 +1070,16 @@ void CUDABackend::batchnorm_backward(const float* h_input, const float* h_grad_o
         g_pinned_cache.put(p_dgb, channels);
     }
 
-    // Return H2D pinned buffers to cache
-    g_pinned_cache.put(p_input, total);
-    g_pinned_cache.put(p_grad_output, total);
+    // Return H2D pinned buffers to cache (only if we allocated them)
+    if (p_input) g_pinned_cache.put(p_input, total);
+    if (p_grad_output) g_pinned_cache.put(p_grad_output, total);
     g_pinned_cache.put(p_gamma, channels);
     g_pinned_cache.put(p_save_mean, channels);
     g_pinned_cache.put(p_save_inv_var, channels);
 
-    // Return device buffers to cache
-    g_buf_cache.put(d_input, total);
-    g_buf_cache.put(d_grad_output, total);
+    // Return device buffers to cache (skip those owned by shadow cache)
+    if (!input_from_shadow) g_buf_cache.put(d_input, total);
+    if (!grad_output_from_shadow) g_buf_cache.put(d_grad_output, total);
     if (d_grad_input) g_buf_cache.put(d_grad_input, total);
     g_buf_cache.put(d_gamma, channels);
     g_buf_cache.put(d_grad_gamma, channels);
@@ -1009,6 +1132,10 @@ void CUDABackend::rmsprop_step(float*, const float*, float*,
 
 void CUDABackend::invalidate_weight_cache() {
     g_weight_cache.invalidate();
+}
+
+void CUDABackend::invalidate_shadow_cache() {
+    g_shadow_cache.invalidate_all();
 }
 
 }  // namespace whitematter
