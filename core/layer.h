@@ -22,6 +22,12 @@ public:
         return input_shape;
     }
 
+    virtual void to(whitematter::DeviceType device) {
+        for (auto& p : parameters()) {
+            p->to_inplace(device);
+        }
+    }
+
     TensorPtr operator()(const TensorPtr& input) {
         return forward(input);
     }

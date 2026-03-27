@@ -60,6 +60,8 @@ public:
 
     static TensorPtr create(const std::vector<size_t>& shape, bool requires_grad = false);
     static TensorPtr create(const std::vector<float>& data, const std::vector<size_t>& shape, bool requires_grad = false);
+    static TensorPtr create_on_device(const std::vector<size_t>& shape, bool requires_grad,
+                                       whitematter::DeviceType device);
     static TensorPtr zeros(const std::vector<size_t>& shape, bool requires_grad = false);
     static TensorPtr ones(const std::vector<size_t>& shape, bool requires_grad = false);
     static TensorPtr randn(const std::vector<size_t>& shape, bool requires_grad = false);
@@ -142,6 +144,9 @@ public:
 
     // Device placement (CPU, METAL, or CUDA). to(METAL)/to(CUDA) use GPU for supported ops when available.
     TensorPtr to(whitematter::DeviceType d) const;
+    // In-place device transfer (moves storage to target device).
+    void to_inplace(whitematter::DeviceType d);
+    bool is_cuda() const { return device == whitematter::DeviceType::CUDA; }
 
     // Data augmentation (for images: [N,C,H,W] or [C,H,W])
     TensorPtr flip_horizontal() const;                           // Flip left-right

@@ -12,6 +12,7 @@
 #endif
 #if defined(WHITEMATTER_CUDA)
 #include "../cuda/cuda_backend.h"
+#include "../cuda/cuda_tensor_ops.h"
 #endif
 
 // Reusable scratch buffers to avoid heap allocation on every conv forward/backward.
@@ -237,6 +238,15 @@ static void conv2d_winograd_f2x2_3x3(
 
 TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
                           size_t stride, size_t padding, size_t groups, size_t dilation) const {
+#if defined(WHITEMATTER_CUDA)
+    if (device == whitematter::DeviceType::CUDA && weight->device == whitematter::DeviceType::CUDA &&
+        whitematter::cuda_backend_available()) {
+        auto r = cuda_ops::conv2d(this, weight, bias, stride, padding, groups, dilation);
+        if (r) return r;
+        // nullptr means unsupported config (e.g. dilation > 1); fall through to CPU
+    }
+#endif
+
     assert(shape.size() == 4);
     assert(weight->shape.size() == 4);
     assert(groups >= 1);

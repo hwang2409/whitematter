@@ -31,6 +31,12 @@ public:
 
     SGD(const std::vector<TensorPtr>& params, float lr, float momentum = 0.0f);
     void step() override;
+
+#if defined(WHITEMATTER_CUDA)
+    std::vector<float*> d_state1;  // GPU momentum/velocity
+    bool cuda_state_initialized_ = false;
+    void init_cuda_state();
+#endif
 };
 
 class Adam : public Optimizer {
@@ -43,6 +49,13 @@ public:
     Adam(const std::vector<TensorPtr>& params, float lr = 0.001f,
          float beta1 = 0.9f, float beta2 = 0.999f, float eps = 1e-8f);
     void step() override;
+
+#if defined(WHITEMATTER_CUDA)
+    std::vector<float*> d_state1;  // GPU m (first moment)
+    std::vector<float*> d_state2;  // GPU v (second moment)
+    bool cuda_state_initialized_ = false;
+    void init_cuda_state();
+#endif
 };
 
 class AdamW : public Optimizer {
@@ -56,6 +69,13 @@ public:
           float beta1 = 0.9f, float beta2 = 0.999f, float eps = 1e-8f,
           float weight_decay = 0.01f);
     void step() override;
+
+#if defined(WHITEMATTER_CUDA)
+    std::vector<float*> d_state1;  // GPU m (first moment)
+    std::vector<float*> d_state2;  // GPU v (second moment)
+    bool cuda_state_initialized_ = false;
+    void init_cuda_state();
+#endif
 };
 
 class RMSprop : public Optimizer {
@@ -68,6 +88,13 @@ public:
             float alpha = 0.99f, float eps = 1e-8f, float momentum = 0.0f,
             float weight_decay = 0.0f);
     void step() override;
+
+#if defined(WHITEMATTER_CUDA)
+    std::vector<float*> d_state1;  // GPU v (running average of squared gradients)
+    std::vector<float*> d_state2;  // GPU momentum buffer
+    bool cuda_state_initialized_ = false;
+    void init_cuda_state();
+#endif
 };
 
 // Gradient Clipping Utilities
