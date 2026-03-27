@@ -195,6 +195,33 @@ struct ShadowCache {
 static ShadowCache g_shadow_cache;
 
 // ---------------------------------------------------------------------------
+// Simple CUDA kernels for ReLU and elementwise add.
+// Defined here (not in cuda_activations.cu) because that file is not compiled
+// into the build.  These kernels are launched from the CUDABackend methods.
+// ---------------------------------------------------------------------------
+
+static constexpr int kBlock = 256;
+
+__global__ void relu_fwd_k(const float* __restrict__ in, float* __restrict__ out, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) out[i] = in[i] > 0.0f ? in[i] : 0.0f;
+}
+
+__global__ void relu_bwd_k(const float* __restrict__ grad_out, const float* __restrict__ input,
+                           float* __restrict__ grad_in, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) grad_in[i] += grad_out[i] * (input[i] > 0.0f ? 1.0f : 0.0f);
+}
+
+__global__ void add_fwd_k(const float* __restrict__ a, const float* __restrict__ b,
+                          float* __restrict__ c, int n) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < n) c[i] = a[i] + b[i];
+}
+
+static int grid_for(int n) { return (n + kBlock - 1) / kBlock; }
+
+// ---------------------------------------------------------------------------
 // is_device_accessible: checks if a pointer is managed or device memory,
 // meaning cuDNN/CUDA kernels can read/write it directly without H2D/D2H.
 // ---------------------------------------------------------------------------
@@ -356,8 +383,10 @@ void CUDABackend::memset_zero(float* d_ptr, size_t n_floats) {
 // Element-wise stubs (to be implemented in separate kernel files)
 // ---------------------------------------------------------------------------
 
-void CUDABackend::elementwise_add(const float*, const float*, float*, size_t) {
-    // TODO: implement CUDA kernel
+void CUDABackend::elementwise_add(const float* d_a, const float* d_b, float* d_c, size_t n) {
+    if (n == 0) return;
+    cudaStream_t stream = static_cast<cudaStream_t>(stream_);
+    add_fwd_k<<<grid_for((int)n), kBlock, 0, stream>>>(d_a, d_b, d_c, (int)n);
 }
 
 void CUDABackend::elementwise_sub(const float*, const float*, float*, size_t) {
@@ -381,11 +410,20 @@ void CUDABackend::fill(float*, float, size_t) {
 }
 
 // ---------------------------------------------------------------------------
-// Activation stubs
+// Activations (device-pointer methods)
 // ---------------------------------------------------------------------------
 
-void CUDABackend::relu_forward(const float*, float*, size_t) {}
-void CUDABackend::relu_backward(float*, const float*, const float*, size_t) {}
+void CUDABackend::relu_forward(const float* d_x, float* d_y, size_t n) {
+    if (n == 0) return;
+    cudaStream_t stream = static_cast<cudaStream_t>(stream_);
+    relu_fwd_k<<<grid_for((int)n), kBlock, 0, stream>>>(d_x, d_y, (int)n);
+}
+
+void CUDABackend::relu_backward(float* d_grad_in, const float* d_grad_out, const float* d_input, size_t n) {
+    if (n == 0) return;
+    cudaStream_t stream = static_cast<cudaStream_t>(stream_);
+    relu_bwd_k<<<grid_for((int)n), kBlock, 0, stream>>>(d_grad_out, d_input, d_grad_in, (int)n);
+}
 void CUDABackend::sigmoid_forward(const float*, float*, size_t) {}
 void CUDABackend::sigmoid_backward(float*, const float*, const float*, size_t) {}
 void CUDABackend::tanh_forward(const float*, float*, size_t) {}
@@ -1129,6 +1167,175 @@ void CUDABackend::adamw_step(float*, const float*, float*, float*,
 void CUDABackend::rmsprop_step(float*, const float*, float*,
                                 float, float, float,
                                 float, float*, float, size_t) {}
+
+// ---------------------------------------------------------------------------
+// Host-pointer ReLU forward: H2D, kernel, D2H with shadow cache
+// ---------------------------------------------------------------------------
+void CUDABackend::relu_forward_host(const float* h_input, float* h_output, size_t n) {
+    init();
+    if (!initialized_ || n == 0) return;
+
+    cudaStream_t stream = static_cast<cudaStream_t>(stream_);
+
+    // Invalidate shadow for the output pointer — we are about to overwrite it
+    g_shadow_cache.invalidate(h_output);
+
+    // Check shadow cache for input
+    float* d_input = g_shadow_cache.find(h_input);
+    bool input_from_shadow = (d_input != nullptr);
+
+    float* d_output = g_buf_cache.get(n);
+    float* p_input = nullptr;
+
+    if (!input_from_shadow) {
+        d_input = g_buf_cache.get(n);
+        p_input = g_pinned_cache.get(n);
+        memcpy(p_input, h_input, n * sizeof(float));
+        CUDA_CHECK(cudaMemcpyAsync(d_input, p_input, n * sizeof(float),
+                                    cudaMemcpyHostToDevice, stream));
+    }
+
+    // Launch ReLU kernel
+    relu_fwd_k<<<grid_for((int)n), kBlock, 0, stream>>>(d_input, d_output, (int)n);
+
+    // D2H
+    float* p_output = g_pinned_cache.get(n);
+    CUDA_CHECK(cudaMemcpyAsync(p_output, d_output, n * sizeof(float),
+                                cudaMemcpyDeviceToHost, stream));
+    CUDA_CHECK(cudaStreamSynchronize(stream));
+    memcpy(h_output, p_output, n * sizeof(float));
+    g_pinned_cache.put(p_output, n);
+
+    // Shadow the output
+    g_shadow_cache.set(h_output, d_output, n);
+
+    if (p_input) g_pinned_cache.put(p_input, n);
+    if (!input_from_shadow) g_buf_cache.put(d_input, n);
+    // d_output is now owned by shadow_cache — do NOT put back
+}
+
+// ---------------------------------------------------------------------------
+// Host-pointer ReLU backward: H2D, kernel, D2H with shadow cache
+// grad_in is accumulated (+=), matching the CPU backward convention.
+// ---------------------------------------------------------------------------
+void CUDABackend::relu_backward_host(const float* h_grad_out, const float* h_input,
+                                     float* h_grad_in, size_t n) {
+    init();
+    if (!initialized_ || n == 0) return;
+
+    cudaStream_t stream = static_cast<cudaStream_t>(stream_);
+
+    // Check shadow cache for both inputs
+    float* d_grad_out = g_shadow_cache.find(h_grad_out);
+    bool grad_out_from_shadow = (d_grad_out != nullptr);
+
+    float* d_input = g_shadow_cache.find(h_input);
+    bool input_from_shadow = (d_input != nullptr);
+
+    float* p_grad_out = nullptr;
+    float* p_input = nullptr;
+
+    if (!grad_out_from_shadow) {
+        d_grad_out = g_buf_cache.get(n);
+        p_grad_out = g_pinned_cache.get(n);
+        memcpy(p_grad_out, h_grad_out, n * sizeof(float));
+        CUDA_CHECK(cudaMemcpyAsync(d_grad_out, p_grad_out, n * sizeof(float),
+                                    cudaMemcpyHostToDevice, stream));
+    }
+
+    if (!input_from_shadow) {
+        d_input = g_buf_cache.get(n);
+        p_input = g_pinned_cache.get(n);
+        memcpy(p_input, h_input, n * sizeof(float));
+        CUDA_CHECK(cudaMemcpyAsync(d_input, p_input, n * sizeof(float),
+                                    cudaMemcpyHostToDevice, stream));
+    }
+
+    // Allocate device grad_in and upload current values (for accumulation)
+    float* d_grad_in = g_buf_cache.get(n);
+    float* p_grad_in = g_pinned_cache.get(n);
+    memcpy(p_grad_in, h_grad_in, n * sizeof(float));
+    CUDA_CHECK(cudaMemcpyAsync(d_grad_in, p_grad_in, n * sizeof(float),
+                                cudaMemcpyHostToDevice, stream));
+
+    // Launch ReLU backward kernel (accumulates: grad_in[i] += ...)
+    relu_bwd_k<<<grid_for((int)n), kBlock, 0, stream>>>(d_grad_out, d_input, d_grad_in, (int)n);
+
+    // D2H
+    CUDA_CHECK(cudaMemcpyAsync(p_grad_in, d_grad_in, n * sizeof(float),
+                                cudaMemcpyDeviceToHost, stream));
+    CUDA_CHECK(cudaStreamSynchronize(stream));
+    memcpy(h_grad_in, p_grad_in, n * sizeof(float));
+
+    // Return buffers
+    g_pinned_cache.put(p_grad_in, n);
+    if (p_grad_out) g_pinned_cache.put(p_grad_out, n);
+    if (p_input) g_pinned_cache.put(p_input, n);
+
+    g_buf_cache.put(d_grad_in, n);
+    if (!grad_out_from_shadow) g_buf_cache.put(d_grad_out, n);
+    if (!input_from_shadow) g_buf_cache.put(d_input, n);
+}
+
+// ---------------------------------------------------------------------------
+// Host-pointer elementwise add: H2D, kernel, D2H with shadow cache
+// ---------------------------------------------------------------------------
+void CUDABackend::elementwise_add_host(const float* h_a, const float* h_b, float* h_c, size_t n) {
+    init();
+    if (!initialized_ || n == 0) return;
+
+    cudaStream_t stream = static_cast<cudaStream_t>(stream_);
+
+    // Invalidate shadow for the output pointer — we are about to overwrite it
+    g_shadow_cache.invalidate(h_c);
+
+    // Check shadow cache for both inputs
+    float* d_a = g_shadow_cache.find(h_a);
+    bool a_from_shadow = (d_a != nullptr);
+
+    float* d_b = g_shadow_cache.find(h_b);
+    bool b_from_shadow = (d_b != nullptr);
+
+    float* d_c = g_buf_cache.get(n);
+    float* p_a = nullptr;
+    float* p_b = nullptr;
+
+    if (!a_from_shadow) {
+        d_a = g_buf_cache.get(n);
+        p_a = g_pinned_cache.get(n);
+        memcpy(p_a, h_a, n * sizeof(float));
+        CUDA_CHECK(cudaMemcpyAsync(d_a, p_a, n * sizeof(float),
+                                    cudaMemcpyHostToDevice, stream));
+    }
+
+    if (!b_from_shadow) {
+        d_b = g_buf_cache.get(n);
+        p_b = g_pinned_cache.get(n);
+        memcpy(p_b, h_b, n * sizeof(float));
+        CUDA_CHECK(cudaMemcpyAsync(d_b, p_b, n * sizeof(float),
+                                    cudaMemcpyHostToDevice, stream));
+    }
+
+    // Launch add kernel
+    add_fwd_k<<<grid_for((int)n), kBlock, 0, stream>>>(d_a, d_b, d_c, (int)n);
+
+    // D2H
+    float* p_c = g_pinned_cache.get(n);
+    CUDA_CHECK(cudaMemcpyAsync(p_c, d_c, n * sizeof(float),
+                                cudaMemcpyDeviceToHost, stream));
+    CUDA_CHECK(cudaStreamSynchronize(stream));
+    memcpy(h_c, p_c, n * sizeof(float));
+    g_pinned_cache.put(p_c, n);
+
+    // Shadow the output
+    g_shadow_cache.set(h_c, d_c, n);
+
+    if (p_a) g_pinned_cache.put(p_a, n);
+    if (p_b) g_pinned_cache.put(p_b, n);
+    if (!a_from_shadow) g_buf_cache.put(d_a, n);
+    if (!b_from_shadow) g_buf_cache.put(d_b, n);
+    // d_c is now owned by shadow_cache — do NOT put back
+}
 
 void CUDABackend::invalidate_weight_cache() {
     g_weight_cache.invalidate();

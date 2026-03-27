@@ -101,6 +101,17 @@ void CUDABackend::sgd_step(float*, const float*, float*,
 void CUDABackend::adam_step(float*, const float*, float*, float*,
                             float, float, float, float,
                             float, float, size_t) {}
+void CUDABackend::adamw_step(float*, const float*, float*, float*,
+                              float, float, float, float,
+                              float, float, float, size_t) {}
+void CUDABackend::rmsprop_step(float*, const float*, float*,
+                                float, float, float,
+                                float, float*, float, size_t) {}
+
+// Host-pointer variants (no-op without CUDA)
+void CUDABackend::relu_forward_host(const float*, float*, size_t) {}
+void CUDABackend::relu_backward_host(const float*, const float*, float*, size_t) {}
+void CUDABackend::elementwise_add_host(const float*, const float*, float*, size_t) {}
 
 // Weight cache (no-op without CUDA)
 void CUDABackend::invalidate_weight_cache() {}

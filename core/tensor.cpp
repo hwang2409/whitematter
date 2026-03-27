@@ -829,6 +829,30 @@ TensorPtr Tensor::add(const TensorPtr& other) const {
         cpu_result->to_inplace(whitematter::DeviceType::CUDA);
         return cpu_result;
     }
+    // Transparent GPU offload for CPU tensors in cuDNN pipeline (same-shape only)
+    if (device == whitematter::DeviceType::CPU && other->device == whitematter::DeviceType::CPU &&
+        shape == other->shape && whitematter::cuda_backend_available()) {
+        bool track = (requires_grad || other->requires_grad) && GradMode::is_enabled();
+        auto result = create(shape, track);
+        whitematter::CUDABackend::instance().elementwise_add_host(data(), other->data(), result->data(), size());
+        if (track) {
+            auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
+            auto other_ptr = other;
+            result->parents = {self_ptr, other_ptr};
+            result->grad_fn = [self_ptr, other_ptr, result]() {
+                // add backward: grad passes through to both inputs
+                if (self_ptr->requires_grad) {
+                    simd_add(self_ptr->grad(), self_ptr->grad(),
+                             result->grad(), self_ptr->size());
+                }
+                if (other_ptr->requires_grad) {
+                    simd_add(other_ptr->grad(), other_ptr->grad(),
+                             result->grad(), other_ptr->size());
+                }
+            };
+        }
+        return result;
+    }
 #endif
 
     bool track = (requires_grad || other->requires_grad) && GradMode::is_enabled();
@@ -1242,6 +1266,21 @@ TensorPtr Tensor::relu() const {
 #if defined(WHITEMATTER_CUDA)
     if (device == whitematter::DeviceType::CUDA && whitematter::cuda_backend_available()) {
         return cuda_ops::relu(this);
+    }
+    // Transparent GPU offload for CPU tensors in cuDNN pipeline
+    if (device == whitematter::DeviceType::CPU && whitematter::cuda_backend_available()) {
+        bool track = requires_grad && GradMode::is_enabled();
+        auto result = create(shape, track);
+        whitematter::CUDABackend::instance().relu_forward_host(data(), result->data(), size());
+        if (track) {
+            auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
+            result->parents = {self_ptr};
+            result->grad_fn = [self_ptr, result]() {
+                whitematter::CUDABackend::instance().relu_backward_host(
+                    result->grad(), self_ptr->data(), self_ptr->grad(), self_ptr->size());
+            };
+        }
+        return result;
     }
 #endif
 

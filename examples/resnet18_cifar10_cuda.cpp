@@ -11,6 +11,7 @@
 //   4. Predictions are copied back to CPU for accuracy calculation.
 
 #include <cstdio>
+#include <cstdlib>
 #include <cmath>
 #include <chrono>
 #include <vector>
@@ -347,6 +348,9 @@ int main(int argc, char* argv[]) {
         data_dir = argv[1];
     }
 
+    size_t batch_size = 128;  // default
+    if (argc > 2) batch_size = std::atoi(argv[2]);
+
     // ------------------------------------------------------------------
     // Check CUDA availability
     // ------------------------------------------------------------------
@@ -396,7 +400,7 @@ int main(int argc, char* argv[]) {
     // ------------------------------------------------------------------
     // Hyperparameters
     // ------------------------------------------------------------------
-    const size_t batch_size   = 64;  // 64 for CUDA managed memory (1.15GB limit on WSL2)
+    // batch_size is set from command line (default 128), see top of main()
     const int    num_epochs   = 200;
     const float  init_lr      = 0.1f;
     const float  weight_decay = 5e-4f;

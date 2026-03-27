@@ -95,6 +95,13 @@ public:
                       float lr, float alpha, float eps,
                       float momentum, float* d_buffer, float weight_decay, size_t n);
 
+    // --- Host-pointer variants for transparent GPU offload ---
+    // Accept CPU (host) pointers, copy H2D, run kernel, copy D2H.
+    // Uses shadow cache to skip H2D when data is already on device.
+    void relu_forward_host(const float* h_input, float* h_output, size_t n);
+    void relu_backward_host(const float* h_grad_out, const float* h_input, float* h_grad_in, size_t n);
+    void elementwise_add_host(const float* h_a, const float* h_b, float* h_c, size_t n);
+
     // --- Weight cache management ---
     // Call after optimizer.step() to mark cached weight buffers as stale.
     // Next conv2d call will re-upload weights that have changed.
