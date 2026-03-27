@@ -206,7 +206,10 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
                                  size_t in_h, size_t in_w, size_t kernel_h, size_t kernel_w,
                                  size_t stride, size_t padding, size_t groups) {
     init();
-    if (!initialized_ || !cudnn_handle_) return;
+    if (!initialized_ || !cudnn_handle_) {
+        fprintf(stderr, "cuDNN conv2d_forward: backend not ready\n");
+        return;
+    }
 
     size_t out_h = (in_h + 2 * padding - kernel_h) / stride + 1;
     size_t out_w = (in_w + 2 * padding - kernel_w) / stride + 1;
@@ -229,6 +232,14 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
     }
 
     // Copy data to managed buffers
+    if (!h_input || !h_weight || !h_output) {
+        fprintf(stderr, "cuDNN conv2d_forward: null host pointer (input=%p weight=%p output=%p)\n",
+                (void*)h_input, (void*)h_weight, (void*)h_output);
+        pool.release(d_input, input_size);
+        pool.release(d_weight, weight_size);
+        pool.release(d_output, output_size);
+        return;
+    }
     memcpy(d_input,  h_input,  input_size  * sizeof(float));
     memcpy(d_weight, h_weight, weight_size * sizeof(float));
 
