@@ -36,8 +36,8 @@ void CUDABackend::init() {
     // Set cuBLAS to use our stream
     CUBLAS_CHECK(cublasSetStream(handle, s));
 
-    // Allocate 256 MB workspace for cuDNN etc.
-    workspace_size_ = 256 * 1024 * 1024;
+    // Allocate 8 MB workspace for cuDNN etc. (kept small for WSL2/low-VRAM GPUs)
+    workspace_size_ = 8 * 1024 * 1024;
     CUDA_CHECK(cudaMallocManaged(&workspace_, workspace_size_));
 
     // cuDNN handle would be created here if cudnn is linked:

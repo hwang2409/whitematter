@@ -24,19 +24,33 @@ size_t CUDAMemoryPool::size_class(size_t n) {
 
 float* CUDAMemoryPool::acquire(size_t n_floats) {
     if (n_floats == 0) return nullptr;
-    size_t bucket = size_class(n_floats);
+    // For small allocs, round to power-of-2 for reuse. For large allocs, exact size.
+    size_t alloc_size = (n_floats <= 65536) ? size_class(n_floats) : n_floats;
 
     std::lock_guard<std::mutex> lock(mu_);
-    auto it = free_lists_.find(bucket);
+    auto it = free_lists_.find(alloc_size);
     if (it != free_lists_.end() && !it->second.empty()) {
         float* ptr = it->second.back();
         it->second.pop_back();
         return ptr;
     }
 
-    // No free buffer in this bucket; allocate from device
+    // No free buffer; allocate from device
     float* ptr = nullptr;
-    CUDA_CHECK(cudaMallocManaged(&ptr, bucket * sizeof(float)));
+    cudaError_t err = cudaMallocManaged(&ptr, alloc_size * sizeof(float));
+    if (err != cudaSuccess) {
+        // OOM: try freeing cached buffers and retrying
+        for (auto& [sz, list] : free_lists_) {
+            for (float* p : list) cudaFree(p);
+            list.clear();
+        }
+        err = cudaMallocManaged(&ptr, alloc_size * sizeof(float));
+        if (err != cudaSuccess) {
+            fprintf(stderr, "CUDA OOM: failed to allocate %zu floats (%.1f MB)\n",
+                    alloc_size, alloc_size * sizeof(float) / (1024.0 * 1024.0));
+            return nullptr;
+        }
+    }
     return ptr;
 }
 
