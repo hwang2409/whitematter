@@ -37,12 +37,11 @@ static constexpr size_t BLOCK_SIZE = 32;
 
 void matmul_blocked(float* C, const float* A, const float* B,
                     size_t M, size_t K, size_t N) {
-#if defined(WHITEMATTER_CUDA)
-    // Transparent GPU offload using cudaMallocManaged temp buffers.
-    // Offload when total FLOPS justifies H2D + compute + D2H overhead.
-    // Threshold: ~4M floats transferred vs compute benefit.
-    // With managed memory, the overhead is lower (no explicit transfer for CPU-resident data).
-    if (whitematter::cuda_backend_available() && M * K + K * N + M * N > 500000) {
+#if defined(WHITEMATTER_CUDA) && !defined(USE_BLAS)
+    // Transparent GPU offload: ONLY when no CPU BLAS is available.
+    // When OpenBLAS/Accelerate is linked, CPU BLAS wins for conv2d-sized GEMMs
+    // because the H2D/D2H transfer overhead exceeds the GPU compute benefit.
+    if (whitematter::cuda_backend_available() && M >= 512 && N >= 512) {
         whitematter::CUDABackend::instance().matmul(A, B, C, (int)M, (int)N, (int)K);
         return;
     }
