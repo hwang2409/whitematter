@@ -15,6 +15,8 @@
 #include <cmath>
 #include <chrono>
 #include <vector>
+#include <string>
+#include <algorithm>
 #include "tensor.h"
 #include "layer.h"
 #include "loss.h"
@@ -29,16 +31,34 @@
 #endif
 
 // ---------------------------------------------------------------------------
-// Save model parameters to a binary file.
-// Format: [num_params:u32] then for each param: [ndim:u32][dims:u64...][data:float...]
+// Checkpoint format (binary):
+//   [magic:u32 = 0x574D4350]  "WMCP"
+//   [epoch:i32]               epoch after which this checkpoint was saved
+//   [best_acc:f32]            best test accuracy seen so far
+//   [lr:f32]                  current learning rate
+//   [num_params:u32]
+//   for each parameter:
+//     [ndim:u32][dims:u64...][data:float...]
+//   [num_momentum:u32]
+//   for each momentum buffer:
+//     [size:u64][data:float...]
 // ---------------------------------------------------------------------------
-static void save_parameters(const std::vector<TensorPtr>& params, const std::string& path) {
+static const uint32_t CHECKPOINT_MAGIC = 0x574D4350;
+
+static void save_checkpoint(const std::string& path, int epoch, float best_acc,
+                            float lr, const std::vector<TensorPtr>& params,
+                            const std::vector<std::vector<float>>& momentum) {
     FILE* f = fopen(path.c_str(), "wb");
-    if (!f) { fprintf(stderr, "Failed to save to %s\n", path.c_str()); return; }
+    if (!f) { fprintf(stderr, "Failed to save checkpoint to %s\n", path.c_str()); return; }
 
-    uint32_t num_params = params.size();
-    fwrite(&num_params, sizeof(uint32_t), 1, f);
+    fwrite(&CHECKPOINT_MAGIC, 4, 1, f);
+    fwrite(&epoch, 4, 1, f);
+    fwrite(&best_acc, 4, 1, f);
+    fwrite(&lr, 4, 1, f);
 
+    // Save parameters
+    uint32_t n = params.size();
+    fwrite(&n, 4, 1, f);
     for (auto& p : params) {
         uint32_t ndim = p->shape.size();
         fwrite(&ndim, sizeof(uint32_t), 1, f);
@@ -48,7 +68,77 @@ static void save_parameters(const std::vector<TensorPtr>& params, const std::str
         }
         fwrite(p->data(), sizeof(float), p->size(), f);
     }
+
+    // Save momentum buffers
+    uint32_t nm = momentum.size();
+    fwrite(&nm, 4, 1, f);
+    for (auto& buf : momentum) {
+        uint64_t sz = buf.size();
+        fwrite(&sz, 8, 1, f);
+        fwrite(buf.data(), sizeof(float), buf.size(), f);
+    }
+
     fclose(f);
+    printf("Checkpoint saved to %s (epoch %d, best %.2f%%, lr %.6f)\n",
+           path.c_str(), epoch, best_acc, lr);
+}
+
+static bool load_checkpoint(const std::string& path, int& epoch, float& best_acc,
+                            float& lr, std::vector<TensorPtr>& params,
+                            std::vector<std::vector<float>>& momentum) {
+    FILE* f = fopen(path.c_str(), "rb");
+    if (!f) return false;
+
+    uint32_t magic;
+    if (fread(&magic, 4, 1, f) != 1 || magic != CHECKPOINT_MAGIC) {
+        fprintf(stderr, "Invalid checkpoint file: %s (bad magic)\n", path.c_str());
+        fclose(f);
+        return false;
+    }
+
+    fread(&epoch, 4, 1, f);
+    fread(&best_acc, 4, 1, f);
+    fread(&lr, 4, 1, f);
+
+    uint32_t n;
+    fread(&n, 4, 1, f);
+    if (n != params.size()) {
+        fprintf(stderr, "Parameter count mismatch: checkpoint has %u, model has %zu\n",
+                n, params.size());
+        fclose(f);
+        return false;
+    }
+
+    for (auto& p : params) {
+        uint32_t ndim;
+        fread(&ndim, 4, 1, f);
+        for (uint32_t i = 0; i < ndim; i++) {
+            uint64_t d;
+            fread(&d, 8, 1, f);
+        }
+        fread(p->data(), sizeof(float), p->size(), f);
+    }
+
+    // Load momentum buffers
+    uint32_t nm;
+    if (fread(&nm, 4, 1, f) == 1 && nm == momentum.size()) {
+        for (auto& buf : momentum) {
+            uint64_t sz;
+            fread(&sz, 8, 1, f);
+            if (sz == buf.size()) {
+                fread(buf.data(), sizeof(float), buf.size(), f);
+            } else {
+                // Size mismatch — skip this buffer and zero our copy
+                fseek(f, sz * sizeof(float), SEEK_CUR);
+                std::fill(buf.begin(), buf.end(), 0.0f);
+            }
+        }
+    }
+    // If momentum section is missing or count mismatches, momentum stays at zero
+    // (this provides backward compatibility with older checkpoint files)
+
+    fclose(f);
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -344,12 +434,21 @@ void apply_weight_decay(std::vector<TensorPtr>& params, float wd,
 // ---------------------------------------------------------------------------
 int main(int argc, char* argv[]) {
     std::string data_dir = "data";
-    if (argc > 1) {
-        data_dir = argv[1];
-    }
+    size_t batch_size = 128;
+    std::string resume_path;
 
-    size_t batch_size = 128;  // default
-    if (argc > 2) batch_size = std::atoi(argv[2]);
+    // Parse arguments: [data_dir] [batch_size] [--resume checkpoint.ckpt]
+    // Positional args are collected after stripping --resume.
+    std::vector<std::string> positional;
+    for (int i = 1; i < argc; i++) {
+        if (std::string(argv[i]) == "--resume" && i + 1 < argc) {
+            resume_path = argv[++i];
+        } else {
+            positional.push_back(argv[i]);
+        }
+    }
+    if (positional.size() >= 1) data_dir   = positional[0];
+    if (positional.size() >= 2) batch_size = std::atoi(positional[1].c_str());
 
     // ------------------------------------------------------------------
     // Check CUDA availability
@@ -459,15 +558,42 @@ int main(int argc, char* argv[]) {
     ThreadedDataLoader test_loader(test_dataset, batch_size, false, 0);
 
     // ------------------------------------------------------------------
+    // Resume from checkpoint (if --resume was specified)
+    // ------------------------------------------------------------------
+    int start_epoch = 0;
+    float best_test_acc = 0.0f;
+
+    if (!resume_path.empty()) {
+        int saved_epoch = 0;
+        float saved_acc = 0.0f, saved_lr = 0.0f;
+        if (load_checkpoint(resume_path, saved_epoch, saved_acc, saved_lr,
+                            all_params, optimizer.velocity)) {
+            start_epoch = saved_epoch;
+            best_test_acc = saved_acc;
+            optimizer.lr = saved_lr;
+            // Advance scheduler to match the resumed epoch.
+            // The scheduler starts at last_epoch=-1; each step() increments it.
+            // After training epoch N (0-indexed), step() was called, so
+            // last_epoch should be N. We need start_epoch calls.
+            scheduler.last_epoch = start_epoch - 1;
+            scheduler.step();  // sets last_epoch = start_epoch, computes correct lr
+            printf("Resumed from checkpoint: %s\n", resume_path.c_str());
+            printf("  Continuing from epoch %d, best acc %.2f%%, lr %.6f\n\n",
+                   start_epoch, best_test_acc, optimizer.lr);
+        } else {
+            printf("Warning: could not load checkpoint '%s', training from scratch.\n\n",
+                   resume_path.c_str());
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Training loop
     // ------------------------------------------------------------------
     printf("Training...\n");
     printf("--------------------------------------------------------------------------------\n");
     fflush(stdout);
 
-    float best_test_acc = 0.0f;
-
-    for (int epoch = 0; epoch < num_epochs; epoch++) {
+    for (int epoch = start_epoch; epoch < num_epochs; epoch++) {
         model.train();
         train_loader.reset();
 
@@ -519,7 +645,7 @@ int main(int argc, char* argv[]) {
             }
 
             // Print progress: every batch for first epoch, every 50 after
-            if (epoch == 0 || num_batches % 50 == 0) {
+            if (epoch == start_epoch || num_batches % 50 == 0) {
                 auto batch_time = std::chrono::high_resolution_clock::now();
                 double elapsed = std::chrono::duration<double>(batch_time - epoch_start).count();
                 printf("\r  Epoch %3d: batch %3zu/%zu | %.1fs elapsed",
@@ -540,13 +666,13 @@ int main(int argc, char* argv[]) {
         bool saved_best = false;
         if (test_acc > best_test_acc) {
             best_test_acc = test_acc;
-            save_parameters(all_params, "resnet18_best.bin");
+            save_checkpoint("resnet18_best.ckpt", epoch + 1, best_test_acc,
+                            optimizer.lr, all_params, optimizer.velocity);
             saved_best = true;
         }
         if ((epoch + 1) % 10 == 0) {
-            char path[256];
-            snprintf(path, sizeof(path), "resnet18_epoch%d.bin", epoch + 1);
-            save_parameters(all_params, path);
+            save_checkpoint("resnet18_latest.ckpt", epoch + 1, best_test_acc,
+                            optimizer.lr, all_params, optimizer.velocity);
         }
 
         printf("\r  Epoch %3d | Loss: %.4f | Train: %.2f%% | Test: %.2f%% | Best: %.2f%% | LR: %.6f | %.1fs",
@@ -557,8 +683,8 @@ int main(int argc, char* argv[]) {
     }
 
     printf("--------------------------------------------------------------------------------\n");
-    save_parameters(all_params, "resnet18_final.bin");
-    printf("Model saved to resnet18_final.bin\n");
+    save_checkpoint("resnet18_final.ckpt", num_epochs, best_test_acc,
+                    optimizer.lr, all_params, optimizer.velocity);
     printf("Training complete! Best test accuracy: %.2f%%\n\n", best_test_acc);
 
     // ------------------------------------------------------------------
