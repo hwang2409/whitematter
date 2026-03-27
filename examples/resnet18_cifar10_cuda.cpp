@@ -252,12 +252,9 @@ float compute_accuracy(ResNet18& model, ThreadedDataLoader& loader,
     while (loader.has_next()) {
         auto [images, labels] = loader.next_batch_pair();
 
-        if (use_cuda) {
-            images->to_inplace(whitematter::DeviceType::CUDA);
-        }
         auto output = model.forward(images);
 
-        // Transfer output back to CPU for argmax
+        // Output is on CPU — no transfer needed
         auto cpu_output = ensure_cpu(output);
         auto cpu_labels = ensure_cpu(labels);
 
@@ -411,13 +408,10 @@ int main(int argc, char* argv[]) {
     printf("Data augmentation: pad(4) -> random_crop(32,32) -> random_flip_horizontal(0.5)\n\n");
     fflush(stdout);
 
-    // Move model to GPU for full CUDA acceleration
+    // Data stays on CPU. GPU acceleration is transparent via matmul_blocked
+    // dispatching large GEMMs to cuBLAS. No .to(CUDA) needed.
     if (use_cuda) {
-        printf("Moving model to GPU...\n");
-        fflush(stdout);
-        model.to(whitematter::DeviceType::CUDA);
-        all_params = model.parameters();
-        printf("Model on GPU.\n\n");
+        printf("GPU acceleration: matmul offloaded to cuBLAS for large matrices.\n\n");
         fflush(stdout);
     }
 
@@ -465,11 +459,6 @@ int main(int argc, char* argv[]) {
             auto augmented = images->pad2d(4)->random_crop(32, 32)->random_flip_horizontal(0.5f);
 
             // Move batch to GPU
-            if (use_cuda) {
-                augmented->to_inplace(whitematter::DeviceType::CUDA);
-                labels->to_inplace(whitematter::DeviceType::CUDA);
-            }
-
             optimizer.zero_grad();
 
             auto output = model.forward(augmented);
@@ -545,13 +534,10 @@ int main(int argc, char* argv[]) {
         test_loader.reset();
         auto [images, labels] = test_loader.next_batch_pair();
 
-        if (use_cuda) {
-            images->to_inplace(whitematter::DeviceType::CUDA);
-        }
         auto output = model.forward(images);
 
-        auto cpu_output = use_cuda ? output->to(whitematter::DeviceType::CPU) : output;
-        auto cpu_labels = use_cuda ? labels->to(whitematter::DeviceType::CPU) : labels;
+        auto cpu_output = output;
+        auto cpu_labels = labels;
 
         for (int i = 0; i < 10; i++) {
             size_t predicted = 0;
