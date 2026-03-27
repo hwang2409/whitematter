@@ -376,7 +376,7 @@ int main(int argc, char* argv[]) {
     // ------------------------------------------------------------------
     // Hyperparameters
     // ------------------------------------------------------------------
-    const size_t batch_size   = 128;
+    const size_t batch_size   = 64;  // 64 for CUDA managed memory (1.15GB limit on WSL2)
     const int    num_epochs   = 200;
     const float  init_lr      = 0.1f;
     const float  weight_decay = 5e-4f;

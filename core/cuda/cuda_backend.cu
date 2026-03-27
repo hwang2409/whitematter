@@ -39,7 +39,7 @@ void CUDABackend::init() {
 
     // Allocate 8 MB workspace for cuDNN etc. (kept small for WSL2/low-VRAM GPUs)
     workspace_size_ = 8 * 1024 * 1024;
-    CUDA_CHECK(cudaMalloc(&workspace_, workspace_size_));
+    CUDA_CHECK(cudaMallocManaged(&workspace_, workspace_size_));
 
     // cuDNN handle would be created here if cudnn is linked:
     // cudnnHandle_t dnn; cudnnCreate(&dnn); cudnn_handle_ = dnn;
