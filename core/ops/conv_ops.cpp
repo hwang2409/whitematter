@@ -13,6 +13,7 @@
 #if defined(WHITEMATTER_CUDA)
 #include "../cuda/cuda_backend.h"
 #include "../cuda/cuda_tensor_ops.h"
+#include "../cuda/cuda_memory.h"
 #endif
 
 // Reusable scratch buffers to avoid heap allocation on every conv forward/backward.
@@ -265,7 +266,23 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
 
         bool track = (requires_grad || weight->requires_grad || (bias && bias->requires_grad))
                      && GradMode::is_enabled();
-        auto result = create({batch, out_channels, out_h, out_w}, track);
+
+        // Allocate result with cudaMallocManaged memory so consecutive conv2d
+        // layers can skip H2D/D2H transfers (cuDNN reads/writes the managed
+        // pointer directly on the GPU).
+        size_t total = batch * out_channels * out_h * out_w;
+        auto& cuda_pool = whitematter::CUDAMemoryPool::instance();
+        auto managed_data = cuda_pool.acquire_shared(total);
+        auto result = std::make_shared<Tensor>(managed_data, total,
+            std::vector<size_t>{batch, out_channels, out_h, out_w}, false);
+        if (track) {
+            result->requires_grad = true;
+            // Grad buffer also needs managed memory (backward writes from GPU).
+            // We're inside a Tensor member function so we can set private fields.
+            result->grad_size_ = total;
+            result->grad_storage_ = cuda_pool.acquire_shared(total);
+            memset(result->grad(), 0, total * sizeof(float));
+        }
 
         whitematter::CUDABackend::instance().conv2d_forward(
             data(), weight->data(), bias ? bias->data() : nullptr,

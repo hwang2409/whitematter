@@ -92,6 +92,22 @@ struct WeightCache {
 };
 
 static WeightCache g_weight_cache;
+
+// ---------------------------------------------------------------------------
+// is_device_accessible: checks if a pointer is managed or device memory,
+// meaning cuDNN/CUDA kernels can read/write it directly without H2D/D2H.
+// ---------------------------------------------------------------------------
+static bool is_device_accessible(const void* ptr) {
+    if (!ptr) return false;
+    cudaPointerAttributes attrs;
+    cudaError_t err = cudaPointerGetAttributes(&attrs, ptr);
+    if (err != cudaSuccess) {
+        cudaGetLastError();  // clear error state
+        return false;
+    }
+    return attrs.type == cudaMemoryTypeManaged || attrs.type == cudaMemoryTypeDevice;
+}
+
 } // anonymous namespace
 
 namespace whitematter {
@@ -313,14 +329,25 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
     size_t weight_size = out_ch * (in_ch / groups) * kernel_h * kernel_w;
     size_t output_size = batch * out_ch * out_h * out_w;
 
+    // Check if input/output are already device-accessible (cudaMallocManaged).
+    // If so, cuDNN can read/write them directly — skip H2D/D2H transfers.
+    bool input_managed  = is_device_accessible(h_input);
+    bool output_managed = is_device_accessible(h_output);
+
     // Acquire device buffers from cache (avoids cudaMalloc/cudaFree per call)
     float *d_input = nullptr, *d_weight = nullptr, *d_output = nullptr;
-    d_input  = g_buf_cache.get(input_size);
+    if (input_managed) {
+        d_input = const_cast<float*>(h_input);  // cuDNN reads directly
+    } else {
+        d_input = g_buf_cache.get(input_size);
+        CUDA_CHECK(cudaMemcpy(d_input, h_input, input_size * sizeof(float), cudaMemcpyHostToDevice));
+    }
     d_weight = g_weight_cache.get(h_weight, weight_size);  // cached — skips H2D if fresh
-    d_output = g_buf_cache.get(output_size);
-
-    // H2D transfer (input only — weight comes from cache)
-    CUDA_CHECK(cudaMemcpy(d_input,  h_input,  input_size  * sizeof(float), cudaMemcpyHostToDevice));
+    if (output_managed) {
+        d_output = h_output;  // cuDNN writes directly to managed output
+    } else {
+        d_output = g_buf_cache.get(output_size);
+    }
 
     // Create cuDNN descriptors
     cudnnHandle_t dnn = static_cast<cudnnHandle_t>(cudnn_handle_);
@@ -391,8 +418,10 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
 
     cudaDeviceSynchronize();
 
-    // D2H result
-    CUDA_CHECK(cudaMemcpy(h_output, d_output, output_size * sizeof(float), cudaMemcpyDeviceToHost));
+    // D2H result — only if output is not managed (managed buffers are already accessible)
+    if (!output_managed) {
+        CUDA_CHECK(cudaMemcpy(h_output, d_output, output_size * sizeof(float), cudaMemcpyDeviceToHost));
+    }
 
     // Cleanup
     CUDNN_CHECK(cudnnDestroyTensorDescriptor(input_desc));
@@ -402,8 +431,8 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
 
     if (ws) g_buf_cache.put((float*)ws, ws_n_floats);
     // Note: d_weight and d_bias are owned by g_weight_cache — do not return them.
-    g_buf_cache.put(d_input, input_size);
-    g_buf_cache.put(d_output, output_size);
+    if (!input_managed)  g_buf_cache.put(d_input, input_size);
+    if (!output_managed) g_buf_cache.put(d_output, output_size);
 }
 
 void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
@@ -423,19 +452,33 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
     size_t weight_size     = out_ch * (in_ch / groups) * kernel_h * kernel_w;
     size_t output_size     = batch * out_ch * out_h * out_w;
 
+    // Check if pointers are already device-accessible (cudaMallocManaged).
+    // If so, cuDNN can read them directly — skip H2D transfers.
+    bool input_managed       = is_device_accessible(h_input);
+    bool grad_output_managed = is_device_accessible(h_grad_output);
+
     // Acquire device buffers from cache (avoids cudaMalloc/cudaFree per call)
     float *d_input = nullptr, *d_weight = nullptr, *d_grad_output = nullptr;
     float *d_grad_input = nullptr, *d_grad_weight = nullptr, *d_grad_bias = nullptr;
-    d_input       = g_buf_cache.get(input_size);
-    d_weight      = g_weight_cache.get(h_weight, weight_size);  // cached — skips H2D if fresh
-    d_grad_output = g_buf_cache.get(output_size);
+
+    if (input_managed) {
+        d_input = const_cast<float*>(h_input);  // cuDNN reads directly
+    } else {
+        d_input = g_buf_cache.get(input_size);
+        CUDA_CHECK(cudaMemcpy(d_input, h_input, input_size * sizeof(float), cudaMemcpyHostToDevice));
+    }
+    d_weight = g_weight_cache.get(h_weight, weight_size);  // cached — skips H2D if fresh
+    if (grad_output_managed) {
+        d_grad_output = const_cast<float*>(h_grad_output);  // cuDNN reads directly
+    } else {
+        d_grad_output = g_buf_cache.get(output_size);
+        CUDA_CHECK(cudaMemcpy(d_grad_output, h_grad_output, output_size * sizeof(float), cudaMemcpyHostToDevice));
+    }
+    // Note: grad_input/grad_weight/grad_bias always use separate device buffers
+    // because backward accumulates (+=) into existing host grads.
     if (h_grad_input)  d_grad_input  = g_buf_cache.get(input_size);
     if (h_grad_weight) d_grad_weight = g_buf_cache.get(weight_size);
     if (h_grad_bias)   d_grad_bias   = g_buf_cache.get(out_ch);
-
-    // H2D transfers (weight comes from cache, only input and grad_output need upload)
-    CUDA_CHECK(cudaMemcpy(d_input,       h_input,       input_size  * sizeof(float), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_grad_output, h_grad_output, output_size * sizeof(float), cudaMemcpyHostToDevice));
 
     // Zero gradient outputs on device
     if (d_grad_input)  CUDA_CHECK(cudaMemset(d_grad_input,  0, input_size  * sizeof(float)));
@@ -561,9 +604,9 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
     if (d_grad_bias)   g_buf_cache.put(d_grad_bias, out_ch);
     if (d_grad_weight) g_buf_cache.put(d_grad_weight, weight_size);
     if (d_grad_input)  g_buf_cache.put(d_grad_input, input_size);
-    g_buf_cache.put(d_grad_output, output_size);
+    if (!grad_output_managed) g_buf_cache.put(d_grad_output, output_size);
     // Note: d_weight is owned by g_weight_cache — do not return it.
-    g_buf_cache.put(d_input, input_size);
+    if (!input_managed) g_buf_cache.put(d_input, input_size);
 }
 
 // ---------------------------------------------------------------------------
