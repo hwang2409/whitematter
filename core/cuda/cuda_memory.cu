@@ -37,14 +37,14 @@ float* CUDAMemoryPool::acquire(size_t n_floats) {
 
     // No free buffer; allocate from device
     float* ptr = nullptr;
-    cudaError_t err = cudaMallocManaged(&ptr, alloc_size * sizeof(float));
+    cudaError_t err = cudaMalloc(&ptr, alloc_size * sizeof(float));
     if (err != cudaSuccess) {
         // OOM: try freeing cached buffers and retrying
         for (auto& [sz, list] : free_lists_) {
             for (float* p : list) cudaFree(p);
             list.clear();
         }
-        err = cudaMallocManaged(&ptr, alloc_size * sizeof(float));
+        err = cudaMalloc(&ptr, alloc_size * sizeof(float));
         if (err != cudaSuccess) {
             fprintf(stderr, "CUDA OOM: failed to allocate %zu floats (%.1f MB)\n",
                     alloc_size, alloc_size * sizeof(float) / (1024.0 * 1024.0));

@@ -124,6 +124,30 @@ TensorPtr Tensor::randn(const std::vector<size_t>& shape, bool requires_grad) {
 
 TensorPtr Tensor::to(whitematter::DeviceType d) const {
     if (d == device) return const_cast<Tensor*>(this)->shared_from_this();
+
+#if defined(WHITEMATTER_CUDA)
+    // GPU -> CPU
+    if (device == whitematter::DeviceType::CUDA && d == whitematter::DeviceType::CPU) {
+        auto out = create(shape, requires_grad);
+        out->device = d;
+        whitematter::CUDABackend::instance().memcpy_d2h(out->data(), data(), size());
+        if (!grad_empty() && out->grad()) {
+            whitematter::CUDABackend::instance().memcpy_d2h(out->grad(), grad(), grad_size_);
+        }
+        return out;
+    }
+    // CPU -> GPU
+    if (device == whitematter::DeviceType::CPU && d == whitematter::DeviceType::CUDA) {
+        auto out = create_on_device(shape, requires_grad, d);
+        whitematter::CUDABackend::instance().memcpy_h2d(out->data(), data(), size());
+        if (!grad_empty() && out->grad()) {
+            whitematter::CUDABackend::instance().memcpy_h2d(out->grad(), grad(), grad_size_);
+        }
+        return out;
+    }
+#endif
+
+    // CPU -> CPU (or unknown device types)
     auto out = create(shape, requires_grad);
     out->device = d;
     std::memcpy(out->data(), data(), size() * sizeof(float));
