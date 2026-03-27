@@ -210,6 +210,9 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
         fprintf(stderr, "cuDNN conv2d_forward: backend not ready\n");
         return;
     }
+    fprintf(stderr, "cuDNN conv2d: [%zu,%zu,%zu,%zu] k=%zux%zu s=%zu p=%zu g=%zu\n",
+            batch, in_ch, in_h, in_w, kernel_h, kernel_w, stride, padding, groups);
+    fflush(stderr);
 
     size_t out_h = (in_h + 2 * padding - kernel_h) / stride + 1;
     size_t out_w = (in_w + 2 * padding - kernel_w) / stride + 1;
@@ -278,12 +281,8 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
         CUDNN_CHECK(cudnnSetConvolutionGroupCount(conv_desc, (int)groups));
     }
 
-    // Find best forward algorithm
-    cudnnConvolutionFwdAlgoPerf_t algo_perf;
-    int returned_algo_count = 0;
-    CUDNN_CHECK(cudnnFindConvolutionForwardAlgorithm(dnn, input_desc, weight_desc, conv_desc,
-                                                     output_desc, 1, &returned_algo_count, &algo_perf));
-    cudnnConvolutionFwdAlgo_t algo = algo_perf.algo;
+    // Use IMPLICIT_GEMM which is always safe and needs no workspace
+    cudnnConvolutionFwdAlgo_t algo = CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_GEMM;
 
     // Get workspace size
     size_t ws_size = 0;
@@ -421,12 +420,7 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
 
     // --- Backward data: gradient w.r.t. input ---
     if (d_grad_input) {
-        cudnnConvolutionBwdDataAlgoPerf_t data_algo_perf;
-        int data_algo_count = 0;
-        CUDNN_CHECK(cudnnFindConvolutionBackwardDataAlgorithm(dnn, weight_desc, output_desc,
-                                                              conv_desc, input_desc,
-                                                              1, &data_algo_count, &data_algo_perf));
-        cudnnConvolutionBwdDataAlgo_t data_algo = data_algo_perf.algo;
+        cudnnConvolutionBwdDataAlgo_t data_algo = CUDNN_CONVOLUTION_BWD_DATA_ALGO_0;
 
         size_t data_ws_size = 0;
         CUDNN_CHECK(cudnnGetConvolutionBackwardDataWorkspaceSize(dnn, weight_desc, output_desc,
@@ -451,12 +445,7 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
 
     // --- Backward filter: gradient w.r.t. weight ---
     if (d_grad_weight) {
-        cudnnConvolutionBwdFilterAlgoPerf_t filter_algo_perf;
-        int filter_algo_count = 0;
-        CUDNN_CHECK(cudnnFindConvolutionBackwardFilterAlgorithm(dnn, input_desc, output_desc,
-                                                                 conv_desc, weight_desc,
-                                                                 1, &filter_algo_count, &filter_algo_perf));
-        cudnnConvolutionBwdFilterAlgo_t filter_algo = filter_algo_perf.algo;
+        cudnnConvolutionBwdFilterAlgo_t filter_algo = CUDNN_CONVOLUTION_BWD_FILTER_ALGO_0;
 
         size_t filter_ws_size = 0;
         CUDNN_CHECK(cudnnGetConvolutionBackwardFilterWorkspaceSize(dnn, input_desc, output_desc,
