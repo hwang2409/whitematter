@@ -451,20 +451,27 @@ int main(int argc, char* argv[]) {
         size_t total      = 0;
         size_t num_batches = 0;
 
+        printf("  Starting epoch %d...\n", epoch + 1); fflush(stdout);
+
         while (train_loader.has_next()) {
+            printf("    Getting batch %zu...\n", num_batches + 1); fflush(stdout);
             auto [images, labels] = train_loader.next_batch_pair();
 
             // Data augmentation: pad 4 -> random crop 32x32 -> random horizontal flip
             // (augmentation runs on CPU before transfer to GPU)
+            printf("    Augmenting...\n"); fflush(stdout);
             auto augmented = images->pad2d(4)->random_crop(32, 32)->random_flip_horizontal(0.5f);
 
-            // Move batch to GPU
+            printf("    Forward...\n"); fflush(stdout);
             optimizer.zero_grad();
 
             auto output = model.forward(augmented);
+            printf("    Loss...\n"); fflush(stdout);
             auto loss   = criterion(output, labels);
 
+            printf("    Backward...\n"); fflush(stdout);
             loss->backward();
+            printf("    Step...\n"); fflush(stdout);
 
             // Manual L2 weight decay on conv/linear weights
             apply_weight_decay(all_params, weight_decay, use_cuda);
