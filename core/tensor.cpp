@@ -518,11 +518,31 @@ void Tensor::build_topo(std::vector<Tensor*>& topo, std::vector<Tensor*>& visite
 void Tensor::backward() {
     assert(size() == 1);
     if (grad_empty()) {
-        grad_storage_ = MemoryPool::instance().acquire_shared(1);
-        if (!grad_storage_) throw std::bad_alloc();
-        grad_size_ = 1;
+#if defined(WHITEMATTER_CUDA)
+        if (device == whitematter::DeviceType::CUDA) {
+            grad_storage_ = whitematter::CUDAMemoryPool::instance().acquire_shared(1);
+            grad_size_ = 1;
+            float one = 1.0f;
+            whitematter::CUDABackend::instance().memcpy_h2d(grad(), &one, 1);
+        } else
+#endif
+        {
+            grad_storage_ = MemoryPool::instance().acquire_shared(1);
+            if (!grad_storage_) throw std::bad_alloc();
+            grad_size_ = 1;
+            grad()[0] = 1.0f;
+        }
+    } else {
+#if defined(WHITEMATTER_CUDA)
+        if (device == whitematter::DeviceType::CUDA) {
+            float one = 1.0f;
+            whitematter::CUDABackend::instance().memcpy_h2d(grad(), &one, 1);
+        } else
+#endif
+        {
+            grad()[0] = 1.0f;
+        }
     }
-    grad()[0] = 1.0f;
 
     std::vector<Tensor*> topo, visited;
     build_topo(topo, visited);
