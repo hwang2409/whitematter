@@ -405,28 +405,15 @@ float compute_accuracy(ResNet18& model, ThreadedDataLoader& loader,
 // kernel would do this in-place on the GPU — but this keeps the example
 // simple and correct for both CPU and GPU paths.
 // ---------------------------------------------------------------------------
-void apply_weight_decay(std::vector<TensorPtr>& params, float wd,
-                        bool use_cuda) {
+void apply_weight_decay(std::vector<TensorPtr>& params, float wd) {
     for (auto& p : params) {
         // Skip 1-D parameters (biases, BN gamma/beta)
         if (p->shape.size() <= 1) continue;
+        if (!p->grad()) continue;
 
-        if (use_cuda) {
-#ifdef WHITEMATTER_CUDA
-            // Transfer param data and grad to CPU, apply decay, transfer back.
-            size_t n = p->size();
-            std::vector<float> h_data(n), h_grad(n);
-            whitematter::CUDABackend::instance().memcpy_d2h(h_data.data(), p->data(), n);
-            whitematter::CUDABackend::instance().memcpy_d2h(h_grad.data(), p->grad(), n);
-            for (size_t j = 0; j < n; j++) {
-                h_grad[j] += wd * h_data[j];
-            }
-            whitematter::CUDABackend::instance().memcpy_h2d(p->grad(), h_grad.data(), n);
-#endif
-        } else {
-            for (size_t j = 0; j < p->size(); j++) {
-                p->grad()[j] += wd * p->data()[j];
-            }
+        // Data is always on CPU in the transparent offload architecture
+        for (size_t j = 0; j < p->size(); j++) {
+            p->grad()[j] += wd * p->data()[j];
         }
     }
 }
@@ -618,7 +605,7 @@ int main(int argc, char* argv[]) {
             loss->backward();
 
             // Manual L2 weight decay on conv/linear weights
-            apply_weight_decay(all_params, weight_decay, use_cuda);
+            apply_weight_decay(all_params, weight_decay);
 
             optimizer.step();
 
