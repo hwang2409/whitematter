@@ -245,6 +245,56 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
         if (r) return r;
         // nullptr means unsupported config (e.g. dilation > 1); fall through to CPU
     }
+
+    // Transparent cuDNN offload for CPU tensors: data stays in CPU memory,
+    // we copy to managed buffers for cuDNN, then copy result back.
+    if (device == whitematter::DeviceType::CPU && dilation == 1 &&
+        whitematter::cuda_backend_available()) {
+        assert(shape.size() == 4);
+        assert(weight->shape.size() == 4);
+
+        size_t batch = shape[0];
+        size_t in_channels = shape[1];
+        size_t in_h = shape[2];
+        size_t in_w = shape[3];
+        size_t out_channels = weight->shape[0];
+        size_t kernel_h = weight->shape[2];
+        size_t kernel_w = weight->shape[3];
+        size_t out_h = (in_h + 2 * padding - kernel_h) / stride + 1;
+        size_t out_w = (in_w + 2 * padding - kernel_w) / stride + 1;
+
+        bool track = (requires_grad || weight->requires_grad || (bias && bias->requires_grad))
+                     && GradMode::is_enabled();
+        auto result = create({batch, out_channels, out_h, out_w}, track);
+
+        whitematter::CUDABackend::instance().conv2d_forward(
+            data(), weight->data(), bias ? bias->data() : nullptr,
+            result->data(), batch, in_channels, out_channels,
+            in_h, in_w, kernel_h, kernel_w, stride, padding, groups);
+
+        if (track) {
+            auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
+            auto weight_ptr = weight;
+            auto bias_ptr = bias;
+            result->parents = {self_ptr, weight_ptr};
+            if (bias_ptr) result->parents.push_back(bias_ptr);
+
+            result->grad_fn = [self_ptr, weight_ptr, bias_ptr, result,
+                               batch, in_channels, in_h, in_w,
+                               out_channels, out_h, out_w,
+                               kernel_h, kernel_w, stride, padding, groups]() {
+                whitematter::CUDABackend::instance().conv2d_backward(
+                    self_ptr->data(), weight_ptr->data(),
+                    result->grad(),
+                    self_ptr->requires_grad ? self_ptr->grad() : nullptr,
+                    weight_ptr->requires_grad ? weight_ptr->grad() : nullptr,
+                    (bias_ptr && bias_ptr->requires_grad) ? bias_ptr->grad() : nullptr,
+                    batch, in_channels, out_channels,
+                    in_h, in_w, kernel_h, kernel_w, stride, padding, groups);
+            };
+        }
+        return result;
+    }
 #endif
 
     assert(shape.size() == 4);

@@ -22,4 +22,14 @@
     } \
 } while(0)
 
+#include <cudnn.h>
+
+#define CUDNN_CHECK(call) do { \
+    cudnnStatus_t status = (call); \
+    if (status != CUDNN_STATUS_SUCCESS) { \
+        fprintf(stderr, "cuDNN error at %s:%d: %s\n", __FILE__, __LINE__, cudnnGetErrorString(status)); \
+        exit(EXIT_FAILURE); \
+    } \
+} while(0)
+
 #endif // WHITEMATTER_CUDA
