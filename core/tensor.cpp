@@ -661,7 +661,8 @@ TensorPtr Tensor::matmul(const TensorPtr& other) const {
         result->parents = {self_ptr, other_ptr};
         result->grad_fn = [self_ptr, other_ptr, result, m, k, n]() {
 #if defined(WHITEMATTER_CUDA)
-            if (whitematter::cuda_backend_available()) {
+            // Only offload large matmul backward to GPU — small ones are faster on CPU
+            if (whitematter::cuda_backend_available() && m * k * n > 500000) {
                 whitematter::CUDABackend::instance().matmul_backward_host(
                     result->grad(), self_ptr->data(), other_ptr->data(),
                     self_ptr->requires_grad ? self_ptr->grad() : nullptr,
@@ -850,13 +851,18 @@ TensorPtr Tensor::add(const TensorPtr& other) const {
             auto other_ptr = other;
             result->parents = {self_ptr, other_ptr};
             result->grad_fn = [self_ptr, other_ptr, result]() {
-                // add backward: grad passes through to both inputs
-                auto& be = whitematter::CUDABackend::instance();
-                if (self_ptr->requires_grad) {
-                    be.elementwise_accumulate_host(self_ptr->grad(), result->grad(), self_ptr->size());
-                }
-                if (other_ptr->requires_grad) {
-                    be.elementwise_accumulate_host(other_ptr->grad(), result->grad(), other_ptr->size());
+                // add backward: only offload to GPU for large tensors
+                if (self_ptr->size() > 100000) {
+                    auto& be = whitematter::CUDABackend::instance();
+                    if (self_ptr->requires_grad)
+                        be.elementwise_accumulate_host(self_ptr->grad(), result->grad(), self_ptr->size());
+                    if (other_ptr->requires_grad)
+                        be.elementwise_accumulate_host(other_ptr->grad(), result->grad(), other_ptr->size());
+                } else {
+                    if (self_ptr->requires_grad)
+                        simd_add(self_ptr->grad(), self_ptr->grad(), result->grad(), self_ptr->size());
+                    if (other_ptr->requires_grad)
+                        simd_add(other_ptr->grad(), other_ptr->grad(), result->grad(), other_ptr->size());
                 }
             };
         }
