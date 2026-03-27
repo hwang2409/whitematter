@@ -252,12 +252,7 @@ float compute_accuracy(ResNet18& model, ThreadedDataLoader& loader,
     while (loader.has_next()) {
         auto [images, labels] = loader.next_batch_pair();
 
-        // Move batch to GPU if available
-        if (use_cuda) {
-            images->to_inplace(whitematter::DeviceType::CUDA);
-            labels->to_inplace(whitematter::DeviceType::CUDA);
-        }
-
+        // Data stays on CPU; GPU offload is transparent via matmul_blocked
         auto output = model.forward(images);
 
         // Transfer output back to CPU for argmax
@@ -342,13 +337,13 @@ int main(int argc, char* argv[]) {
 #endif
 
     printf("ResNet-18 CIFAR-10 Training (%s)\n",
-           use_cuda ? "CUDA GPU" : "CPU");
+           use_cuda ? "CUDA GPU accelerated" : "CPU");
     printf("===========================\n\n");
 
     if (use_cuda) {
-        printf("Device: CUDA GPU\n\n");
+        printf("Device: CPU with transparent CUDA GPU offload (matmul via cuBLAS)\n\n");
     } else {
-        printf("Device: CPU (CUDA not available)\n\n");
+        printf("Device: CPU only\n\n");
     }
     fflush(stdout);
 
@@ -414,18 +409,8 @@ int main(int argc, char* argv[]) {
     printf("Data augmentation: pad(4) -> random_crop(32,32) -> random_flip_horizontal(0.5)\n\n");
     fflush(stdout);
 
-    // ------------------------------------------------------------------
-    // Move model parameters to GPU if available
-    // ------------------------------------------------------------------
-    if (use_cuda) {
-        printf("Moving model parameters to GPU...\n");
-        fflush(stdout);
-        model.to(whitematter::DeviceType::CUDA);
-        // Re-collect parameters after moving to GPU
-        all_params = model.parameters();
-        printf("Model moved to GPU.\n\n");
-        fflush(stdout);
-    }
+    // GPU acceleration is transparent — matmul_blocked automatically offloads
+    // to cuBLAS when CUDA is available. No need to move model to GPU.
 
     // ------------------------------------------------------------------
     // Optimizer & scheduler
@@ -469,12 +454,6 @@ int main(int argc, char* argv[]) {
             // Data augmentation: pad 4 -> random crop 32x32 -> random horizontal flip
             // (augmentation runs on CPU before transfer to GPU)
             auto augmented = images->pad2d(4)->random_crop(32, 32)->random_flip_horizontal(0.5f);
-
-            // Move batch to GPU
-            if (use_cuda) {
-                augmented->to_inplace(whitematter::DeviceType::CUDA);
-                labels->to_inplace(whitematter::DeviceType::CUDA);
-            }
 
             optimizer.zero_grad();
 
@@ -548,15 +527,11 @@ int main(int argc, char* argv[]) {
         test_loader.reset();
         auto [images, labels] = test_loader.next_batch_pair();
 
-        if (use_cuda) {
-            images->to_inplace(whitematter::DeviceType::CUDA);
-            labels->to_inplace(whitematter::DeviceType::CUDA);
-        }
-
         auto output = model.forward(images);
 
-        auto cpu_output = ensure_cpu(output);
-        auto cpu_labels = ensure_cpu(labels);
+        // Data is already on CPU — no transfer needed
+        auto cpu_output = output;
+        auto cpu_labels = labels;
 
         for (int i = 0; i < 10; i++) {
             size_t predicted = 0;

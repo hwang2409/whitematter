@@ -2,6 +2,11 @@
 #include <algorithm>
 #include <cstring>
 
+#if defined(WHITEMATTER_CUDA)
+#include "../cuda/cuda_backend.h"
+#include "../device.h"
+#endif
+
 // Use Accelerate BLAS on macOS, OpenBLAS on Linux if available
 #if defined(__APPLE__)
     #define ACCELERATE_NEW_LAPACK
@@ -32,6 +37,14 @@ static constexpr size_t BLOCK_SIZE = 32;
 
 void matmul_blocked(float* C, const float* A, const float* B,
                     size_t M, size_t K, size_t N) {
+#if defined(WHITEMATTER_CUDA)
+    // Transparent GPU offload: data stays in CPU memory, GPU used as accelerator.
+    // Only offload if matrix is large enough to justify H2D + kernel + D2H overhead.
+    if (whitematter::cuda_backend_available() && M * N * K > 32768) {
+        whitematter::CUDABackend::instance().matmul(A, B, C, (int)M, (int)N, (int)K);
+        return;
+    }
+#endif
 #ifdef USE_BLAS
     // C = A * B  where A is M×K, B is K×N, C is M×N (all row-major)
     cblas_sgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,

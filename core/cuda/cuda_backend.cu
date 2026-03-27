@@ -56,23 +56,43 @@ bool CUDABackend::is_available() const {
 // BLAS: matmul  C[M,N] = A[M,K] * B[K,N]  (row-major)
 // ---------------------------------------------------------------------------
 
-void CUDABackend::matmul(const float* d_A, const float* d_B, float* d_C, int M, int N, int K) {
+void CUDABackend::matmul(const float* h_A, const float* h_B, float* h_C, int M, int N, int K) {
     init();
     if (!initialized_) return;
 
+    // Transparent offload: host pointers in, GPU compute, host pointer out.
+    size_t sA = (size_t)M * K, sB = (size_t)K * N, sC = (size_t)M * N;
+
+    // Allocate device buffers from pool
+    auto& pool = CUDAMemoryPool::instance();
+    float* d_A = pool.acquire(sA);
+    float* d_B = pool.acquire(sB);
+    float* d_C = pool.acquire(sC);
+    if (!d_A || !d_B || !d_C) {
+        // OOM fallback — let CPU handle it
+        if (d_A) pool.release(d_A, sA);
+        if (d_B) pool.release(d_B, sB);
+        if (d_C) pool.release(d_C, sC);
+        return;  // Caller's CPU path will handle
+    }
+
+    // H2D
+    cudaMemcpy(d_A, h_A, sA * sizeof(float), cudaMemcpyHostToDevice);
+    cudaMemcpy(d_B, h_B, sB * sizeof(float), cudaMemcpyHostToDevice);
+
+    // cuBLAS SGEMM (row-major via column-major trick)
     cublasHandle_t handle = static_cast<cublasHandle_t>(cublas_handle_);
     float alpha = 1.0f, beta = 0.0f;
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N,
+                N, M, K, &alpha, d_B, N, d_A, K, &beta, d_C, N);
 
-    // Row-major A[M,K] * B[K,N] = C[M,N].
-    // cuBLAS is column-major. Treat row-major A as col-major A^T (K x M), etc.
-    // C^T = B^T * A^T => col-major: C(N,M) = B(N,K) * A(K,M)
-    CUBLAS_CHECK(cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N,
-                             N, M, K,
-                             &alpha,
-                             d_B, N,
-                             d_A, K,
-                             &beta,
-                             d_C, N));
+    // D2H
+    cudaMemcpy(h_C, d_C, sC * sizeof(float), cudaMemcpyDeviceToHost);
+
+    // Return buffers to pool
+    pool.release(d_A, sA);
+    pool.release(d_B, sB);
+    pool.release(d_C, sC);
 }
 
 // ---------------------------------------------------------------------------
