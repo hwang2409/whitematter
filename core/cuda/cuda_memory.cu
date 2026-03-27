@@ -36,7 +36,7 @@ float* CUDAMemoryPool::acquire(size_t n_floats) {
 
     // No free buffer in this bucket; allocate from device
     float* ptr = nullptr;
-    CUDA_CHECK(cudaMalloc(&ptr, bucket * sizeof(float)));
+    CUDA_CHECK(cudaMallocManaged(&ptr, bucket * sizeof(float)));
     return ptr;
 }
 
