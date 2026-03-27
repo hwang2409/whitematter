@@ -2266,16 +2266,23 @@ TensorPtr Tensor::reshape(const std::vector<size_t>& new_shape) const {
     assert(total == size());
 
     bool track = requires_grad && GradMode::is_enabled();
-    auto result = std::make_shared<Tensor>(data_storage_, data_size_, new_shape, track);
+    // Create result sharing data storage; allocate grad on same device
+    auto result = std::make_shared<Tensor>(data_storage_, data_size_, new_shape, false);
     result->device = device;
-    if (track && !grad_empty()) {
+    result->requires_grad = track;
+    if (track) {
 #if defined(WHITEMATTER_CUDA)
         if (device == whitematter::DeviceType::CUDA) {
-            whitematter::CUDABackend::instance().memcpy_d2d(result->grad(), grad(), size());
+            auto& pool = whitematter::CUDAMemoryPool::instance();
+            result->grad_size_ = result->data_size_;
+            result->grad_storage_ = pool.acquire_shared(result->grad_size_);
+            whitematter::CUDABackend::instance().memset_zero(result->grad(), result->grad_size_);
         } else
 #endif
         {
-            std::memcpy(result->grad(), grad(), size() * sizeof(float));
+            result->grad_size_ = result->data_size_;
+            result->grad_storage_ = MemoryPool::instance().acquire_shared(result->grad_size_);
+            std::fill(result->grad(), result->grad() + result->grad_size_, 0.0f);
         }
     }
 
