@@ -95,6 +95,11 @@ public:
                       float lr, float alpha, float eps,
                       float momentum, float* d_buffer, float weight_decay, size_t n);
 
+    // --- Weight cache management ---
+    // Call after optimizer.step() to mark cached weight buffers as stale.
+    // Next conv2d call will re-upload weights that have changed.
+    void invalidate_weight_cache();
+
     // --- Memory transfers ---
     void memcpy_h2d(float* d_dst, const float* h_src, size_t n_floats);
     void memcpy_d2h(float* h_dst, const float* d_src, size_t n_floats);

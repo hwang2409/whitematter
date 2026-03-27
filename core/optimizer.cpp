@@ -56,6 +56,11 @@ void SGD::step() {
             }
         }
     }
+#if defined(WHITEMATTER_CUDA)
+    if (whitematter::cuda_backend_available()) {
+        whitematter::CUDABackend::instance().invalidate_weight_cache();
+    }
+#endif
 }
 
 Adam::Adam(const std::vector<TensorPtr>& params, float lr, float beta1, float beta2, float eps)
@@ -96,6 +101,11 @@ void Adam::step() {
             p->data()[j] -= lr * m_hat / (std::sqrt(v_hat) + eps);
         }
     }
+#if defined(WHITEMATTER_CUDA)
+    if (whitematter::cuda_backend_available()) {
+        whitematter::CUDABackend::instance().invalidate_weight_cache();
+    }
+#endif
 }
 
 AdamW::AdamW(const std::vector<TensorPtr>& params, float lr, float beta1, float beta2, float eps, float weight_decay)
@@ -137,6 +147,11 @@ void AdamW::step() {
             p->data()[j] -= lr * (m_hat / (std::sqrt(v_hat) + eps) + weight_decay * p->data()[j]);
         }
     }
+#if defined(WHITEMATTER_CUDA)
+    if (whitematter::cuda_backend_available()) {
+        whitematter::CUDABackend::instance().invalidate_weight_cache();
+    }
+#endif
 }
 
 RMSprop::RMSprop(const std::vector<TensorPtr>& params, float lr, float alpha, float eps, float momentum, float weight_decay)
@@ -182,6 +197,11 @@ void RMSprop::step() {
             }
         }
     }
+#if defined(WHITEMATTER_CUDA)
+    if (whitematter::cuda_backend_available()) {
+        whitematter::CUDABackend::instance().invalidate_weight_cache();
+    }
+#endif
 }
 
 // ---------------------------------------------------------------------------

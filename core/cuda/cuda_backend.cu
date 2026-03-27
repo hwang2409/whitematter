@@ -43,6 +43,55 @@ struct DeviceBufferCache {
 };
 
 static DeviceBufferCache g_buf_cache;
+
+// ---------------------------------------------------------------------------
+// Weight cache: avoids redundant H2D uploads of conv2d weights and biases.
+// Weights only change after optimizer.step(), so between steps the same host
+// pointer maps to an already-uploaded device buffer.  Call invalidate() after
+// each optimizer step to mark all entries as stale.
+// ---------------------------------------------------------------------------
+struct WeightCache {
+    struct Entry {
+        float* d_ptr;
+        size_t n_floats;
+        size_t generation;  // last sync generation
+    };
+    std::unordered_map<const float*, Entry> cache;
+    size_t current_gen = 0;
+
+    // Mark all cached entries as stale (call after optimizer.step())
+    void invalidate() { current_gen++; }
+
+    // Return a device buffer containing the data at h_ptr.
+    // Only performs cudaMemcpy if the entry is missing or stale.
+    float* get(const float* h_ptr, size_t n_floats) {
+        auto it = cache.find(h_ptr);
+        if (it != cache.end() && it->second.n_floats == n_floats) {
+            if (it->second.generation == current_gen) {
+                return it->second.d_ptr;  // already up to date
+            }
+            // Stale — re-upload
+            cudaMemcpy(it->second.d_ptr, h_ptr, n_floats * sizeof(float), cudaMemcpyHostToDevice);
+            it->second.generation = current_gen;
+            return it->second.d_ptr;
+        }
+        // New entry — allocate via buffer cache and upload
+        float* d_ptr = g_buf_cache.get(n_floats);
+        cudaMemcpy(d_ptr, h_ptr, n_floats * sizeof(float), cudaMemcpyHostToDevice);
+        cache[h_ptr] = {d_ptr, n_floats, current_gen};
+        return d_ptr;
+    }
+
+    ~WeightCache() {
+        // Device buffers are owned by g_buf_cache's underlying allocations;
+        // return them so they get freed with everything else.
+        for (auto& kv : cache) {
+            g_buf_cache.put(kv.second.d_ptr, kv.second.n_floats);
+        }
+    }
+};
+
+static WeightCache g_weight_cache;
 } // anonymous namespace
 
 namespace whitematter {
@@ -267,12 +316,11 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
     // Acquire device buffers from cache (avoids cudaMalloc/cudaFree per call)
     float *d_input = nullptr, *d_weight = nullptr, *d_output = nullptr;
     d_input  = g_buf_cache.get(input_size);
-    d_weight = g_buf_cache.get(weight_size);
+    d_weight = g_weight_cache.get(h_weight, weight_size);  // cached — skips H2D if fresh
     d_output = g_buf_cache.get(output_size);
 
-    // H2D transfer
+    // H2D transfer (input only — weight comes from cache)
     CUDA_CHECK(cudaMemcpy(d_input,  h_input,  input_size  * sizeof(float), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_weight, h_weight, weight_size * sizeof(float), cudaMemcpyHostToDevice));
 
     // Create cuDNN descriptors
     cudnnHandle_t dnn = static_cast<cudnnHandle_t>(cudnn_handle_);
@@ -332,8 +380,7 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
         CUDNN_CHECK(cudnnSetTensor4dDescriptor(bias_desc, CUDNN_TENSOR_NCHW, CUDNN_DATA_FLOAT,
                                                1, (int)out_ch, 1, 1));
 
-        d_bias = g_buf_cache.get(out_ch);
-        CUDA_CHECK(cudaMemcpy(d_bias, h_bias, out_ch * sizeof(float), cudaMemcpyHostToDevice));
+        d_bias = g_weight_cache.get(h_bias, out_ch);  // cached — skips H2D if fresh
 
         float bias_alpha = 1.0f, bias_beta = 1.0f;
         CUDNN_CHECK(cudnnAddTensor(dnn, &bias_alpha, bias_desc, d_bias,
@@ -353,10 +400,9 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
     CUDNN_CHECK(cudnnDestroyFilterDescriptor(weight_desc));
     CUDNN_CHECK(cudnnDestroyConvolutionDescriptor(conv_desc));
 
-    if (ws)     g_buf_cache.put((float*)ws, ws_n_floats);
-    if (d_bias) g_buf_cache.put(d_bias, out_ch);
+    if (ws) g_buf_cache.put((float*)ws, ws_n_floats);
+    // Note: d_weight and d_bias are owned by g_weight_cache — do not return them.
     g_buf_cache.put(d_input, input_size);
-    g_buf_cache.put(d_weight, weight_size);
     g_buf_cache.put(d_output, output_size);
 }
 
@@ -381,15 +427,14 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
     float *d_input = nullptr, *d_weight = nullptr, *d_grad_output = nullptr;
     float *d_grad_input = nullptr, *d_grad_weight = nullptr, *d_grad_bias = nullptr;
     d_input       = g_buf_cache.get(input_size);
-    d_weight      = g_buf_cache.get(weight_size);
+    d_weight      = g_weight_cache.get(h_weight, weight_size);  // cached — skips H2D if fresh
     d_grad_output = g_buf_cache.get(output_size);
     if (h_grad_input)  d_grad_input  = g_buf_cache.get(input_size);
     if (h_grad_weight) d_grad_weight = g_buf_cache.get(weight_size);
     if (h_grad_bias)   d_grad_bias   = g_buf_cache.get(out_ch);
 
-    // H2D transfers
+    // H2D transfers (weight comes from cache, only input and grad_output need upload)
     CUDA_CHECK(cudaMemcpy(d_input,       h_input,       input_size  * sizeof(float), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_weight,      h_weight,      weight_size * sizeof(float), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(d_grad_output, h_grad_output, output_size * sizeof(float), cudaMemcpyHostToDevice));
 
     // Zero gradient outputs on device
@@ -517,7 +562,7 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
     if (d_grad_weight) g_buf_cache.put(d_grad_weight, weight_size);
     if (d_grad_input)  g_buf_cache.put(d_grad_input, input_size);
     g_buf_cache.put(d_grad_output, output_size);
-    g_buf_cache.put(d_weight, weight_size);
+    // Note: d_weight is owned by g_weight_cache — do not return it.
     g_buf_cache.put(d_input, input_size);
 }
 
@@ -576,6 +621,10 @@ void CUDABackend::adamw_step(float*, const float*, float*, float*,
 void CUDABackend::rmsprop_step(float*, const float*, float*,
                                 float, float, float,
                                 float, float*, float, size_t) {}
+
+void CUDABackend::invalidate_weight_cache() {
+    g_weight_cache.invalidate();
+}
 
 }  // namespace whitematter
 
