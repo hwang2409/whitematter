@@ -159,10 +159,10 @@ struct ShadowCache {
     };
     std::unordered_map<const float*, Entry> cache;
 
-    // Check if we have a device copy of this host pointer
-    float* find(const float* h_ptr) {
-        auto it = cache.find(h_ptr);
-        if (it != cache.end()) return it->second.d_ptr;
+    // DISABLED — shadow cache causes gradient corruption even with exclusive buffers.
+    // The root cause is likely stale shadows surviving across batches when the same
+    // host pointer gets reused by MemoryPool for a different tensor.
+    float* find(const float* /*h_ptr*/) {
         return nullptr;
     }
 
@@ -234,10 +234,8 @@ struct GradShadowCache {
     };
     std::unordered_map<const float*, Entry> cache;
 
-    // Find device copy of a gradient buffer
-    float* find(const float* h_ptr) {
-        auto it = cache.find(h_ptr);
-        if (it != cache.end()) return it->second.d_ptr;
+    // DISABLED — same stale pointer issue as ShadowCache
+    float* find(const float* /*h_ptr*/) {
         return nullptr;
     }
 
