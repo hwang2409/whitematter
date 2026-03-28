@@ -20,7 +20,7 @@ TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
     assert(input->shape[1] == num_features);
 
 #if defined(WHITEMATTER_CUDA)
-    // cuDNN BatchNorm — cuDNN 9 forward+backward verified correct
+    // cuDNN BatchNorm dispatch — works for both CPU and CUDA tensors (host-pointer API)
     if (whitematter::cuda_backend_available()) {
         size_t batch = input->shape[0];
         size_t channels = input->shape[1];

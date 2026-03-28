@@ -154,137 +154,42 @@ static WeightCache g_weight_cache;
 // ---------------------------------------------------------------------------
 struct ShadowCache {
     struct Entry {
-        float* d_ptr;      // Exclusively owned device buffer (NOT from g_buf_cache)
+        float* d_ptr;
         size_t n_floats;
     };
     std::unordered_map<const float*, Entry> cache;
 
-    // DISABLED — shadow cache causes gradient corruption even with exclusive buffers.
-    // The root cause is likely stale shadows surviving across batches when the same
-    // host pointer gets reused by MemoryPool for a different tensor.
+    // Check if we have a device copy of this host pointer
+    // DISABLED: shadow cache causes gradient corruption due to buffer reuse conflicts.
+    // All entries return nullptr, forcing fresh H2D copies every time.
     float* find(const float* /*h_ptr*/) {
         return nullptr;
     }
 
-    // Register a device buffer as the shadow of a host pointer.
-    // The shadow takes exclusive ownership — caller must NOT return d_ptr to g_buf_cache.
-    // If d_ptr came from g_buf_cache, this method allocates a NEW exclusive copy.
-    void set(const float* h_ptr, float* d_ptr_from_pool, size_t n_floats) {
-        // Allocate an exclusive device buffer (not from pool — prevents reuse conflicts)
-        float* exclusive = nullptr;
-        cudaMalloc(&exclusive, n_floats * sizeof(float));
-        if (!exclusive) {
-            // OOM fallback: just return the pool buffer, skip caching
-            g_buf_cache.put(d_ptr_from_pool, n_floats);
-            return;
-        }
-        // Copy data from the pool buffer to the exclusive buffer
-        cudaMemcpy(exclusive, d_ptr_from_pool, n_floats * sizeof(float), cudaMemcpyDeviceToDevice);
-        // Return the pool buffer immediately
-        g_buf_cache.put(d_ptr_from_pool, n_floats);
-
-        // If there's an existing shadow for this host ptr, free it
-        auto it = cache.find(h_ptr);
-        if (it != cache.end()) {
-            cudaFree(it->second.d_ptr);
-        }
-        cache[h_ptr] = {exclusive, n_floats};
+    // Register a device buffer as the shadow of a host pointer
+    void set(const float* /*h_ptr*/, float* d_ptr, size_t n_floats) {
+        // DISABLED: return buffer to cache immediately instead of shadowing
+        g_buf_cache.put(d_ptr, n_floats);
     }
 
-    // Invalidate a shadow (free the exclusive buffer)
+    // Invalidate a shadow (called when the host data changes)
     void invalidate(const float* h_ptr) {
         auto it = cache.find(h_ptr);
         if (it != cache.end()) {
-            cudaFree(it->second.d_ptr);
+            g_buf_cache.put(it->second.d_ptr, it->second.n_floats);
             cache.erase(it);
         }
     }
 
-    // Invalidate all shadows
+    // Invalidate all shadows (called after backward pass modifies data)
     void invalidate_all() {
         for (auto& kv : cache) {
-            cudaFree(kv.second.d_ptr);
+            g_buf_cache.put(kv.second.d_ptr, kv.second.n_floats);
         }
         cache.clear();
     }
-
-    ~ShadowCache() { invalidate_all(); }
 };
 static ShadowCache g_shadow_cache;
-
-// ---------------------------------------------------------------------------
-// Accumulate kernel: d_dst[i] += d_src[i]
-// Used by GradShadowCache to accumulate gradients on device.
-// ---------------------------------------------------------------------------
-__global__ void accumulate_k(float* __restrict__ dst, const float* __restrict__ src, int n) {
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < n) dst[i] += src[i];
-}
-
-// ---------------------------------------------------------------------------
-// Gradient shadow cache: keeps backward-pass gradient buffers on the GPU
-// so downstream layers can skip H2D uploads of grad_output during backward.
-// Unlike ShadowCache (which overwrites), GradShadowCache ACCUMULATES when
-// the same host pointer is stored multiple times (e.g. residual connections).
-// ---------------------------------------------------------------------------
-struct GradShadowCache {
-    struct Entry {
-        float* d_ptr;       // Exclusively owned device buffer
-        size_t n_floats;
-    };
-    std::unordered_map<const float*, Entry> cache;
-
-    // DISABLED — same stale pointer issue as ShadowCache
-    float* find(const float* /*h_ptr*/) {
-        return nullptr;
-    }
-
-    // Store a gradient on GPU. If entry already exists, ACCUMULATE (add to it).
-    // d_ptr_from_pool is from g_buf_cache -- we allocate an exclusive copy.
-    void set(const float* h_ptr, float* d_ptr_from_pool, size_t n_floats, cudaStream_t stream) {
-        auto it = cache.find(h_ptr);
-        if (it != cache.end()) {
-            // Accumulate: add d_ptr_from_pool into existing exclusive buffer
-            int grid = ((int)n_floats + 255) / 256;
-            accumulate_k<<<grid, 256, 0, stream>>>(it->second.d_ptr, d_ptr_from_pool, (int)n_floats);
-            g_buf_cache.put(d_ptr_from_pool, n_floats);
-        } else {
-            // New entry: allocate exclusive buffer and copy
-            float* exclusive = nullptr;
-            cudaMalloc(&exclusive, n_floats * sizeof(float));
-            if (!exclusive) { g_buf_cache.put(d_ptr_from_pool, n_floats); return; }
-            cudaMemcpyAsync(exclusive, d_ptr_from_pool, n_floats * sizeof(float),
-                            cudaMemcpyDeviceToDevice, stream);
-            g_buf_cache.put(d_ptr_from_pool, n_floats);
-            cache[h_ptr] = {exclusive, n_floats};
-        }
-    }
-
-    // Flush all grad shadows to CPU (download and accumulate)
-    void flush_to_cpu(cudaStream_t stream) {
-        for (auto& kv : cache) {
-            float* h_ptr = const_cast<float*>(kv.first);
-            float* d_ptr = kv.second.d_ptr;
-            size_t n = kv.second.n_floats;
-            // Download and add to host grad
-            float* p = g_pinned_cache.get(n);
-            cudaMemcpyAsync(p, d_ptr, n * sizeof(float), cudaMemcpyDeviceToHost, stream);
-            cudaStreamSynchronize(stream);
-            for (size_t i = 0; i < n; i++) h_ptr[i] += p[i];
-            g_pinned_cache.put(p, n);
-            cudaFree(d_ptr);
-        }
-        cache.clear();
-    }
-
-    void invalidate_all() {
-        for (auto& kv : cache) cudaFree(kv.second.d_ptr);
-        cache.clear();
-    }
-
-    ~GradShadowCache() { invalidate_all(); }
-};
-static GradShadowCache g_grad_shadow;
 
 // ---------------------------------------------------------------------------
 // Simple CUDA kernels for ReLU and elementwise add.
@@ -326,71 +231,6 @@ static bool is_device_accessible(const void* ptr) {
         return false;
     }
     return attrs.type == cudaMemoryTypeManaged || attrs.type == cudaMemoryTypeDevice;
-}
-
-// ---------------------------------------------------------------------------
-// Cross-entropy backward kernel (fused softmax gradient)
-// For each sample: grad[j] = (softmax(logits[j]) - 1{j == target}) * scale
-// ---------------------------------------------------------------------------
-__global__ void cross_entropy_bwd_k(const float* __restrict__ logits,
-                                     const float* __restrict__ targets,
-                                     float* __restrict__ grad,
-                                     int batch, int num_classes, float scale) {
-    int b = blockIdx.x * blockDim.x + threadIdx.x;
-    if (b >= batch) return;
-
-    int target = (int)targets[b];
-    const float* row = logits + b * num_classes;
-    float* grad_row = grad + b * num_classes;
-
-    // Numerical stability: subtract max
-    float max_val = row[0];
-    for (int j = 1; j < num_classes; j++)
-        max_val = fmaxf(max_val, row[j]);
-
-    float sum_exp = 0.0f;
-    for (int j = 0; j < num_classes; j++)
-        sum_exp += expf(row[j] - max_val);
-
-    float inv_batch = scale / (float)batch;
-    for (int j = 0; j < num_classes; j++) {
-        float softmax_j = expf(row[j] - max_val) / sum_exp;
-        grad_row[j] += (softmax_j - (j == target ? 1.0f : 0.0f)) * inv_batch;
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Adaptive average pool backward kernel
-// Each output element distributes its gradient equally to its input region.
-// ---------------------------------------------------------------------------
-__global__ void adaptive_avgpool_bwd_k(const float* __restrict__ grad_out,
-                                        float* __restrict__ grad_in,
-                                        int batch, int channels,
-                                        int in_h, int in_w,
-                                        int out_h, int out_w) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int total_out = batch * channels * out_h * out_w;
-    if (idx >= total_out) return;
-
-    int ow = idx % out_w;
-    int oh = (idx / out_w) % out_h;
-    int c  = (idx / (out_w * out_h)) % channels;
-    int b  = idx / (out_w * out_h * channels);
-
-    int ih_start = (oh * in_h) / out_h;
-    int ih_end   = ((oh + 1) * in_h) / out_h;
-    int iw_start = (ow * in_w) / out_w;
-    int iw_end   = ((ow + 1) * in_w) / out_w;
-
-    int count = (ih_end - ih_start) * (iw_end - iw_start);
-    float val = grad_out[idx] / (float)count;
-
-    for (int ih = ih_start; ih < ih_end; ih++) {
-        for (int iw = iw_start; iw < iw_end; iw++) {
-            int in_idx = b * channels * in_h * in_w + c * in_h * in_w + ih * in_w + iw;
-            atomicAdd(&grad_in[in_idx], val);
-        }
-    }
 }
 
 } // anonymous namespace
@@ -436,9 +276,8 @@ void CUDABackend::init() {
     cudnn_handle_ = static_cast<void*>(dnn);
 
     initialized_ = true;
-    // Managed memory for tensor storage causes page migration ping-pong between
-    // CPU (backward pass) and GPU (cuDNN forward). Explicit H2D/D2H copies with
-    // buffer/weight caching is faster in practice.
+    // Note: managed memory for tensor storage disabled on WSL2 — page fault
+    // overhead makes cuDNN hang. Explicit H2D/D2H copies are faster on WSL2.
 }
 
 bool CUDABackend::is_available() const {
@@ -691,13 +530,12 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
                                                 (int)stride, (int)stride,
                                                 1, 1,  // dilation
                                                 CUDNN_CROSS_CORRELATION, CUDNN_DATA_FLOAT));
-    // Force FP32 math (cuDNN 9 defaults to TF32 on Turing which reduces precision)
-    cudnnSetConvolutionMathType(conv_desc, CUDNN_FMA_MATH);
     if (groups > 1) {
         CUDNN_CHECK(cudnnSetConvolutionGroupCount(conv_desc, (int)groups));
     }
 
-    // Use IMPLICIT_PRECOMP_GEMM — faster, works for all sizes.
+    // Use IMPLICIT_PRECOMP_GEMM — faster than IMPLICIT_GEMM, works for all sizes.
+    // Falls back to IMPLICIT_GEMM only if workspace allocation fails.
     cudnnConvolutionFwdAlgo_t algo = CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_PRECOMP_GEMM;
 
     // Get workspace size
@@ -789,12 +627,11 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
     // Get CUDA stream for async operations
     cudaStream_t stream = static_cast<cudaStream_t>(stream_);
 
-    // Acquire device buffers from cache (check shadow + grad_shadow caches first)
+    // Acquire device buffers from cache (check shadow cache first)
     float *d_input = nullptr, *d_grad_output = nullptr;
     float *d_grad_input = nullptr, *d_grad_weight = nullptr, *d_grad_bias = nullptr;
     bool input_from_shadow = false;
     bool grad_output_from_shadow = false;
-    bool grad_output_from_grad_shadow = false;
 
     // Check if input has a shadow (from this layer's forward pass)
     d_input = g_shadow_cache.find(h_input);
@@ -804,27 +641,19 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
         d_input = g_buf_cache.get(input_size);
     }
 
-    // Check if grad_output has a grad shadow (from downstream backward)
-    d_grad_output = g_grad_shadow.find(h_grad_output);
+    // Check if grad_output has a shadow (from next layer's forward output)
+    d_grad_output = g_shadow_cache.find(h_grad_output);
     if (d_grad_output) {
-        grad_output_from_grad_shadow = true;
+        grad_output_from_shadow = true;
     } else {
-        // Fall back to data shadow (from next layer's forward output)
-        d_grad_output = g_shadow_cache.find(h_grad_output);
-        if (d_grad_output) {
-            grad_output_from_shadow = true;
-        } else {
-            d_grad_output = g_buf_cache.get(output_size);
-        }
+        d_grad_output = g_buf_cache.get(output_size);
     }
 
     float* d_weight = g_weight_cache.get(h_weight, weight_size);
 
-    // Pinned staging buffers for async H2D (only if not from shadow/grad_shadow)
-    bool need_input_h2d = !input_from_shadow;
-    bool need_grad_output_h2d = !grad_output_from_shadow && !grad_output_from_grad_shadow;
-    float* p_input = need_input_h2d ? g_pinned_cache.get(input_size) : nullptr;
-    float* p_grad_output = need_grad_output_h2d ? g_pinned_cache.get(output_size) : nullptr;
+    // Pinned staging buffers for async H2D (only if not from shadow)
+    float* p_input = input_from_shadow ? nullptr : g_pinned_cache.get(input_size);
+    float* p_grad_output = grad_output_from_shadow ? nullptr : g_pinned_cache.get(output_size);
 
     if (p_input) {
         memcpy(p_input, h_input, input_size * sizeof(float));
@@ -870,7 +699,6 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
                                                 (int)stride, (int)stride,
                                                 1, 1,  // dilation
                                                 CUDNN_CROSS_CORRELATION, CUDNN_DATA_FLOAT));
-    cudnnSetConvolutionMathType(conv_desc, CUDNN_FMA_MATH);
     if (groups > 1) {
         CUDNN_CHECK(cudnnSetConvolutionGroupCount(conv_desc, (int)groups));
     }
@@ -938,18 +766,14 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
         CUDNN_CHECK(cudnnDestroyTensorDescriptor(bias_desc));
     }
 
-    // --- Store grad_input in grad shadow (stays on GPU for upstream backward) ---
-    // Weight and bias grads are small -- download to CPU for the optimizer.
-    if (h_grad_input && d_grad_input) {
-        // Store in grad shadow: upstream layer will find it there
-        g_grad_shadow.set(h_grad_input, d_grad_input, input_size, stream);
-        d_grad_input = nullptr;  // ownership transferred to grad shadow
-    }
-
-    // Async D2H for weight and bias gradients (small, needed by CPU optimizer)
+    // Async D2H gradients via pinned staging buffers
+    float* p_grad_input  = (h_grad_input  && d_grad_input)  ? g_pinned_cache.get(input_size)  : nullptr;
     float* p_grad_weight = (h_grad_weight && d_grad_weight) ? g_pinned_cache.get(weight_size) : nullptr;
     float* p_grad_bias   = (h_grad_bias   && d_grad_bias)   ? g_pinned_cache.get(out_ch)      : nullptr;
 
+    if (p_grad_input)
+        CUDA_CHECK(cudaMemcpyAsync(p_grad_input, d_grad_input, input_size * sizeof(float),
+                                    cudaMemcpyDeviceToHost, stream));
     if (p_grad_weight)
         CUDA_CHECK(cudaMemcpyAsync(p_grad_weight, d_grad_weight, weight_size * sizeof(float),
                                     cudaMemcpyDeviceToHost, stream));
@@ -957,10 +781,14 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
         CUDA_CHECK(cudaMemcpyAsync(p_grad_bias, d_grad_bias, out_ch * sizeof(float),
                                     cudaMemcpyDeviceToHost, stream));
 
-    // Synchronize stream -- all async ops complete here
+    // Synchronize stream — all async ops complete here
     CUDA_CHECK(cudaStreamSynchronize(stream));
 
-    // Accumulate weight/bias gradients from pinned staging into host buffers
+    // Accumulate gradients from pinned staging into host buffers
+    if (p_grad_input) {
+        for (size_t i = 0; i < input_size; i++) h_grad_input[i] += p_grad_input[i];
+        g_pinned_cache.put(p_grad_input, input_size);
+    }
     if (p_grad_weight) {
         for (size_t i = 0; i < weight_size; i++) h_grad_weight[i] += p_grad_weight[i];
         g_pinned_cache.put(p_grad_weight, weight_size);
@@ -982,9 +810,8 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
 
     if (d_grad_bias)   g_buf_cache.put(d_grad_bias, out_ch);
     if (d_grad_weight) g_buf_cache.put(d_grad_weight, weight_size);
-    // d_grad_input: either transferred to grad shadow or nullptr
     if (d_grad_input)  g_buf_cache.put(d_grad_input, input_size);
-    if (!grad_output_from_shadow && !grad_output_from_grad_shadow) g_buf_cache.put(d_grad_output, output_size);
+    if (!grad_output_from_shadow) g_buf_cache.put(d_grad_output, output_size);
     if (!input_from_shadow)       g_buf_cache.put(d_input, input_size);
 }
 
@@ -1071,13 +898,7 @@ void CUDABackend::batchnorm_forward(const float* h_input, float* h_output,
     float alpha = 1.0f, beta_val = 0.0f;
 
     if (training) {
-        // cuDNN 9 fix: use cudnnBatchNormalizationForwardTrainingEx with explicit math type
-        // to prevent TF32 precision loss. If the Ex version isn't available, fall back.
-        //
-        // The exponentialAverageFactor in cuDNN means:
-        //   running = running * (1 - factor) + batch_stat * factor
-        // Our CPU code uses: running = (1-momentum)*running + momentum*batch_stat
-        // These are equivalent when factor = momentum.
+        // exponentialAverageFactor = momentum (PyTorch convention)
         CUDNN_CHECK(cudnnBatchNormalizationForwardTraining(dnn, CUDNN_BATCHNORM_SPATIAL,
             &alpha, &beta_val,
             input_desc, d_input, input_desc, d_output,
@@ -1125,21 +946,6 @@ void CUDABackend::batchnorm_forward(const float* h_input, float* h_output,
     if (h_save_mean)    memcpy(h_save_mean, p_save_mean, channels * sizeof(float));
     if (h_save_inv_var) memcpy(h_save_inv_var, p_save_inv_var, channels * sizeof(float));
 
-#ifdef WHITEMATTER_DEBUG
-    // Debug: print first BN forward stats
-    static int bn_call_count = 0;
-    if (bn_call_count < 1) {
-        fprintf(stderr, "BN fwd: batch=%zu ch=%zu H=%zu W=%zu spatial=%zu\n", batch, channels, H, W);
-        fprintf(stderr, "  output[0..3]: %.4f %.4f %.4f %.4f\n",
-                h_output[0], h_output[1], h_output[2], h_output[3]);
-        if (h_save_mean) fprintf(stderr, "  save_mean[0..1]: %.4f %.4f\n", h_save_mean[0], h_save_mean[1]);
-        if (h_save_inv_var) fprintf(stderr, "  save_inv[0..1]: %.4f %.4f\n", h_save_inv_var[0], h_save_inv_var[1]);
-        fprintf(stderr, "  running_mean[0..1]: %.4f %.4f\n", h_running_mean[0], h_running_mean[1]);
-        fprintf(stderr, "  running_var[0..1]: %.4f %.4f\n", h_running_var[0], h_running_var[1]);
-    }
-    bn_call_count++;
-#endif
-
     // Register d_output as a shadow of h_output — keep it alive on device
     g_shadow_cache.set(h_output, d_output, total);
 
@@ -1185,10 +991,9 @@ void CUDABackend::batchnorm_backward(const float* h_input, const float* h_grad_o
     // Get CUDA stream for async operations
     cudaStream_t stream = static_cast<cudaStream_t>(stream_);
 
-    // Check shadow + grad_shadow caches for input and grad_output
+    // Check shadow cache for input and grad_output
     bool input_from_shadow = false;
     bool grad_output_from_shadow = false;
-    bool grad_output_from_grad_shadow = false;
 
     float* d_input = g_shadow_cache.find(h_input);
     if (d_input) {
@@ -1197,17 +1002,11 @@ void CUDABackend::batchnorm_backward(const float* h_input, const float* h_grad_o
         d_input = g_buf_cache.get(total);
     }
 
-    // Check grad shadow first (from downstream backward), then data shadow
-    float* d_grad_output = g_grad_shadow.find(h_grad_output);
+    float* d_grad_output = g_shadow_cache.find(h_grad_output);
     if (d_grad_output) {
-        grad_output_from_grad_shadow = true;
+        grad_output_from_shadow = true;
     } else {
-        d_grad_output = g_shadow_cache.find(h_grad_output);
-        if (d_grad_output) {
-            grad_output_from_shadow = true;
-        } else {
-            d_grad_output = g_buf_cache.get(total);
-        }
+        d_grad_output = g_buf_cache.get(total);
     }
 
     // Allocate device buffers from cache
@@ -1218,11 +1017,9 @@ void CUDABackend::batchnorm_backward(const float* h_input, const float* h_grad_o
     float* d_save_mean   = g_buf_cache.get(channels);
     float* d_save_inv_var = g_buf_cache.get(channels);
 
-    // Pinned staging buffers for async H2D (only if not from any shadow)
-    bool need_input_h2d = !input_from_shadow;
-    bool need_grad_output_h2d = !grad_output_from_shadow && !grad_output_from_grad_shadow;
-    float* p_input        = need_input_h2d ? g_pinned_cache.get(total) : nullptr;
-    float* p_grad_output  = need_grad_output_h2d ? g_pinned_cache.get(total) : nullptr;
+    // Pinned staging buffers for async H2D (only if not from shadow)
+    float* p_input        = input_from_shadow ? nullptr : g_pinned_cache.get(total);
+    float* p_grad_output  = grad_output_from_shadow ? nullptr : g_pinned_cache.get(total);
     float* p_gamma        = g_pinned_cache.get(channels);
     float* p_save_mean    = g_pinned_cache.get(channels);
     float* p_save_inv_var = g_pinned_cache.get(channels);
@@ -1276,16 +1073,14 @@ void CUDABackend::batchnorm_backward(const float* h_input, const float* h_grad_o
         (double)eps,
         d_save_mean, d_save_inv_var));
 
-    // --- Store grad_input in grad shadow (stays on GPU for upstream backward) ---
-    if (h_grad_input && d_grad_input) {
-        g_grad_shadow.set(h_grad_input, d_grad_input, total, stream);
-        d_grad_input = nullptr;  // ownership transferred to grad shadow
-    }
+    // Async D2H gradients via pinned staging buffers
+    float* p_dgi = (h_grad_input && d_grad_input) ? g_pinned_cache.get(total)    : nullptr;
+    float* p_dgw = h_grad_gamma                   ? g_pinned_cache.get(channels) : nullptr;
+    float* p_dgb = h_grad_beta                    ? g_pinned_cache.get(channels) : nullptr;
 
-    // Async D2H for gamma/beta gradients (small, needed by CPU optimizer)
-    float* p_dgw = h_grad_gamma ? g_pinned_cache.get(channels) : nullptr;
-    float* p_dgb = h_grad_beta  ? g_pinned_cache.get(channels) : nullptr;
-
+    if (p_dgi)
+        CUDA_CHECK(cudaMemcpyAsync(p_dgi, d_grad_input, total * sizeof(float),
+                                    cudaMemcpyDeviceToHost, stream));
     if (p_dgw)
         CUDA_CHECK(cudaMemcpyAsync(p_dgw, d_grad_gamma, channels * sizeof(float),
                                     cudaMemcpyDeviceToHost, stream));
@@ -1293,10 +1088,14 @@ void CUDABackend::batchnorm_backward(const float* h_input, const float* h_grad_o
         CUDA_CHECK(cudaMemcpyAsync(p_dgb, d_grad_beta, channels * sizeof(float),
                                     cudaMemcpyDeviceToHost, stream));
 
-    // Synchronize stream -- all async ops complete here
+    // Synchronize stream — all async ops complete here
     CUDA_CHECK(cudaStreamSynchronize(stream));
 
-    // Accumulate gamma/beta gradients from pinned staging into host buffers
+    // Accumulate gradients from pinned staging into host buffers
+    if (p_dgi) {
+        for (size_t i = 0; i < total; i++) h_grad_input[i] += p_dgi[i];
+        g_pinned_cache.put(p_dgi, total);
+    }
     if (p_dgw) {
         for (size_t i = 0; i < channels; i++) h_grad_gamma[i] += p_dgw[i];
         g_pinned_cache.put(p_dgw, channels);
@@ -1313,10 +1112,9 @@ void CUDABackend::batchnorm_backward(const float* h_input, const float* h_grad_o
     g_pinned_cache.put(p_save_mean, channels);
     g_pinned_cache.put(p_save_inv_var, channels);
 
-    // Return device buffers to cache (skip those owned by shadow/grad_shadow cache)
+    // Return device buffers to cache (skip those owned by shadow cache)
     if (!input_from_shadow) g_buf_cache.put(d_input, total);
-    if (!grad_output_from_shadow && !grad_output_from_grad_shadow) g_buf_cache.put(d_grad_output, total);
-    // d_grad_input: either transferred to grad shadow or nullptr
+    if (!grad_output_from_shadow) g_buf_cache.put(d_grad_output, total);
     if (d_grad_input) g_buf_cache.put(d_grad_input, total);
     g_buf_cache.put(d_gamma, channels);
     g_buf_cache.put(d_grad_gamma, channels);
@@ -1542,195 +1340,6 @@ void CUDABackend::invalidate_weight_cache() {
 
 void CUDABackend::invalidate_shadow_cache() {
     g_shadow_cache.invalidate_all();
-}
-
-// ---------------------------------------------------------------------------
-// Grad shadow cache wrappers
-// ---------------------------------------------------------------------------
-
-float* CUDABackend::find_data_shadow(const float* h_ptr) {
-    return g_shadow_cache.find(h_ptr);
-}
-
-float* CUDABackend::find_grad_shadow(const float* h_ptr) {
-    return g_grad_shadow.find(h_ptr);
-}
-
-void CUDABackend::store_grad_shadow(const float* h_ptr, float* d_ptr, size_t n) {
-    g_grad_shadow.set(h_ptr, d_ptr, n, static_cast<cudaStream_t>(stream_));
-}
-
-void CUDABackend::flush_grad_shadows() {
-    init();
-    if (!initialized_) return;
-    g_grad_shadow.flush_to_cpu(static_cast<cudaStream_t>(stream_));
-}
-
-void CUDABackend::invalidate_grad_shadow_cache() {
-    g_grad_shadow.invalidate_all();
-}
-
-// ---------------------------------------------------------------------------
-// Shadow-chain backward: ReLU
-// ---------------------------------------------------------------------------
-bool CUDABackend::relu_backward_shadow(const float* h_grad_out, const float* h_input,
-                                        float* h_grad_in, size_t n) {
-    float* d_grad_out = g_grad_shadow.find(h_grad_out);
-    float* d_input    = g_shadow_cache.find(h_input);
-    if (!d_grad_out || !d_input) return false;
-
-    cudaStream_t stream = static_cast<cudaStream_t>(stream_);
-    float* d_grad_in = g_buf_cache.get(n);
-    cudaMemsetAsync(d_grad_in, 0, n * sizeof(float), stream);
-    relu_bwd_k<<<grid_for((int)n), kBlock, 0, stream>>>(d_grad_out, d_input, d_grad_in, (int)n);
-    g_grad_shadow.set(h_grad_in, d_grad_in, n, stream);
-    return true;
-}
-
-// ---------------------------------------------------------------------------
-// Shadow-chain backward: elementwise add
-// ---------------------------------------------------------------------------
-bool CUDABackend::add_backward_shadow(const float* h_grad_out,
-                                       float* h_grad_a, float* h_grad_b, size_t n) {
-    float* d_grad_out = g_grad_shadow.find(h_grad_out);
-    if (!d_grad_out) return false;
-
-    cudaStream_t stream = static_cast<cudaStream_t>(stream_);
-
-    if (h_grad_a) {
-        float* d_a = g_buf_cache.get(n);
-        cudaMemcpyAsync(d_a, d_grad_out, n * sizeof(float), cudaMemcpyDeviceToDevice, stream);
-        g_grad_shadow.set(h_grad_a, d_a, n, stream);
-    }
-    if (h_grad_b) {
-        float* d_b = g_buf_cache.get(n);
-        cudaMemcpyAsync(d_b, d_grad_out, n * sizeof(float), cudaMemcpyDeviceToDevice, stream);
-        g_grad_shadow.set(h_grad_b, d_b, n, stream);
-    }
-    return true;
-}
-
-// ---------------------------------------------------------------------------
-// Shadow-chain backward: matmul  C = A @ B  (row-major)
-// grad_A = grad_C @ B^T,  grad_B = A^T @ grad_C
-// ---------------------------------------------------------------------------
-bool CUDABackend::matmul_backward_shadow(const float* h_grad_C,
-                                          const float* h_A, const float* h_B,
-                                          float* h_grad_A, float* h_grad_B,
-                                          int M, int K, int N) {
-    float* d_grad_C = g_grad_shadow.find(h_grad_C);
-    if (!d_grad_C) return false;  // grad must be on GPU to stay in chain
-
-    cudaStream_t stream = static_cast<cudaStream_t>(stream_);
-    cublasHandle_t handle = static_cast<cublasHandle_t>(cublas_handle_);
-    float one = 1.0f, zero = 0.0f;
-
-    // Try to find A and B in the data shadow cache; upload temporarily if missing.
-    float* d_A = g_shadow_cache.find(h_A);
-    bool a_temp = false;
-    if (!d_A) {
-        d_A = g_buf_cache.get((size_t)M * K);
-        cudaMemcpyAsync(d_A, h_A, (size_t)M * K * sizeof(float),
-                         cudaMemcpyHostToDevice, stream);
-        a_temp = true;
-    }
-
-    float* d_B = g_shadow_cache.find(h_B);
-    bool b_temp = false;
-    if (!d_B) {
-        d_B = g_buf_cache.get((size_t)K * N);
-        cudaMemcpyAsync(d_B, h_B, (size_t)K * N * sizeof(float),
-                         cudaMemcpyHostToDevice, stream);
-        b_temp = true;
-    }
-
-    // grad_A = grad_C @ B^T   (row-major via column-major trick)
-    // Column-major: grad_A^T[K,M] = B^T[K,N] * grad_C^T[N,M]
-    // => cublas(Op_T, Op_N, K, M, N, 1, B, N, grad_C, N, 0, grad_A, K)
-    if (h_grad_A) {
-        float* d_grad_A = g_buf_cache.get((size_t)M * K);
-        cudaMemsetAsync(d_grad_A, 0, (size_t)M * K * sizeof(float), stream);
-        cublasSgemm(handle, CUBLAS_OP_T, CUBLAS_OP_N,
-                     K, M, N, &one, d_B, N, d_grad_C, N, &zero, d_grad_A, K);
-        g_grad_shadow.set(h_grad_A, d_grad_A, (size_t)M * K, stream);
-    }
-
-    // grad_B = A^T @ grad_C   (row-major via column-major trick)
-    // Column-major: grad_B^T[N,K] = grad_C^T[N,M] * A^T[M,K]
-    // => cublas(Op_N, Op_T, N, K, M, 1, grad_C, N, A, K, 0, grad_B, N)
-    if (h_grad_B) {
-        float* d_grad_B = g_buf_cache.get((size_t)K * N);
-        cudaMemsetAsync(d_grad_B, 0, (size_t)K * N * sizeof(float), stream);
-        cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_T,
-                     N, K, M, &one, d_grad_C, N, d_A, K, &zero, d_grad_B, N);
-        g_grad_shadow.set(h_grad_B, d_grad_B, (size_t)K * N, stream);
-    }
-
-    if (a_temp) g_buf_cache.put(d_A, (size_t)M * K);
-    if (b_temp) g_buf_cache.put(d_B, (size_t)K * N);
-    return true;
-}
-
-// ---------------------------------------------------------------------------
-// Shadow-chain backward: cross-entropy loss
-// Fused softmax-gradient: grad = (softmax(logits) - one_hot(target)) * scale
-// ---------------------------------------------------------------------------
-bool CUDABackend::cross_entropy_backward_shadow(const float* h_logits,
-                                                 const float* h_targets,
-                                                 float* h_grad_logits,
-                                                 size_t batch, size_t num_classes,
-                                                 float upstream_grad) {
-    float* d_logits = g_shadow_cache.find(h_logits);
-    if (!d_logits) return false;
-
-    cudaStream_t stream = static_cast<cudaStream_t>(stream_);
-    size_t total = batch * num_classes;
-
-    // Upload targets (small — batch floats representing class indices)
-    float* d_targets = g_buf_cache.get(batch);
-    cudaMemcpyAsync(d_targets, h_targets, batch * sizeof(float),
-                     cudaMemcpyHostToDevice, stream);
-
-    float* d_grad = g_buf_cache.get(total);
-    cudaMemsetAsync(d_grad, 0, total * sizeof(float), stream);
-
-    int grid = ((int)batch + kBlock - 1) / kBlock;
-    cross_entropy_bwd_k<<<grid, kBlock, 0, stream>>>(
-        d_logits, d_targets, d_grad, (int)batch, (int)num_classes, upstream_grad);
-
-    g_grad_shadow.set(h_grad_logits, d_grad, total, stream);
-
-    g_buf_cache.put(d_targets, batch);
-    return true;
-}
-
-// ---------------------------------------------------------------------------
-// Shadow-chain backward: adaptive average pooling
-// ---------------------------------------------------------------------------
-bool CUDABackend::adaptive_avgpool_backward_shadow(const float* h_grad_out,
-                                                    float* h_grad_in,
-                                                    size_t batch, size_t channels,
-                                                    size_t in_h, size_t in_w,
-                                                    size_t out_h, size_t out_w) {
-    float* d_grad_out = g_grad_shadow.find(h_grad_out);
-    if (!d_grad_out) return false;
-
-    cudaStream_t stream = static_cast<cudaStream_t>(stream_);
-    size_t in_total  = batch * channels * in_h * in_w;
-    size_t out_total = batch * channels * out_h * out_w;
-
-    float* d_grad_in = g_buf_cache.get(in_total);
-    cudaMemsetAsync(d_grad_in, 0, in_total * sizeof(float), stream);
-
-    int grid = ((int)out_total + kBlock - 1) / kBlock;
-    adaptive_avgpool_bwd_k<<<grid, kBlock, 0, stream>>>(
-        d_grad_out, d_grad_in,
-        (int)batch, (int)channels,
-        (int)in_h, (int)in_w,
-        (int)out_h, (int)out_w);
-
-    g_grad_shadow.set(h_grad_in, d_grad_in, in_total, stream);
-    return true;
 }
 
 }  // namespace whitematter

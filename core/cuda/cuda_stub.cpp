@@ -119,24 +119,6 @@ void CUDABackend::invalidate_weight_cache() {}
 // Shadow cache (no-op without CUDA)
 void CUDABackend::invalidate_shadow_cache() {}
 
-// Grad shadow cache (no-op without CUDA)
-float* CUDABackend::find_data_shadow(const float*) { return nullptr; }
-float* CUDABackend::find_grad_shadow(const float*) { return nullptr; }
-void CUDABackend::store_grad_shadow(const float*, float*, size_t) {}
-void CUDABackend::flush_grad_shadows() {}
-void CUDABackend::invalidate_grad_shadow_cache() {}
-
-// Shadow-chain backward passes (no-op without CUDA — always fall back)
-bool CUDABackend::relu_backward_shadow(const float*, const float*, float*, size_t) { return false; }
-bool CUDABackend::add_backward_shadow(const float*, float*, float*, size_t) { return false; }
-bool CUDABackend::matmul_backward_shadow(const float*, const float*, const float*,
-                                          float*, float*, int, int, int) { return false; }
-bool CUDABackend::cross_entropy_backward_shadow(const float*, const float*, float*,
-                                                 size_t, size_t, float) { return false; }
-bool CUDABackend::adaptive_avgpool_backward_shadow(const float*, float*,
-                                                    size_t, size_t, size_t, size_t,
-                                                    size_t, size_t) { return false; }
-
 // Memory transfers (no-op without CUDA)
 void CUDABackend::memcpy_h2d(float*, const float*, size_t) {}
 void CUDABackend::memcpy_d2h(float*, const float*, size_t) {}

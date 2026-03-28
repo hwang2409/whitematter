@@ -152,25 +152,7 @@ TensorPtr CrossEntropyLoss::forward(const TensorPtr& prediction, const TensorPtr
 
     if (result->requires_grad) {
         result->parents = {log_probs};
-        auto pred_ptr = prediction;
-        result->grad_fn = [log_probs, pred_ptr, target, result, batch_size, num_classes]() {
-#if defined(WHITEMATTER_CUDA)
-            if (whitematter::cuda_backend_available()) {
-                auto& be = whitematter::CUDABackend::instance();
-                // Fused cross-entropy backward: softmax - one_hot, stored
-                // directly into prediction's grad shadow (bypasses log_softmax backward).
-                if (be.cross_entropy_backward_shadow(
-                        pred_ptr->data(), target->data(),
-                        pred_ptr->grad(),
-                        batch_size, num_classes,
-                        result->grad()[0])) {
-                    // Null out log_probs->grad_fn so autograd skips the
-                    // log_softmax backward — we already wrote to prediction.
-                    log_probs->grad_fn = nullptr;
-                    return;
-                }
-            }
-#endif
+        result->grad_fn = [log_probs, target, result, batch_size, num_classes]() {
             float scale = result->grad()[0] / static_cast<float>(batch_size);
             for (size_t i = 0; i < batch_size; i++) {
                 size_t label = static_cast<size_t>(target->data()[i]);

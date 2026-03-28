@@ -357,7 +357,7 @@ bool convert_flatten(ONNXContext& ctx) {
     ctx.current_shape = {ctx.current_shape[0], flat_size};
     ctx.current_input = output_name;
 
-    if (ctx.verbose) printf("  Flatten -> Flatten (size=%lld)\n", flat_size);
+    if (ctx.verbose) printf("  Flatten -> Flatten (size=%ld)\n", (long)flat_size);
     return true;
 }
 
@@ -459,7 +459,7 @@ bool export_onnx(Sequential* model, const std::string& filepath, const ONNXExpor
         printf("ONNX Export: %s\n", options.model_name.c_str());
         printf("Input shape: [");
         for (size_t i = 0; i < ctx.current_shape.size(); i++) {
-            printf("%lld%s", ctx.current_shape[i], i < ctx.current_shape.size() - 1 ? ", " : "");
+            printf("%ld%s", (long)ctx.current_shape[i], i < ctx.current_shape.size() - 1 ? ", " : "");
         }
         printf("]\n");
         printf("Converting layers:\n");
@@ -533,7 +533,7 @@ bool export_onnx(Sequential* model, const std::string& filepath, const ONNXExpor
     if (options.verbose) {
         printf("Output shape: [");
         for (size_t i = 0; i < ctx.current_shape.size(); i++) {
-            printf("%lld%s", ctx.current_shape[i], i < ctx.current_shape.size() - 1 ? ", " : "");
+            printf("%ld%s", (long)ctx.current_shape[i], i < ctx.current_shape.size() - 1 ? ", " : "");
         }
         printf("]\n");
         printf("Exported %zu nodes, %zu initializers\n", ctx.nodes.size(), ctx.initializers.size());
