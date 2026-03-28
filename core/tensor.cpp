@@ -841,9 +841,9 @@ TensorPtr Tensor::add(const TensorPtr& other) const {
         cpu_result->to_inplace(whitematter::DeviceType::CUDA);
         return cpu_result;
     }
-    // Transparent GPU offload — DISABLED (investigating gradient issues)
-    if (false && device == whitematter::DeviceType::CPU && other->device == whitematter::DeviceType::CPU &&
-        shape == other->shape && whitematter::cuda_backend_available()) {
+    // Transparent GPU offload for CPU tensors in cuDNN pipeline (same-shape only)
+    if (device == whitematter::DeviceType::CPU && other->device == whitematter::DeviceType::CPU &&
+        shape == other->shape && whitematter::cuda_backend_available() && size() > 100000) {
         bool track = (requires_grad || other->requires_grad) && GradMode::is_enabled();
         auto result = create(shape, track);
         whitematter::CUDABackend::instance().elementwise_add_host(data(), other->data(), result->data(), size());
@@ -1287,8 +1287,9 @@ TensorPtr Tensor::relu() const {
     if (device == whitematter::DeviceType::CUDA && whitematter::cuda_backend_available()) {
         return cuda_ops::relu(this);
     }
-    // Transparent GPU offload for CPU tensors — DISABLED (investigating gradient issues)
-    if (false && device == whitematter::DeviceType::CPU && whitematter::cuda_backend_available()) {
+    // Transparent GPU offload for CPU tensors in cuDNN pipeline
+    if (device == whitematter::DeviceType::CPU && whitematter::cuda_backend_available()
+        && size() > 100000) {
         bool track = requires_grad && GradMode::is_enabled();
         auto result = create(shape, track);
         whitematter::CUDABackend::instance().relu_forward_host(data(), result->data(), size());
