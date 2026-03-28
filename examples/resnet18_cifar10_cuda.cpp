@@ -610,15 +610,6 @@ int main(int argc, char* argv[]) {
 
             loss->backward();
 
-#ifdef WHITEMATTER_CUDA
-            if (use_cuda) {
-                whitematter::CUDABackend::instance().flush_grad_shadows();
-            }
-#endif
-
-            // Gradient clipping to prevent training collapse
-            clip_grad_norm_(all_params, 1.0f);
-
             // Manual L2 weight decay on conv/linear weights
             apply_weight_decay(all_params, weight_decay);
 
