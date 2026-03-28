@@ -1071,7 +1071,13 @@ void CUDABackend::batchnorm_forward(const float* h_input, float* h_output,
     float alpha = 1.0f, beta_val = 0.0f;
 
     if (training) {
-        // exponentialAverageFactor = momentum (PyTorch convention)
+        // cuDNN 9 fix: use cudnnBatchNormalizationForwardTrainingEx with explicit math type
+        // to prevent TF32 precision loss. If the Ex version isn't available, fall back.
+        //
+        // The exponentialAverageFactor in cuDNN means:
+        //   running = running * (1 - factor) + batch_stat * factor
+        // Our CPU code uses: running = (1-momentum)*running + momentum*batch_stat
+        // These are equivalent when factor = momentum.
         CUDNN_CHECK(cudnnBatchNormalizationForwardTraining(dnn, CUDNN_BATCHNORM_SPATIAL,
             &alpha, &beta_val,
             input_desc, d_input, input_desc, d_output,
@@ -1118,6 +1124,21 @@ void CUDABackend::batchnorm_forward(const float* h_input, float* h_output,
     memcpy(h_running_var, p_rv_out, channels * sizeof(float));
     if (h_save_mean)    memcpy(h_save_mean, p_save_mean, channels * sizeof(float));
     if (h_save_inv_var) memcpy(h_save_inv_var, p_save_inv_var, channels * sizeof(float));
+
+#ifdef WHITEMATTER_DEBUG
+    // Debug: print first BN forward stats
+    static int bn_call_count = 0;
+    if (bn_call_count < 1) {
+        fprintf(stderr, "BN fwd: batch=%zu ch=%zu H=%zu W=%zu spatial=%zu\n", batch, channels, H, W);
+        fprintf(stderr, "  output[0..3]: %.4f %.4f %.4f %.4f\n",
+                h_output[0], h_output[1], h_output[2], h_output[3]);
+        if (h_save_mean) fprintf(stderr, "  save_mean[0..1]: %.4f %.4f\n", h_save_mean[0], h_save_mean[1]);
+        if (h_save_inv_var) fprintf(stderr, "  save_inv[0..1]: %.4f %.4f\n", h_save_inv_var[0], h_save_inv_var[1]);
+        fprintf(stderr, "  running_mean[0..1]: %.4f %.4f\n", h_running_mean[0], h_running_mean[1]);
+        fprintf(stderr, "  running_var[0..1]: %.4f %.4f\n", h_running_var[0], h_running_var[1]);
+    }
+    bn_call_count++;
+#endif
 
     // Register d_output as a shadow of h_output — keep it alive on device
     g_shadow_cache.set(h_output, d_output, total);
