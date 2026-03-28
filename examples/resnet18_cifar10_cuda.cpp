@@ -610,6 +610,12 @@ int main(int argc, char* argv[]) {
 
             loss->backward();
 
+#ifdef WHITEMATTER_CUDA
+            if (use_cuda) {
+                whitematter::CUDABackend::instance().flush_grad_shadows();
+            }
+#endif
+
             // Manual L2 weight decay on conv/linear weights
             apply_weight_decay(all_params, weight_decay);
 

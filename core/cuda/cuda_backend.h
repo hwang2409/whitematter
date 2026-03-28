@@ -113,6 +113,41 @@ public:
     // can skip H2D.  After parameter updates the forward outputs are stale.
     void invalidate_shadow_cache();
 
+    // --- Grad shadow cache management ---
+    // Wrappers for accessing shadow/grad_shadow caches from outside cuda_backend.cu.
+    float* find_data_shadow(const float* h_ptr);
+    float* find_grad_shadow(const float* h_ptr);
+    void store_grad_shadow(const float* h_ptr, float* d_ptr, size_t n);
+
+    // Flush all accumulated GPU gradients to CPU.
+    // Call AFTER backward() and BEFORE optimizer.step().
+    void flush_grad_shadows();
+
+    // Invalidate all gradient shadow entries (call after optimizer.step()).
+    void invalidate_grad_shadow_cache();
+
+    // --- Shadow-chain backward passes ---
+    // Each returns true if the entire backward was done on GPU via shadow
+    // cache, false if caller should fall back to the host-pointer method.
+    bool relu_backward_shadow(const float* h_grad_out, const float* h_input,
+                              float* h_grad_in, size_t n);
+    bool add_backward_shadow(const float* h_grad_out,
+                             float* h_grad_a, float* h_grad_b, size_t n);
+    bool matmul_backward_shadow(const float* h_grad_C,
+                                const float* h_A, const float* h_B,
+                                float* h_grad_A, float* h_grad_B,
+                                int M, int K, int N);
+    bool cross_entropy_backward_shadow(const float* h_logits,
+                                       const float* h_targets,
+                                       float* h_grad_logits,
+                                       size_t batch, size_t num_classes,
+                                       float upstream_grad);
+    bool adaptive_avgpool_backward_shadow(const float* h_grad_out,
+                                          float* h_grad_in,
+                                          size_t batch, size_t channels,
+                                          size_t in_h, size_t in_w,
+                                          size_t out_h, size_t out_w);
+
     // --- Memory transfers ---
     void memcpy_h2d(float* d_dst, const float* h_src, size_t n_floats);
     void memcpy_d2h(float* h_dst, const float* d_src, size_t n_floats);

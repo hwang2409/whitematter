@@ -660,6 +660,18 @@ TensorPtr Tensor::matmul(const TensorPtr& other) const {
         auto other_ptr = other;
         result->parents = {self_ptr, other_ptr};
         result->grad_fn = [self_ptr, other_ptr, result, m, k, n]() {
+#if defined(WHITEMATTER_CUDA)
+            if (whitematter::cuda_backend_available()) {
+                auto& be = whitematter::CUDABackend::instance();
+                if (be.matmul_backward_shadow(
+                        result->grad(), self_ptr->data(), other_ptr->data(),
+                        self_ptr->requires_grad ? self_ptr->grad() : nullptr,
+                        other_ptr->requires_grad ? other_ptr->grad() : nullptr,
+                        (int)m, (int)k, (int)n)) {
+                    return;
+                }
+            }
+#endif
             if (self_ptr->requires_grad) {
                 for (size_t i = 0; i < m; i++) {
                     for (size_t l = 0; l < k; l++) {
@@ -841,13 +853,21 @@ TensorPtr Tensor::add(const TensorPtr& other) const {
             result->parents = {self_ptr, other_ptr};
             result->grad_fn = [self_ptr, other_ptr, result]() {
                 // add backward: grad passes through to both inputs
-                if (self_ptr->requires_grad) {
-                    simd_add(self_ptr->grad(), self_ptr->grad(),
-                             result->grad(), self_ptr->size());
-                }
-                if (other_ptr->requires_grad) {
-                    simd_add(other_ptr->grad(), other_ptr->grad(),
-                             result->grad(), other_ptr->size());
+                auto& be = whitematter::CUDABackend::instance();
+                bool shadowed = be.add_backward_shadow(
+                    result->grad(),
+                    self_ptr->requires_grad ? self_ptr->grad() : nullptr,
+                    other_ptr->requires_grad ? other_ptr->grad() : nullptr,
+                    result->size());
+                if (!shadowed) {
+                    if (self_ptr->requires_grad) {
+                        simd_add(self_ptr->grad(), self_ptr->grad(),
+                                 result->grad(), self_ptr->size());
+                    }
+                    if (other_ptr->requires_grad) {
+                        simd_add(other_ptr->grad(), other_ptr->grad(),
+                                 result->grad(), other_ptr->size());
+                    }
                 }
             };
         }
@@ -1276,8 +1296,12 @@ TensorPtr Tensor::relu() const {
             auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
             result->parents = {self_ptr};
             result->grad_fn = [self_ptr, result]() {
-                whitematter::CUDABackend::instance().relu_backward_host(
-                    result->grad(), self_ptr->data(), self_ptr->grad(), self_ptr->size());
+                auto& be = whitematter::CUDABackend::instance();
+                if (!be.relu_backward_shadow(result->grad(), self_ptr->data(),
+                                              self_ptr->grad(), self_ptr->size())) {
+                    be.relu_backward_host(
+                        result->grad(), self_ptr->data(), self_ptr->grad(), self_ptr->size());
+                }
             };
         }
         return result;
