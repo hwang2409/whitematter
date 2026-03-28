@@ -297,32 +297,9 @@ void CUDABackend::init() {
     cudnn_handle_ = static_cast<void*>(dnn);
 
     initialized_ = true;
-
-    // Hook MemoryPool to use cudaMallocManaged so all tensor data is GPU-accessible.
-    // cuDNN and CUDA kernels can read tensor data directly — no H2D copies needed.
-    // CPU code also works (managed memory is CPU-accessible via page migration).
-    // Note: this works on native Linux. On WSL2, managed memory causes cuDNN hangs.
-    MemoryPool::set_allocator(
-        [](size_t n_bytes) -> float* {
-            float* ptr = nullptr;
-            cudaError_t err = cudaMallocManaged(&ptr, n_bytes);
-            if (err != cudaSuccess) {
-                return static_cast<float*>(std::malloc(n_bytes));
-            }
-            return ptr;
-        },
-        [](float* ptr) {
-            cudaPointerAttributes attrs;
-            cudaError_t err = cudaPointerGetAttributes(&attrs, ptr);
-            if (err == cudaSuccess && (attrs.type == cudaMemoryTypeManaged ||
-                                       attrs.type == cudaMemoryTypeDevice)) {
-                cudaFree(ptr);
-            } else {
-                cudaGetLastError();
-                std::free(ptr);
-            }
-        }
-    );
+    // Managed memory for tensor storage causes page migration ping-pong between
+    // CPU (backward pass) and GPU (cuDNN forward). Explicit H2D/D2H copies with
+    // buffer/weight caching is faster in practice.
 }
 
 bool CUDABackend::is_available() const {
