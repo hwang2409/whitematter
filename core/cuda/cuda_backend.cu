@@ -695,9 +695,8 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
         CUDNN_CHECK(cudnnSetConvolutionGroupCount(conv_desc, (int)groups));
     }
 
-    // Use IMPLICIT_PRECOMP_GEMM — faster than IMPLICIT_GEMM, works for all sizes.
-    // Falls back to IMPLICIT_GEMM only if workspace allocation fails.
-    cudnnConvolutionFwdAlgo_t algo = CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_PRECOMP_GEMM;
+    // Use IMPLICIT_GEMM — safest, no workspace required.
+    cudnnConvolutionFwdAlgo_t algo = CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_GEMM;
 
     // Get workspace size
     size_t ws_size = 0;
@@ -877,7 +876,7 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
 
     // --- Backward data: gradient w.r.t. input ---
     if (d_grad_input) {
-        cudnnConvolutionBwdDataAlgo_t data_algo = CUDNN_CONVOLUTION_BWD_DATA_ALGO_1;
+        cudnnConvolutionBwdDataAlgo_t data_algo = CUDNN_CONVOLUTION_BWD_DATA_ALGO_0;
 
         size_t data_ws_size = 0;
         CUDNN_CHECK(cudnnGetConvolutionBackwardDataWorkspaceSize(dnn, weight_desc, output_desc,
@@ -901,7 +900,7 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
 
     // --- Backward filter: gradient w.r.t. weight ---
     if (d_grad_weight) {
-        cudnnConvolutionBwdFilterAlgo_t filter_algo = CUDNN_CONVOLUTION_BWD_FILTER_ALGO_1;
+        cudnnConvolutionBwdFilterAlgo_t filter_algo = CUDNN_CONVOLUTION_BWD_FILTER_ALGO_0;
 
         size_t filter_ws_size = 0;
         CUDNN_CHECK(cudnnGetConvolutionBackwardFilterWorkspaceSize(dnn, input_desc, output_desc,
