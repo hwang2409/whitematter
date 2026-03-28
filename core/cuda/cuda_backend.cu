@@ -691,6 +691,8 @@ void CUDABackend::conv2d_forward(const float* h_input, const float* h_weight, co
                                                 (int)stride, (int)stride,
                                                 1, 1,  // dilation
                                                 CUDNN_CROSS_CORRELATION, CUDNN_DATA_FLOAT));
+    // Force FP32 math (cuDNN 9 defaults to TF32 on Turing which reduces precision)
+    cudnnSetConvolutionMathType(conv_desc, CUDNN_FMA_MATH);
     if (groups > 1) {
         CUDNN_CHECK(cudnnSetConvolutionGroupCount(conv_desc, (int)groups));
     }
@@ -868,6 +870,7 @@ void CUDABackend::conv2d_backward(const float* h_input, const float* h_weight,
                                                 (int)stride, (int)stride,
                                                 1, 1,  // dilation
                                                 CUDNN_CROSS_CORRELATION, CUDNN_DATA_FLOAT));
+    cudnnSetConvolutionMathType(conv_desc, CUDNN_FMA_MATH);
     if (groups > 1) {
         CUDNN_CHECK(cudnnSetConvolutionGroupCount(conv_desc, (int)groups));
     }
