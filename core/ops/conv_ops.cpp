@@ -247,9 +247,8 @@ TensorPtr Tensor::conv2d(const TensorPtr& weight, const TensorPtr& bias,
         // nullptr means unsupported config (e.g. dilation > 1); fall through to CPU
     }
 
-    // Transparent cuDNN offload for CPU tensors: data stays in CPU memory,
-    // we copy to managed buffers for cuDNN, then copy result back.
-    if (device == whitematter::DeviceType::CPU && dilation == 1 &&
+    // cuDNN conv2d DISABLED — testing if cuDNN 9 conv backward causes epoch 17 collapse
+    if (false && device == whitematter::DeviceType::CPU && dilation == 1 &&
         whitematter::cuda_backend_available()) {
         assert(shape.size() == 4);
         assert(weight->shape.size() == 4);

@@ -20,8 +20,8 @@ TensorPtr BatchNorm2d::forward(const TensorPtr& input) {
     assert(input->shape[1] == num_features);
 
 #if defined(WHITEMATTER_CUDA)
-    // cuDNN BatchNorm DISABLED — cuDNN 9 causes training collapse at epoch 17
-    if (false && whitematter::cuda_backend_available()) {
+    // cuDNN BatchNorm — cuDNN 9 forward+backward verified correct
+    if (whitematter::cuda_backend_available()) {
         size_t batch = input->shape[0];
         size_t channels = input->shape[1];
         size_t spatial = input->shape[2] * input->shape[3];
