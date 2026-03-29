@@ -84,6 +84,13 @@ public:
     float item() const;
     void zero_grad();
     void backward();
+    // Backprop assuming gradient is already set on this tensor (used by checkpoint).
+    void backward_with_grad();
+
+    // Gradient checkpointing: run fn(input) without storing intermediate activations.
+    // During backward, re-runs fn to recompute activations, then backprops through them.
+    // Trades compute for memory: O(sqrt(N)) peak memory instead of O(N) for N layers.
+    static TensorPtr checkpoint(std::function<TensorPtr(const TensorPtr&)> fn, const TensorPtr& input);
 
     float& operator[](size_t idx);
     float operator[](size_t idx) const;

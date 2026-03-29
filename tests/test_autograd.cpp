@@ -352,6 +352,119 @@ void test_autograd_accumulation() {
 }
 
 // =============================================================================
+// Gradient Checkpoint Tests
+// =============================================================================
+
+void test_gradient_checkpoint_basic() {
+    // Simple deterministic function: relu then square (element-wise mul with self)
+    auto fn = [](const TensorPtr& inp) -> TensorPtr {
+        auto r = inp->relu();
+        return r->mul(r);
+    };
+
+    auto x = Tensor::create({-1.0f, 0.0f, 1.0f, 2.0f, 3.0f, -0.5f}, {2, 3}, true);
+
+    // Without checkpoint
+    auto y1 = fn(x);
+    auto loss1 = y1->sum();
+    loss1->backward();
+    std::vector<float> grad_no_ckpt(x->grad(), x->grad() + x->size());
+    x->zero_grad();
+
+    // With checkpoint
+    auto y2 = Tensor::checkpoint(fn, x);
+    auto loss2 = y2->sum();
+    loss2->backward();
+    std::vector<float> grad_with_ckpt(x->grad(), x->grad() + x->size());
+
+    // Forward values must match
+    TEST_ASSERT_EQ(y1->size(), y2->size());
+    for (size_t i = 0; i < y1->size(); i++) {
+        TEST_ASSERT_NEAR(y1->data()[i], y2->data()[i], 1e-6f);
+    }
+
+    // Gradients must match
+    for (size_t i = 0; i < x->size(); i++) {
+        TEST_ASSERT_NEAR(grad_no_ckpt[i], grad_with_ckpt[i], 1e-5f);
+    }
+}
+
+void test_gradient_checkpoint_chain() {
+    // Chain of operations: sigmoid -> mul(scalar) -> tanh
+    auto fn = [](const TensorPtr& inp) -> TensorPtr {
+        return inp->sigmoid()->mul(2.0f)->tanh_();
+    };
+
+    auto x = Tensor::create({-2.0f, -1.0f, 0.0f, 1.0f, 2.0f, 3.0f}, {2, 3}, true);
+
+    // Without checkpoint
+    auto y1 = fn(x);
+    auto loss1 = y1->sum();
+    loss1->backward();
+    std::vector<float> grad_no_ckpt(x->grad(), x->grad() + x->size());
+    x->zero_grad();
+
+    // With checkpoint
+    auto y2 = Tensor::checkpoint(fn, x);
+    auto loss2 = y2->sum();
+    loss2->backward();
+    std::vector<float> grad_with_ckpt(x->grad(), x->grad() + x->size());
+
+    for (size_t i = 0; i < x->size(); i++) {
+        TEST_ASSERT_NEAR(grad_no_ckpt[i], grad_with_ckpt[i], 1e-5f);
+    }
+}
+
+void test_gradient_checkpoint_no_grad_input() {
+    // When input does not require grad, checkpoint should still produce correct output
+    auto fn = [](const TensorPtr& inp) -> TensorPtr {
+        return inp->relu();
+    };
+
+    auto x = Tensor::create({-1.0f, 2.0f, 3.0f}, {3}, false);
+    auto y = Tensor::checkpoint(fn, x);
+
+    TEST_ASSERT(!y->requires_grad);
+    TEST_ASSERT_NEAR(y->data()[0], 0.0f, 1e-6f);
+    TEST_ASSERT_NEAR(y->data()[1], 2.0f, 1e-6f);
+    TEST_ASSERT_NEAR(y->data()[2], 3.0f, 1e-6f);
+}
+
+void test_gradient_checkpoint_nested_ops() {
+    // More complex: matmul with a fixed weight inside the checkpoint
+    auto w = Tensor::create({1.0f, 0.5f, -0.5f, 1.0f, 0.0f, 1.0f}, {3, 2}, true);
+
+    auto fn = [w](const TensorPtr& inp) -> TensorPtr {
+        return inp->matmul(w)->relu();
+    };
+
+    auto x = Tensor::create({1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f}, {2, 3}, true);
+
+    // Without checkpoint
+    auto y1 = fn(x);
+    auto loss1 = y1->sum();
+    loss1->backward();
+    std::vector<float> grad_x_no_ckpt(x->grad(), x->grad() + x->size());
+    std::vector<float> grad_w_no_ckpt(w->grad(), w->grad() + w->size());
+    x->zero_grad();
+    w->zero_grad();
+
+    // With checkpoint
+    auto y2 = Tensor::checkpoint(fn, x);
+    auto loss2 = y2->sum();
+    loss2->backward();
+    std::vector<float> grad_x_with_ckpt(x->grad(), x->grad() + x->size());
+    std::vector<float> grad_w_with_ckpt(w->grad(), w->grad() + w->size());
+
+    for (size_t i = 0; i < x->size(); i++) {
+        TEST_ASSERT_NEAR(grad_x_no_ckpt[i], grad_x_with_ckpt[i], 1e-5f);
+    }
+    for (size_t i = 0; i < w->size(); i++) {
+        TEST_ASSERT_NEAR(grad_w_no_ckpt[i], grad_w_with_ckpt[i], 1e-5f);
+    }
+}
+
+// =============================================================================
 // Test Suite Registration
 // =============================================================================
 
@@ -396,6 +509,12 @@ TestSuite* create_autograd_tests() {
     // Zero grad & accumulation
     suite->add_test("zero_grad", test_autograd_zero_grad);
     suite->add_test("accumulation", test_autograd_accumulation);
+
+    // Gradient checkpointing
+    suite->add_test("checkpoint_basic", test_gradient_checkpoint_basic);
+    suite->add_test("checkpoint_chain", test_gradient_checkpoint_chain);
+    suite->add_test("checkpoint_no_grad_input", test_gradient_checkpoint_no_grad_input);
+    suite->add_test("checkpoint_nested_ops", test_gradient_checkpoint_nested_ops);
 
     return suite;
 }

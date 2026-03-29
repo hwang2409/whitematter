@@ -557,6 +557,63 @@ void Tensor::backward() {
     }
 }
 
+void Tensor::backward_with_grad() {
+    // Like backward() but assumes grad is already set on this tensor.
+    // Used by gradient checkpointing to backprop with an upstream gradient.
+    std::vector<Tensor*> topo, visited;
+    build_topo(topo, visited);
+
+    for (auto it = topo.rbegin(); it != topo.rend(); ++it) {
+        if ((*it)->grad_fn) (*it)->grad_fn();
+    }
+
+    for (auto* t : topo) {
+        t->grad_fn = nullptr;
+        t->parents.clear();
+    }
+}
+
+TensorPtr Tensor::checkpoint(std::function<TensorPtr(const TensorPtr&)> fn,
+                             const TensorPtr& input) {
+    // Forward pass: run fn without gradient tracking so intermediate
+    // activations are not retained in the autograd graph.
+    TensorPtr output;
+    {
+        bool prev = GradMode::is_enabled();
+        GradMode::set_enabled(false);
+        output = fn(input);
+        GradMode::set_enabled(prev);
+    }
+
+    bool track = input->requires_grad && GradMode::is_enabled();
+    auto result = create(output->shape, track);
+    std::memcpy(result->data(), output->data(), output->size() * sizeof(float));
+
+    if (track) {
+        auto input_ptr = input;
+        auto fn_copy = fn;
+        result->parents = {input_ptr};
+        result->grad_fn = [input_ptr, fn_copy, result]() {
+            // Recompute forward WITH gradients to rebuild the autograd graph.
+            auto recomputed = fn_copy(input_ptr);
+
+            // Allocate grad on recomputed tensor and copy upstream gradient.
+            if (recomputed->grad_empty()) {
+                recomputed->grad_storage_ = MemoryPool::instance().acquire_shared(recomputed->size());
+                recomputed->grad_size_ = recomputed->size();
+                std::fill(recomputed->grad(), recomputed->grad() + recomputed->size(), 0.0f);
+            }
+            std::memcpy(recomputed->grad(), result->grad(), result->size() * sizeof(float));
+
+            // Backprop through the recomputed graph.  This accumulates
+            // gradients into input_ptr->grad() via the recomputed graph.
+            recomputed->backward_with_grad();
+        };
+    }
+
+    return result;
+}
+
 TensorPtr Tensor::matmul(const TensorPtr& other) const {
     assert(shape.size() == 2 && other->shape.size() == 2);
     assert(shape[1] == other->shape[0]);
