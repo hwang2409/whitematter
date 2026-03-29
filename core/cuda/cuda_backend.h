@@ -97,7 +97,6 @@ public:
 
     // --- Host-pointer variants for transparent GPU offload ---
     // Accept CPU (host) pointers, copy H2D, run kernel, copy D2H.
-    // Uses shadow cache to skip H2D when data is already on device.
     void relu_forward_host(const float* h_input, float* h_output, size_t n);
     void relu_backward_host(const float* h_grad_out, const float* h_input, float* h_grad_in, size_t n);
     void elementwise_add_host(const float* h_a, const float* h_b, float* h_c, size_t n);
@@ -106,12 +105,6 @@ public:
     // Call after optimizer.step() to mark cached weight buffers as stale.
     // Next conv2d call will re-upload weights that have changed.
     void invalidate_weight_cache();
-
-    // --- Shadow cache management ---
-    // Call after optimizer.step() to clear device-side shadow buffers.
-    // Shadows hold conv2d/batchnorm outputs on the GPU so the next layer
-    // can skip H2D.  After parameter updates the forward outputs are stale.
-    void invalidate_shadow_cache();
 
     // --- Memory transfers ---
     void memcpy_h2d(float* d_dst, const float* h_src, size_t n_floats);
