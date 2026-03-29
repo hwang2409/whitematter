@@ -84,8 +84,9 @@ TensorPtr Tensor::pad2d(size_t padding) const {
 
     size_t batch = 1, channels, height, width;
     std::vector<size_t> new_shape;
+    bool is4d = (shape.size() == 4);
 
-    if (shape.size() == 4) {
+    if (is4d) {
         batch = shape[0];
         channels = shape[1];
         height = shape[2];
@@ -101,14 +102,15 @@ TensorPtr Tensor::pad2d(size_t padding) const {
     size_t new_height = height + 2 * padding;
     size_t new_width = width + 2 * padding;
 
-    auto result = Tensor::zeros(new_shape, false);
+    bool track = requires_grad && GradMode::is_enabled();
+    auto result = Tensor::zeros(new_shape, track);
 
     for (size_t n = 0; n < batch; n++) {
         for (size_t c = 0; c < channels; c++) {
             for (size_t h = 0; h < height; h++) {
                 for (size_t w = 0; w < width; w++) {
                     size_t src_idx, dst_idx;
-                    if (shape.size() == 4) {
+                    if (is4d) {
                         src_idx = n * channels * height * width + c * height * width + h * width + w;
                         dst_idx = n * channels * new_height * new_width + c * new_height * new_width +
                                   (h + padding) * new_width + (w + padding);
@@ -120,6 +122,33 @@ TensorPtr Tensor::pad2d(size_t padding) const {
                 }
             }
         }
+    }
+
+    if (track) {
+        auto self_ptr = const_cast<Tensor*>(this)->shared_from_this();
+        result->parents = {self_ptr};
+        result->grad_fn = [self_ptr, result, batch, channels, height, width,
+                           new_height, new_width, padding, is4d]() {
+            // Backward: extract center (non-padded) region from upstream grad
+            for (size_t n = 0; n < batch; n++) {
+                for (size_t c = 0; c < channels; c++) {
+                    for (size_t h = 0; h < height; h++) {
+                        for (size_t w = 0; w < width; w++) {
+                            size_t src_idx, dst_idx;
+                            if (is4d) {
+                                src_idx = n * channels * height * width + c * height * width + h * width + w;
+                                dst_idx = n * channels * new_height * new_width + c * new_height * new_width +
+                                          (h + padding) * new_width + (w + padding);
+                            } else {
+                                src_idx = c * height * width + h * width + w;
+                                dst_idx = c * new_height * new_width + (h + padding) * new_width + (w + padding);
+                            }
+                            self_ptr->grad()[src_idx] += result->grad()[dst_idx];
+                        }
+                    }
+                }
+            }
+        };
     }
 
     return result;

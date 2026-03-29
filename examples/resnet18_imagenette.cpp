@@ -626,6 +626,11 @@ int main(int argc, char* argv[]) {
     // ------------------------------------------------------------------
     // Training loop (mmap batch sampling -- one batch in memory at a time)
     // ------------------------------------------------------------------
+    // Print baseline tensor count (model params only, before any training)
+    int64_t baseline_tensors = Tensor::live_count();
+    int64_t baseline_mb = Tensor::live_bytes() / (1024 * 1024);
+    printf("Baseline: %lld tensors (%lldMB) — model params only\n",
+           (long long)baseline_tensors, (long long)baseline_mb);
     printf("Training...\n");
     printf("--------------------------------------------------------------------------------\n");
     fflush(stdout);
@@ -705,16 +710,16 @@ int main(int argc, char* argv[]) {
             total_loss += batch_loss;
             num_batches++;
 
-            // Print progress + memory diagnostics
-            if (epoch == start_epoch || num_batches % 20 == 0) {
+            // Print progress + memory diagnostics (every batch for first epoch to track leaks)
+            if (num_batches <= 5 || num_batches % 20 == 0 || epoch > start_epoch) {
                 auto batch_time = std::chrono::high_resolution_clock::now();
                 double elapsed = std::chrono::duration<double>(batch_time - epoch_start).count();
                 int64_t live = Tensor::live_count();
                 int64_t live_mb = Tensor::live_bytes() / (1024 * 1024);
-                size_t pool_mb = MemoryPool::instance().cached_bytes() / (1024 * 1024);
-                printf("\r  Epoch %3d: batch %3zu/%zu | %.1fs | tensors: %lld (%lldMB) pool: %zuMB",
+                int64_t delta = live - baseline_tensors;
+                printf("\r  Epoch %3d: batch %3zu/%zu | %.1fs | tensors: %lld (+%lld) %lldMB",
                        epoch + 1, num_batches, total_batches, elapsed,
-                       (long long)live, (long long)live_mb, pool_mb);
+                       (long long)live, (long long)delta, (long long)live_mb);
                 fflush(stdout);
             }
         }
