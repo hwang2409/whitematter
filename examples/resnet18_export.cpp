@@ -323,34 +323,43 @@ int main(int argc, char* argv[]) {
         };
 
         uint32_t magic = 0;
-        if (!read_u32(magic) || magic != MODEL_MAGIC) {
-            fprintf(stderr, "Error: Invalid file magic in '%s'\n", ckpt_path.c_str());
+        if (!read_u32(magic) || (magic != 0x574D4350 && magic != MODEL_MAGIC)) {
+            fprintf(stderr, "Error: Invalid file magic in '%s' (got 0x%08X)\n", ckpt_path.c_str(), magic);
             return 1;
         }
-
-        // Try checkpoint format (version field follows magic)
-        uint32_t version_or_nparams = 0;
-        if (!read_u32(version_or_nparams)) {
-            fprintf(stderr, "Error: Truncated file\n"); return 1;
-        }
+        bool is_wmcp = (magic == 0x574D4350);  // checkpoint format from training
 
         auto params = model.parameters();
         uint32_t num_params = 0;
 
-        if (version_or_nparams == 1) {
-            // Checkpoint format: magic, version=1, epoch, loss, accuracy, num_params, ...
-            int epoch = 0; float loss = 0, accuracy = 0;
-            if (!read_i32(epoch) || !read_f32(loss) || !read_f32(accuracy)) {
-                fprintf(stderr, "Error: Failed to read checkpoint header\n"); return 1;
+        if (is_wmcp) {
+            // WMCP checkpoint: magic, epoch(i32), best_acc(f32), lr(f32), num_params(u32)
+            int epoch = 0; float best_acc = 0, lr = 0;
+            if (!read_i32(epoch) || !read_f32(best_acc) || !read_f32(lr)) {
+                fprintf(stderr, "Error: Failed to read WMCP checkpoint header\n"); return 1;
             }
             if (!read_u32(num_params)) {
                 fprintf(stderr, "Error: Failed to read param count\n"); return 1;
             }
-            printf("  Checkpoint: epoch=%d, loss=%.4f, accuracy=%.2f%%\n",
-                   epoch, loss, accuracy * 100.0f);
+            printf("  Checkpoint: epoch=%d, best_acc=%.2f%%, lr=%.6f\n",
+                   epoch, best_acc, lr);
         } else {
-            // Plain model format: magic, num_params, ...
-            num_params = version_or_nparams;
+            // RNET or plain format
+            uint32_t version_or_nparams = 0;
+            if (!read_u32(version_or_nparams)) {
+                fprintf(stderr, "Error: Truncated file\n"); return 1;
+            }
+            if (version_or_nparams == 1) {
+                int epoch = 0; float loss = 0, accuracy = 0;
+                if (!read_i32(epoch) || !read_f32(loss) || !read_f32(accuracy)) {
+                    fprintf(stderr, "Error: Failed to read checkpoint header\n"); return 1;
+                }
+                if (!read_u32(num_params)) {
+                    fprintf(stderr, "Error: Failed to read param count\n"); return 1;
+                }
+            } else {
+                num_params = version_or_nparams;
+            }
         }
 
         if (num_params != static_cast<uint32_t>(params.size())) {
