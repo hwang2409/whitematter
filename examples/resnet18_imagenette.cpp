@@ -28,6 +28,7 @@
 #include "dataloader.h"
 #include "serialize.h"
 #include "device.h"
+#include "memory_pool.h"
 
 #ifdef WHITEMATTER_CUDA
 #include "cuda/cuda_backend.h"
@@ -685,6 +686,9 @@ int main(int argc, char* argv[]) {
             apply_weight_decay(all_params, weight_decay);
 
             optimizer.step();
+
+            // Free cached memory to prevent unbounded growth with large 224x224 tensors
+            MemoryPool::instance().trim();
 
             // Read loss scalar (handles GPU -> CPU transfer)
             total_loss += read_loss_scalar(loss);

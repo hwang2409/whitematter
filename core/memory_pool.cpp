@@ -186,6 +186,18 @@ void MemoryPool::release(float* ptr, size_t original_n) {
     memory_pool_detail::t_thread_cache.release(ptr, original_n, impl());
 }
 
+void MemoryPool::trim() {
+    auto* p = impl();
+    std::lock_guard<std::mutex> lock(p->mutex);
+    for (auto& [cls, free_list] : p->buckets) {
+        for (float* ptr : free_list) {
+            if (g_free_fn) g_free_fn(ptr);
+            else std::free(ptr);
+        }
+        free_list.clear();
+    }
+}
+
 std::shared_ptr<float> MemoryPool::acquire_shared(size_t n) {
     float* ptr = acquire(n);
     if (!ptr) return nullptr;

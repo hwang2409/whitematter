@@ -28,6 +28,10 @@ public:
     // Round requested size up to the pool's size class (for tests/tooling).
     static size_t size_class(size_t n);
 
+    // Free all cached buffers in the global pool (does not affect in-use buffers).
+    // Call periodically to prevent unbounded memory growth.
+    void trim();
+
     // Custom allocator hooks (for CUDA managed memory).
     // When set, these replace std::malloc/std::free for all pool allocations.
     using AllocFn = float*(*)(size_t n_bytes);
