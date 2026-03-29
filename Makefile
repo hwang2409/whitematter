@@ -42,6 +42,18 @@ endif
 
 # Use OpenBLAS for fast matmul on Linux: make OPENBLAS=1
 OPENBLAS ?= 0
+
+# Auto-detect OpenBLAS on Linux (if not explicitly set)
+ifeq ($(OPENBLAS),0)
+  ifneq ($(UNAME_S),Darwin)
+    # Check if OpenBLAS is available
+    OPENBLAS_CHECK := $(shell echo 'int main(){}' | $(CXX) -xc++ - -lopenblas -o /dev/null 2>/dev/null && echo 1 || echo 0)
+    ifeq ($(OPENBLAS_CHECK),1)
+      OPENBLAS := 1
+    endif
+  endif
+endif
+
 ifeq ($(OPENBLAS),1)
     CXXFLAGS += -DWHITEMATTER_OPENBLAS
     LDFLAGS += -lopenblas
@@ -304,6 +316,9 @@ $(BUILD_DIR)/gpt_shakespeare.o: $(EXAMPLES_DIR)/gpt_shakespeare.cpp | $(BUILD_DI
 $(BUILD_DIR)/resnet18_imagenette.o: $(EXAMPLES_DIR)/resnet18_imagenette.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
+$(BUILD_DIR)/bench.o: $(EXAMPLES_DIR)/bench.cpp | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
 $(STATIC_LIB): $(LIB_OBJS)
 	ar rcs $@ $^
 
@@ -383,6 +398,12 @@ resnet18-imagenette: $(RESNET18_IMAGENETTE_TARGET)
 run-resnet18-imagenette: $(RESNET18_IMAGENETTE_TARGET)
 	./$(RESNET18_IMAGENETTE_TARGET)
 
+BENCH_TARGET = $(BUILD_DIR)/bench
+$(BENCH_TARGET): $(BUILD_DIR)/bench.o $(STATIC_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $< -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
+bench: $(BENCH_TARGET)
+	./$(BENCH_TARGET)
+
 $(BUILD_DIR)/test_tensor.o: $(TESTS_DIR)/test_tensor.cpp $(TESTS_DIR)/test_framework.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -I$(TESTS_DIR) -c -o $@ $<
 
@@ -429,7 +450,7 @@ test-gradcheck: $(TESTS_TARGET)
 	./$(TESTS_TARGET) --gradcheck
 
 clean:
-	rm -rf $(BUILD_DIR)/*.o $(BUILD_DIR)/*.a $(BUILD_DIR)/ml $(BUILD_DIR)/cnn_mnist $(BUILD_DIR)/cnn_cifar10 $(BUILD_DIR)/cats_vs_dogs $(BUILD_DIR)/transformer_example $(BUILD_DIR)/autoencoder $(BUILD_DIR)/gan $(BUILD_DIR)/rnn_text_gen $(BUILD_DIR)/resnet18_cifar10 $(BUILD_DIR)/resnet18_cifar10_cuda $(BUILD_DIR)/resnet18_predict $(BUILD_DIR)/resnet18_export $(BUILD_DIR)/resnet18_imagenette $(BUILD_DIR)/mobilenetv2_cifar10 $(BUILD_DIR)/gpt_shakespeare $(BUILD_DIR)/run_tests
+	rm -rf $(BUILD_DIR)/*.o $(BUILD_DIR)/*.a $(BUILD_DIR)/ml $(BUILD_DIR)/cnn_mnist $(BUILD_DIR)/cnn_cifar10 $(BUILD_DIR)/cats_vs_dogs $(BUILD_DIR)/transformer_example $(BUILD_DIR)/autoencoder $(BUILD_DIR)/gan $(BUILD_DIR)/rnn_text_gen $(BUILD_DIR)/resnet18_cifar10 $(BUILD_DIR)/resnet18_cifar10_cuda $(BUILD_DIR)/resnet18_predict $(BUILD_DIR)/resnet18_export $(BUILD_DIR)/resnet18_imagenette $(BUILD_DIR)/mobilenetv2_cifar10 $(BUILD_DIR)/gpt_shakespeare $(BUILD_DIR)/bench $(BUILD_DIR)/run_tests
 
 run: $(ML_TARGET)
 	./$(ML_TARGET)
@@ -485,4 +506,4 @@ test-all: test
 	@echo "── Frontend lint ──"
 	@cd frontend && npm run lint
 
-.PHONY: all clean run run-cnn run-cifar run-transformer run-autoencoder autoencoder run-gan gan run-rnn rnn resnet18 run-resnet18 resnet18-cuda run-resnet18-cuda resnet18-predict resnet18-export resnet18-imagenette run-resnet18-imagenette mobilenetv2 run-mobilenetv2 gpt_shakespeare run-gpt debug test test-tensor test-autograd test-layers test-loss test-optimizer test-gradcheck dev docker-build lint test-all
+.PHONY: all clean run run-cnn run-cifar run-transformer run-autoencoder autoencoder run-gan gan run-rnn rnn resnet18 run-resnet18 resnet18-cuda run-resnet18-cuda resnet18-predict resnet18-export resnet18-imagenette run-resnet18-imagenette mobilenetv2 run-mobilenetv2 gpt_shakespeare run-gpt debug bench test test-tensor test-autograd test-layers test-loss test-optimizer test-gradcheck dev docker-build lint test-all
