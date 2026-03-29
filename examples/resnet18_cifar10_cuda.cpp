@@ -107,12 +107,12 @@ static bool load_checkpoint(const std::string& path, int& epoch, float& best_acc
         return false;
     }
 
-    fread(&epoch, 4, 1, f);
-    fread(&best_acc, 4, 1, f);
-    fread(&lr, 4, 1, f);
+    if (fread(&epoch, 4, 1, f) != 1) { fclose(f); return false; }
+    if (fread(&best_acc, 4, 1, f) != 1) { fclose(f); return false; }
+    if (fread(&lr, 4, 1, f) != 1) { fclose(f); return false; }
 
     uint32_t n;
-    fread(&n, 4, 1, f);
+    if (fread(&n, 4, 1, f) != 1) { fclose(f); return false; }
     if (n != params.size()) {
         fprintf(stderr, "Parameter count mismatch: checkpoint has %u, model has %zu\n",
                 n, params.size());
@@ -122,12 +122,12 @@ static bool load_checkpoint(const std::string& path, int& epoch, float& best_acc
 
     for (auto& p : params) {
         uint32_t ndim;
-        fread(&ndim, 4, 1, f);
+        if (fread(&ndim, 4, 1, f) != 1) { fclose(f); return false; }
         for (uint32_t i = 0; i < ndim; i++) {
             uint64_t d;
-            fread(&d, 8, 1, f);
+            if (fread(&d, 8, 1, f) != 1) { fclose(f); return false; }
         }
-        fread(p->data(), sizeof(float), p->size(), f);
+        if (fread(p->data(), sizeof(float), p->size(), f) != p->size()) { fclose(f); return false; }
     }
 
     // Load momentum buffers
@@ -135,9 +135,9 @@ static bool load_checkpoint(const std::string& path, int& epoch, float& best_acc
     if (fread(&nm, 4, 1, f) == 1 && nm == momentum.size()) {
         for (auto& buf : momentum) {
             uint64_t sz;
-            fread(&sz, 8, 1, f);
+            if (fread(&sz, 8, 1, f) != 1) break;
             if (sz == buf.size()) {
-                fread(buf.data(), sizeof(float), buf.size(), f);
+                if (fread(buf.data(), sizeof(float), buf.size(), f) != buf.size()) break;
             } else {
                 // Size mismatch — skip this buffer and zero our copy
                 fseek(f, sz * sizeof(float), SEEK_CUR);
@@ -389,7 +389,7 @@ static float read_loss_scalar(const TensorPtr& loss) {
 // Evaluation helper
 // ---------------------------------------------------------------------------
 float compute_accuracy(ResNet18& model, ThreadedDataLoader& loader,
-                       bool use_cuda) {
+                       bool /*use_cuda*/) {
     NoGradGuard no_grad;
     model.eval();
 

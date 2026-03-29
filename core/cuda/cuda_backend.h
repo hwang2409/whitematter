@@ -121,12 +121,12 @@ public:
 
 private:
     CUDABackend() = default;
-    bool initialized_ = false;
-    void* cublas_handle_ = nullptr;  // cublasHandle_t
-    void* cudnn_handle_ = nullptr;   // cudnnHandle_t
-    void* stream_ = nullptr;         // cudaStream_t
-    void* workspace_ = nullptr;      // cuDNN workspace buffer
-    size_t workspace_size_ = 0;
+    [[maybe_unused]] bool initialized_ = false;
+    [[maybe_unused]] void* cublas_handle_ = nullptr;  // cublasHandle_t
+    [[maybe_unused]] void* cudnn_handle_ = nullptr;   // cudnnHandle_t
+    [[maybe_unused]] void* stream_ = nullptr;         // cudaStream_t
+    [[maybe_unused]] void* workspace_ = nullptr;      // cuDNN workspace buffer
+    [[maybe_unused]] size_t workspace_size_ = 0;
 };
 
 }  // namespace whitematter

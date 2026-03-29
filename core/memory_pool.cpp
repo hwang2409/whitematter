@@ -15,6 +15,7 @@ static float* pool_alloc(size_t n_bytes) {
     return static_cast<float*>(std::malloc(n_bytes));
 }
 
+[[maybe_unused]]
 static void pool_free(float* ptr) {
     if (g_free_fn) g_free_fn(ptr);
     else std::free(ptr);

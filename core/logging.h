@@ -34,8 +34,8 @@ public:
         values_.clear();
         sum_ = 0.0f;
         count_ = 0;
-        min_ = std::numeric_limits<float>::infinity();
-        max_ = -std::numeric_limits<float>::infinity();
+        min_ = std::numeric_limits<float>::max();
+        max_ = -std::numeric_limits<float>::max();
         mean_ = 0.0f;
         m2_ = 0.0f;
     }

@@ -9,7 +9,9 @@
 
 // Use Accelerate BLAS on macOS, OpenBLAS on Linux if available
 #if defined(__APPLE__)
+    #ifndef ACCELERATE_NEW_LAPACK
     #define ACCELERATE_NEW_LAPACK
+    #endif
     #include <Accelerate/Accelerate.h>
     #define USE_BLAS 1
 #elif defined(WHITEMATTER_OPENBLAS)
@@ -33,6 +35,7 @@
 #endif
 #endif // !USE_BLAS
 
+[[maybe_unused]]
 static constexpr size_t BLOCK_SIZE = 32;
 
 void matmul_blocked(float* C, const float* A, const float* B,

@@ -29,14 +29,14 @@ public:
 
 private:
     MetalBackend() = default;
-    bool available_ = false;
-    bool initialized_ = false;
+    [[maybe_unused]] bool available_ = false;
+    [[maybe_unused]] bool initialized_ = false;
     void init();
 
     // Persistent Metal resources (opaque pointers to avoid ObjC in header)
-    void* device_ = nullptr;      // id<MTLDevice>
-    void* queue_ = nullptr;       // id<MTLCommandQueue>
-    void* library_ = nullptr;     // id<MTLLibrary>
+    [[maybe_unused]] void* device_ = nullptr;      // id<MTLDevice>
+    [[maybe_unused]] void* queue_ = nullptr;       // id<MTLCommandQueue>
+    [[maybe_unused]] void* library_ = nullptr;     // id<MTLLibrary>
 
     // Cached pipeline states (up to 16 kernels)
     struct PipelineEntry {
@@ -44,7 +44,7 @@ private:
         void* pipeline = nullptr;  // id<MTLComputePipelineState>
     };
     PipelineEntry pipelines_[16] = {};
-    int pipeline_count_ = 0;
+    [[maybe_unused]] int pipeline_count_ = 0;
 
     void* get_pipeline(const char* fn_name);
     void run_elementwise(const char* kernel_name, const float* a, const float* b, float* c, size_t n);

@@ -340,8 +340,8 @@ public:
         : filepath_(filepath),
           mode_min_(mode_min),
           min_delta_(min_delta),
-          best_(mode_min ? std::numeric_limits<float>::infinity()
-                         : -std::numeric_limits<float>::infinity()),
+          best_(mode_min ? std::numeric_limits<float>::max()
+                         : -std::numeric_limits<float>::max()),
           saved_(false) {}
 
     bool step(float metric, Module* model) {
@@ -374,8 +374,8 @@ public:
     const std::string& filepath() const { return filepath_; }
 
     void reset() {
-        best_ = mode_min_ ? std::numeric_limits<float>::infinity()
-                          : -std::numeric_limits<float>::infinity();
+        best_ = mode_min_ ? std::numeric_limits<float>::max()
+                          : -std::numeric_limits<float>::max();
         saved_ = false;
     }
 
