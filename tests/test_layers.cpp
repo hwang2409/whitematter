@@ -1808,6 +1808,192 @@ void test_conv2d_dilation_default() {
     TEST_ASSERT_SHAPE(out2, std::vector<size_t>({1, 1, 5, 5}));
 }
 
+void test_conv2d_dilated_differs_from_standard() {
+    // Dilated conv should produce different output than non-dilated with same weights
+    Conv2d layer_std(1, 1, 3, 1, 1, 1, 1);    // dilation=1
+    Conv2d layer_dil(1, 1, 3, 1, 2, 1, 2);    // dilation=2, pad=2
+
+    // Copy weights from standard to dilated so only dilation differs
+    for (size_t i = 0; i < layer_std.weight->size(); i++) {
+        layer_dil.weight->data()[i] = layer_std.weight->data()[i];
+    }
+    for (size_t i = 0; i < layer_std.bias->size(); i++) {
+        layer_dil.bias->data()[i] = layer_std.bias->data()[i];
+    }
+
+    // Use non-trivial input (not all ones/zeros)
+    std::vector<float> input_data(49);
+    for (int i = 0; i < 49; i++) input_data[i] = static_cast<float>(i) * 0.1f;
+    auto input = Tensor::create(input_data, {1, 1, 7, 7});
+
+    auto out_std = layer_std.forward(input);
+    auto out_dil = layer_dil.forward(input);
+
+    // Both produce 7x7 output (standard: pad=1, dilated: pad=2 with dilation=2)
+    TEST_ASSERT_SHAPE(out_std, std::vector<size_t>({1, 1, 7, 7}));
+    TEST_ASSERT_SHAPE(out_dil, std::vector<size_t>({1, 1, 7, 7}));
+
+    // Outputs should differ (dilated samples further-apart input positions)
+    bool differs = false;
+    for (size_t i = 0; i < out_std->size(); i++) {
+        if (std::abs(out_std->data()[i] - out_dil->data()[i]) > 1e-5f) {
+            differs = true;
+            break;
+        }
+    }
+    TEST_ASSERT_MSG(differs, "Dilated and standard conv should produce different outputs");
+}
+
+// =============================================================================
+// Conv1d Additional Tests
+// =============================================================================
+
+void test_conv1d_no_padding() {
+    Conv1d conv(2, 4, 3, 1, 0);  // no padding
+    auto input = Tensor::randn({1, 2, 10});  // [batch=1, channels=2, length=10]
+    auto output = conv.forward(input);
+
+    // out_length = (10 + 0 - 3) / 1 + 1 = 8
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({1, 4, 8}));
+}
+
+void test_conv1d_stride() {
+    Conv1d conv(1, 2, 3, 2, 1);  // stride=2, pad=1
+    auto input = Tensor::randn({1, 1, 10});
+    auto output = conv.forward(input);
+
+    // out_length = (10 + 2*1 - 3) / 2 + 1 = 5
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({1, 2, 5}));
+}
+
+void test_conv1d_gradient_flow() {
+    Conv1d conv(1, 2, 3, 1, 1);
+    auto input = Tensor::randn({1, 1, 8}, true);
+    auto output = conv.forward(input);
+    auto loss = output->sum();
+    loss->backward();
+
+    // Input should have gradients
+    TEST_ASSERT(input->grad_size() > 0);
+    bool has_nonzero = false;
+    for (size_t i = 0; i < input->grad_size(); i++) {
+        if (std::abs(input->grad()[i]) > 1e-7f) {
+            has_nonzero = true;
+            break;
+        }
+    }
+    TEST_ASSERT(has_nonzero);
+
+    // Weight and bias should have gradients
+    TEST_ASSERT(conv.weight->grad_size() > 0);
+    TEST_ASSERT(conv.bias->grad_size() > 0);
+}
+
+// =============================================================================
+// AdaptiveAvgPool2d Additional Tests
+// =============================================================================
+
+void test_adaptive_avgpool_nonsquare() {
+    AdaptiveAvgPool2d pool(3, 5);  // Non-square output
+    auto input = Tensor::randn({2, 3, 12, 20});
+    auto output = pool.forward(input);
+
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({2, 3, 3, 5}));
+
+    // Output should not have NaN
+    for (size_t i = 0; i < output->size(); i++) {
+        TEST_ASSERT(!std::isnan(output->data()[i]));
+    }
+}
+
+void test_adaptive_avgpool_gradient() {
+    AdaptiveAvgPool2d pool(1, 1);  // Global average pooling
+    auto input = Tensor::randn({1, 2, 4, 4}, true);
+    auto output = pool.forward(input);
+    auto loss = output->sum();
+    loss->backward();
+
+    TEST_ASSERT(input->grad_size() > 0);
+    // For global avg pool with sum loss, each input grad = 1 / (H*W)
+    float expected_grad = 1.0f / (4.0f * 4.0f);
+    for (size_t i = 0; i < input->grad_size(); i++) {
+        TEST_ASSERT_NEAR(input->grad()[i], expected_grad, 1e-5f);
+    }
+}
+
+// =============================================================================
+// Upsample Additional Tests
+// =============================================================================
+
+void test_upsample_nearest_multichannel() {
+    Upsample up(3, "nearest");  // scale factor 3
+    auto input = Tensor::randn({2, 3, 4, 4});  // batch=2, channels=3
+    auto output = up.forward(input);
+
+    TEST_ASSERT_SHAPE(output, std::vector<size_t>({2, 3, 12, 12}));
+
+    // Verify no NaN
+    for (size_t i = 0; i < output->size(); i++) {
+        TEST_ASSERT(!std::isnan(output->data()[i]));
+    }
+}
+
+void test_upsample_bilinear_gradient() {
+    Upsample up(2, "bilinear");
+    auto input = Tensor::create({1.0f, 2.0f, 3.0f, 4.0f}, {1, 1, 2, 2}, true);
+    auto output = up.forward(input);
+    auto loss = output->sum();
+    loss->backward();
+
+    // Input should have gradients
+    TEST_ASSERT(input->grad_size() > 0);
+    bool has_nonzero = false;
+    for (size_t i = 0; i < input->grad_size(); i++) {
+        if (std::abs(input->grad()[i]) > 1e-7f) {
+            has_nonzero = true;
+            break;
+        }
+    }
+    TEST_ASSERT(has_nonzero);
+}
+
+// =============================================================================
+// Grouped Conv2d Gradient Flow Test
+// =============================================================================
+
+void test_conv2d_groups_gradient() {
+    Conv2d conv(4, 8, 3, 1, 1, 2);  // groups=2
+    auto input = Tensor::randn({1, 4, 5, 5}, true);
+    auto output = conv.forward(input);
+    auto loss = output->sum();
+    loss->backward();
+
+    TEST_ASSERT(input->grad_size() > 0);
+    bool has_nonzero = false;
+    for (size_t i = 0; i < input->grad_size(); i++) {
+        if (std::abs(input->grad()[i]) > 1e-7f) {
+            has_nonzero = true;
+            break;
+        }
+    }
+    TEST_ASSERT(has_nonzero);
+
+    TEST_ASSERT(conv.weight->grad_size() > 0);
+    TEST_ASSERT(conv.bias->grad_size() > 0);
+}
+
+void test_conv2d_depthwise_gradient() {
+    Conv2d conv(4, 4, 3, 1, 1, 4);  // depthwise, groups=4
+    auto input = Tensor::randn({1, 4, 5, 5}, true);
+    auto output = conv.forward(input);
+    auto loss = output->sum();
+    loss->backward();
+
+    TEST_ASSERT(input->grad_size() > 0);
+    TEST_ASSERT(conv.weight->grad_size() > 0);
+    TEST_ASSERT(conv.bias->grad_size() > 0);
+}
+
 // =============================================================================
 // Test Suite Registration
 // =============================================================================
@@ -1846,6 +2032,9 @@ TestSuite* create_layer_tests() {
     suite->add_test("conv2d_dilated", test_conv2d_dilated);
     suite->add_test("conv2d_dilated_values", test_conv2d_dilated_values);
     suite->add_test("conv2d_dilation_default", test_conv2d_dilation_default);
+    suite->add_test("conv2d_dilated_differs_from_standard", test_conv2d_dilated_differs_from_standard);
+    suite->add_test("conv2d_groups_gradient", test_conv2d_groups_gradient);
+    suite->add_test("conv2d_depthwise_gradient", test_conv2d_depthwise_gradient);
 
     // ConvTranspose2d tests
     suite->add_test("conv_transpose2d_forward", test_conv_transpose2d_forward);
@@ -1952,14 +2141,21 @@ TestSuite* create_layer_tests() {
     suite->add_test("upsample_nearest", test_upsample_nearest);
     suite->add_test("upsample_bilinear", test_upsample_bilinear);
     suite->add_test("upsample_gradient", test_upsample_gradient);
+    suite->add_test("upsample_nearest_multichannel", test_upsample_nearest_multichannel);
+    suite->add_test("upsample_bilinear_gradient", test_upsample_bilinear_gradient);
 
     // Conv1d tests
     suite->add_test("conv1d_forward", test_conv1d_forward);
     suite->add_test("conv1d_parameters", test_conv1d_parameters);
+    suite->add_test("conv1d_no_padding", test_conv1d_no_padding);
+    suite->add_test("conv1d_stride", test_conv1d_stride);
+    suite->add_test("conv1d_gradient_flow", test_conv1d_gradient_flow);
 
     // AdaptiveAvgPool2d tests
     suite->add_test("adaptive_avgpool_forward", test_adaptive_avgpool_forward);
     suite->add_test("adaptive_avgpool_7x7", test_adaptive_avgpool_7x7);
+    suite->add_test("adaptive_avgpool_nonsquare", test_adaptive_avgpool_nonsquare);
+    suite->add_test("adaptive_avgpool_gradient", test_adaptive_avgpool_gradient);
 
     // KV Cache tests
     suite->add_test("kv_cache_basic", test_kv_cache_basic);

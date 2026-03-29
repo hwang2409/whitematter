@@ -504,7 +504,115 @@ void test_gradcheck_mish() {
 }
 
 // =============================================================================
-// 8. MultiHeadAttention Gradient Check (W_q only for speed)
+// 8. Grouped Conv2d Gradient Check
+// =============================================================================
+
+void test_gradcheck_conv2d_grouped() {
+    const float eps = 1e-4f;
+    const float tol = 5e-2f;
+
+    Conv2d layer(4, 8, 3, 1, 1, 2);  // in=4, out=8, kernel=3, stride=1, pad=1, groups=2
+    std::vector<float> input_data(4 * 5 * 5);
+    for (int i = 0; i < (int)input_data.size(); i++) input_data[i] = 0.1f * static_cast<float>(i) + 0.05f;
+    auto input = Tensor::create(input_data, {1, 4, 5, 5}, true);
+
+    for (auto& p : layer.parameters()) p->zero_grad();
+    auto output = layer.forward(input);
+    auto loss = output->sum();
+    loss->backward();
+
+    std::vector<float> weight_grad_analytical(layer.weight->grad(),
+        layer.weight->grad() + layer.weight->grad_size());
+    std::vector<float> bias_grad_analytical(layer.bias->grad(),
+        layer.bias->grad() + layer.bias->grad_size());
+
+    auto loss_fn = [&]() -> float {
+        auto out = layer.forward(input);
+        return sum_all(out);
+    };
+
+    TEST_ASSERT_MSG(
+        check_grad_param(loss_fn, layer.weight, weight_grad_analytical.data(), eps, tol, "Conv2d_grouped.weight"),
+        "Grouped Conv2d weight gradient check failed");
+    TEST_ASSERT_MSG(
+        check_grad_param(loss_fn, layer.bias, bias_grad_analytical.data(), eps, tol, "Conv2d_grouped.bias"),
+        "Grouped Conv2d bias gradient check failed");
+}
+
+// =============================================================================
+// 9. Dilated Conv2d Gradient Check
+// =============================================================================
+
+void test_gradcheck_conv2d_dilated() {
+    const float eps = 1e-4f;
+    const float tol = 5e-2f;
+
+    Conv2d layer(1, 2, 3, 1, 2, 1, 2);  // in=1, out=2, kernel=3, stride=1, pad=2, groups=1, dilation=2
+    std::vector<float> input_data(1 * 7 * 7);
+    for (int i = 0; i < (int)input_data.size(); i++) input_data[i] = 0.1f * static_cast<float>(i) + 0.05f;
+    auto input = Tensor::create(input_data, {1, 1, 7, 7}, true);
+
+    for (auto& p : layer.parameters()) p->zero_grad();
+    auto output = layer.forward(input);
+    auto loss = output->sum();
+    loss->backward();
+
+    std::vector<float> weight_grad_analytical(layer.weight->grad(),
+        layer.weight->grad() + layer.weight->grad_size());
+    std::vector<float> bias_grad_analytical(layer.bias->grad(),
+        layer.bias->grad() + layer.bias->grad_size());
+
+    auto loss_fn = [&]() -> float {
+        auto out = layer.forward(input);
+        return sum_all(out);
+    };
+
+    TEST_ASSERT_MSG(
+        check_grad_param(loss_fn, layer.weight, weight_grad_analytical.data(), eps, tol, "Conv2d_dilated.weight"),
+        "Dilated Conv2d weight gradient check failed");
+    TEST_ASSERT_MSG(
+        check_grad_param(loss_fn, layer.bias, bias_grad_analytical.data(), eps, tol, "Conv2d_dilated.bias"),
+        "Dilated Conv2d bias gradient check failed");
+}
+
+// =============================================================================
+// 10. Conv1d Gradient Check
+// =============================================================================
+
+void test_gradcheck_conv1d() {
+    const float eps = 1e-4f;
+    const float tol = 5e-2f;
+
+    Conv1d layer(1, 2, 3, 1, 1);  // in=1, out=2, kernel=3, stride=1, pad=1
+    std::vector<float> input_data(8);
+    for (int i = 0; i < 8; i++) input_data[i] = 0.1f * static_cast<float>(i) + 0.05f;
+    auto input = Tensor::create(input_data, {1, 1, 8}, true);
+
+    for (auto& p : layer.parameters()) p->zero_grad();
+    auto output = layer.forward(input);
+    auto loss = output->sum();
+    loss->backward();
+
+    std::vector<float> weight_grad_analytical(layer.weight->grad(),
+        layer.weight->grad() + layer.weight->grad_size());
+    std::vector<float> bias_grad_analytical(layer.bias->grad(),
+        layer.bias->grad() + layer.bias->grad_size());
+
+    auto loss_fn = [&]() -> float {
+        auto out = layer.forward(input);
+        return sum_all(out);
+    };
+
+    TEST_ASSERT_MSG(
+        check_grad_param(loss_fn, layer.weight, weight_grad_analytical.data(), eps, tol, "Conv1d.weight"),
+        "Conv1d weight gradient check failed");
+    TEST_ASSERT_MSG(
+        check_grad_param(loss_fn, layer.bias, bias_grad_analytical.data(), eps, tol, "Conv1d.bias"),
+        "Conv1d bias gradient check failed");
+}
+
+// =============================================================================
+// 11. MultiHeadAttention Gradient Check (W_q only for speed)
 // =============================================================================
 
 void test_gradcheck_mha() {
@@ -560,6 +668,9 @@ TestSuite* create_grad_check_tests() {
     suite->add_test("gradcheck_gelu", test_gradcheck_gelu);
     suite->add_test("gradcheck_mish", test_gradcheck_mish);
     suite->add_test("gradcheck_mha", test_gradcheck_mha);
+    suite->add_test("gradcheck_conv2d_grouped", test_gradcheck_conv2d_grouped);
+    suite->add_test("gradcheck_conv2d_dilated", test_gradcheck_conv2d_dilated);
+    suite->add_test("gradcheck_conv1d", test_gradcheck_conv1d);
 
     return suite;
 }
