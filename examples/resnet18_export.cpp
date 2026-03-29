@@ -376,10 +376,11 @@ int main(int argc, char* argv[]) {
             std::vector<size_t> shape(ndim);
             size_t total_size = 1;
             for (uint32_t d = 0; d < ndim; d++) {
-                uint32_t dim_val = 0;
-                if (!read_u32(dim_val)) { fprintf(stderr, "Error reading param %zu shape\n", i); return 1; }
-                shape[d] = dim_val;
-                total_size *= dim_val;
+                uint64_t dim_val = 0;
+                in.read(reinterpret_cast<char*>(&dim_val), sizeof(uint64_t));
+                if (!in.good()) { fprintf(stderr, "Error reading param %zu shape\n", i); return 1; }
+                shape[d] = (size_t)dim_val;
+                total_size *= (size_t)dim_val;
             }
 
             if (shape != params[i]->shape) {
