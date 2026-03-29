@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <random>
+#include <atomic>
 
 enum class DType { Float32, Float16 };
 
@@ -171,6 +172,10 @@ public:
     TensorPtr operator-() const { return neg(); }
 
     void print(const char* name = nullptr) const;
+
+    // Diagnostics: live tensor count/memory (atomic, thread-safe).
+    static int64_t live_count();
+    static int64_t live_bytes();
 
 private:
     void build_topo(std::vector<Tensor*>& topo, std::vector<Tensor*>& visited);

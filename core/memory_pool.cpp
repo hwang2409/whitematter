@@ -28,8 +28,20 @@ void MemoryPool::set_allocator(AllocFn alloc, FreeFn free) {
 
 namespace {
 
-const size_t kMaxPerClassPerThread = 64;
-const size_t kRefillBatch = 32;
+// Size-adaptive limits: large buffers (e.g. 128MB for [32,64,112,112])
+// should NOT fill thread-local caches with dozens of copies.
+// Threshold: 256K floats = 1MB.  Above that, cache fewer buffers.
+const size_t kLargeBufferThreshold = 256 * 1024;  // floats
+
+static size_t max_per_class(size_t cls) {
+    if (cls >= kLargeBufferThreshold) return 4;
+    return 64;
+}
+
+static size_t refill_batch(size_t cls) {
+    if (cls >= kLargeBufferThreshold) return 2;
+    return 32;
+}
 
 size_t next_power_of_two(size_t n) {
     if (n == 0) return 1;
@@ -138,7 +150,7 @@ struct ThreadCache {
             return ptr;
         }
         std::vector<float*> batch;
-        global->acquire_batch(cls, kRefillBatch, batch);
+        global->acquire_batch(cls, refill_batch(cls), batch);
         if (batch.empty()) return nullptr;
         for (size_t i = 1; i < batch.size(); ++i)
             local.push_back(batch[i]);
@@ -150,11 +162,12 @@ struct ThreadCache {
         global_ = global;
         size_t cls = MemoryPool::size_class(original_n);
         auto& local = buckets[cls];
-        if (local.size() < kMaxPerClassPerThread) {
+        size_t max_local = max_per_class(cls);
+        if (local.size() < max_local) {
             local.push_back(ptr);
             return;
         }
-        size_t drain_count = kMaxPerClassPerThread / 2;
+        size_t drain_count = max_local / 2;
         std::vector<float*> to_global;
         for (size_t i = 0; i < drain_count && !local.empty(); ++i) {
             to_global.push_back(local.back());
@@ -162,6 +175,17 @@ struct ThreadCache {
         }
         global->release_batch(to_global, cls);
         local.push_back(ptr);
+    }
+
+    // Free all cached buffers in this thread's cache directly (bypass global).
+    void flush() {
+        for (auto& kv : buckets) {
+            for (float* ptr : kv.second) {
+                if (g_free_fn) g_free_fn(ptr);
+                else std::free(ptr);
+            }
+            kv.second.clear();
+        }
     }
 };
 
@@ -187,15 +211,34 @@ void MemoryPool::release(float* ptr, size_t original_n) {
 }
 
 void MemoryPool::trim() {
+    // Flush calling thread's local cache first (frees directly, no lock needed).
+    memory_pool_detail::t_thread_cache.flush();
+
+    // Then free global pool buckets.
     auto* p = impl();
     std::lock_guard<std::mutex> lock(p->mutex);
-    for (auto& [cls, free_list] : p->buckets) {
-        for (float* ptr : free_list) {
+    for (auto& kv : p->buckets) {
+        for (float* ptr : kv.second) {
             if (g_free_fn) g_free_fn(ptr);
             else std::free(ptr);
         }
-        free_list.clear();
+        kv.second.clear();
     }
+}
+
+size_t MemoryPool::cached_bytes() const {
+    size_t total = 0;
+    // Thread-local cache
+    for (auto& kv : memory_pool_detail::t_thread_cache.buckets) {
+        total += kv.first * sizeof(float) * kv.second.size();
+    }
+    // Global pool
+    auto* p = const_cast<MemoryPool*>(this)->impl();
+    std::lock_guard<std::mutex> lock(p->mutex);
+    for (auto& kv : p->buckets) {
+        total += kv.first * sizeof(float) * kv.second.size();
+    }
+    return total;
 }
 
 std::shared_ptr<float> MemoryPool::acquire_shared(size_t n) {

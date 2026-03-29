@@ -20,12 +20,26 @@
 
 static thread_local std::mt19937 rng(42);
 
-Tensor::Tensor() : requires_grad(false), data_size_(0), grad_size_(0) {}
+// Global live tensor counter (atomic for thread safety).
+static std::atomic<int64_t> g_live_tensor_count{0};
+static std::atomic<int64_t> g_live_tensor_bytes{0};
 
-Tensor::~Tensor() {}
+int64_t Tensor::live_count() { return g_live_tensor_count.load(std::memory_order_relaxed); }
+int64_t Tensor::live_bytes() { return g_live_tensor_bytes.load(std::memory_order_relaxed); }
+
+Tensor::Tensor() : requires_grad(false), data_size_(0), grad_size_(0) {
+    g_live_tensor_count.fetch_add(1, std::memory_order_relaxed);
+}
+
+Tensor::~Tensor() {
+    g_live_tensor_count.fetch_sub(1, std::memory_order_relaxed);
+    g_live_tensor_bytes.fetch_sub(static_cast<int64_t>(data_size_ + grad_size_) * sizeof(float),
+                                   std::memory_order_relaxed);
+}
 
 Tensor::Tensor(const std::vector<size_t>& shape, bool requires_grad)
     : shape(shape), requires_grad(requires_grad) {
+    g_live_tensor_count.fetch_add(1, std::memory_order_relaxed);
     size_t total = 1;
     for (auto s : shape) total *= s;
     data_size_ = total;
@@ -40,10 +54,13 @@ Tensor::Tensor(const std::vector<size_t>& shape, bool requires_grad)
     } else {
         grad_size_ = 0;
     }
+    g_live_tensor_bytes.fetch_add(static_cast<int64_t>(data_size_ + grad_size_) * sizeof(float),
+                                   std::memory_order_relaxed);
 }
 
 Tensor::Tensor(const std::vector<float>& data, const std::vector<size_t>& shape, bool requires_grad)
     : shape(shape), requires_grad(requires_grad) {
+    g_live_tensor_count.fetch_add(1, std::memory_order_relaxed);
     data_size_ = data.size();
     data_storage_ = MemoryPool::instance().acquire_shared(data_size_);
     if (!data_storage_) throw std::bad_alloc();
@@ -56,12 +73,15 @@ Tensor::Tensor(const std::vector<float>& data, const std::vector<size_t>& shape,
     } else {
         grad_size_ = 0;
     }
+    g_live_tensor_bytes.fetch_add(static_cast<int64_t>(data_size_ + grad_size_) * sizeof(float),
+                                   std::memory_order_relaxed);
 }
 
 Tensor::Tensor(std::shared_ptr<float> data_storage, size_t data_size,
                const std::vector<size_t>& shape, bool requires_grad)
     : shape(shape), requires_grad(requires_grad),
       data_storage_(std::move(data_storage)), data_size_(data_size) {
+    g_live_tensor_count.fetch_add(1, std::memory_order_relaxed);
     if (requires_grad) {
         grad_size_ = data_size_;
         grad_storage_ = MemoryPool::instance().acquire_shared(grad_size_);
@@ -70,6 +90,8 @@ Tensor::Tensor(std::shared_ptr<float> data_storage, size_t data_size,
     } else {
         grad_size_ = 0;
     }
+    g_live_tensor_bytes.fetch_add(static_cast<int64_t>(data_size_ + grad_size_) * sizeof(float),
+                                   std::memory_order_relaxed);
 }
 
 TensorPtr Tensor::create(const std::vector<size_t>& shape, bool requires_grad) {

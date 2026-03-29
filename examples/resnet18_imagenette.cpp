@@ -647,63 +647,74 @@ int main(int argc, char* argv[]) {
             size_t batch_end = std::min(batch_start + batch_size, n_train);
             size_t bs = batch_end - batch_start;
 
-            // Assemble batch from mmap using shuffled indices
-            auto images = Tensor::create({bs, 3, 224, 224}, false);
-            auto labels = Tensor::create({bs}, false);
+            float batch_loss = 0.0f;
 
-            for (size_t i = 0; i < bs; i++) {
-                size_t idx = train_indices[batch_start + i];
-                std::memcpy(images->data() + i * img_elems,
-                             train_images_mmap.data + idx * img_elems,
-                             img_elems * sizeof(float));
-                labels->data()[i] = train_labels_mmap.data[idx];
+            // Scoped block: all batch tensors freed before trim()
+            {
+                // Assemble batch from mmap using shuffled indices
+                auto images = Tensor::create({bs, 3, 224, 224}, false);
+                auto labels = Tensor::create({bs}, false);
+
+                for (size_t i = 0; i < bs; i++) {
+                    size_t idx = train_indices[batch_start + i];
+                    std::memcpy(images->data() + i * img_elems,
+                                 train_images_mmap.data + idx * img_elems,
+                                 img_elems * sizeof(float));
+                    labels->data()[i] = train_labels_mmap.data[idx];
+                }
+
+                // Data augmentation: pad 16 -> random crop 224x224 -> random horizontal flip
+                auto augmented = images->pad2d(16)->random_crop(224, 224)->random_flip_horizontal(0.5f);
+
+                optimizer.zero_grad();
+
+                auto output = model.forward(augmented);
+                auto loss   = criterion(output, labels);
+
+                loss->backward();
+
+                // Manual L2 weight decay on conv/linear weights
+                apply_weight_decay(all_params, weight_decay);
+
+                optimizer.step();
+
+                // Extract loss and accuracy BEFORE releasing tensors
+                batch_loss = read_loss_scalar(loss);
+
+                auto cpu_output = ensure_cpu(output);
+                auto cpu_labels = ensure_cpu(labels);
+                size_t nc = cpu_output->shape[1];
+                for (size_t i = 0; i < bs; i++) {
+                    size_t pred = 0;
+                    float mv = cpu_output->data()[i * nc];
+                    for (size_t j = 1; j < nc; j++) {
+                        if (cpu_output->data()[i * nc + j] > mv) {
+                            mv = cpu_output->data()[i * nc + j];
+                            pred = j;
+                        }
+                    }
+                    if (pred == static_cast<size_t>(cpu_labels->data()[i])) correct++;
+                    total++;
+                }
             }
+            // All batch tensors (images, labels, augmented, output, loss) now freed.
 
-            // Data augmentation: pad 16 -> random crop 224x224 -> random horizontal flip
-            auto augmented = images->pad2d(16)->random_crop(224, 224)->random_flip_horizontal(0.5f);
-
-            optimizer.zero_grad();
-
-            auto output = model.forward(augmented);
-            auto loss   = criterion(output, labels);
-
-            loss->backward();
-
-            // Manual L2 weight decay on conv/linear weights
-            apply_weight_decay(all_params, weight_decay);
-
-            optimizer.step();
-
-            // Free cached memory to prevent unbounded growth with large 224x224 tensors
+            // Free cached memory — thread-local + global pools.
             MemoryPool::instance().trim();
 
-            // Read loss scalar (handles GPU -> CPU transfer)
-            total_loss += read_loss_scalar(loss);
+            total_loss += batch_loss;
             num_batches++;
 
-            // Compute training accuracy for this batch
-            auto cpu_output = ensure_cpu(output);
-            auto cpu_labels = ensure_cpu(labels);
-            size_t nc = cpu_output->shape[1];
-            for (size_t i = 0; i < bs; i++) {
-                size_t pred = 0;
-                float mv = cpu_output->data()[i * nc];
-                for (size_t j = 1; j < nc; j++) {
-                    if (cpu_output->data()[i * nc + j] > mv) {
-                        mv = cpu_output->data()[i * nc + j];
-                        pred = j;
-                    }
-                }
-                if (pred == static_cast<size_t>(cpu_labels->data()[i])) correct++;
-                total++;
-            }
-
-            // Print progress
+            // Print progress + memory diagnostics
             if (epoch == start_epoch || num_batches % 20 == 0) {
                 auto batch_time = std::chrono::high_resolution_clock::now();
                 double elapsed = std::chrono::duration<double>(batch_time - epoch_start).count();
-                printf("\r  Epoch %3d: batch %3zu/%zu | %.1fs elapsed",
-                       epoch + 1, num_batches, total_batches, elapsed);
+                int64_t live = Tensor::live_count();
+                int64_t live_mb = Tensor::live_bytes() / (1024 * 1024);
+                size_t pool_mb = MemoryPool::instance().cached_bytes() / (1024 * 1024);
+                printf("\r  Epoch %3d: batch %3zu/%zu | %.1fs | tensors: %lld (%lldMB) pool: %zuMB",
+                       epoch + 1, num_batches, total_batches, elapsed,
+                       (long long)live, (long long)live_mb, pool_mb);
                 fflush(stdout);
             }
         }
