@@ -17,15 +17,15 @@
 #include <chrono>
 #include <vector>
 #include <string>
-#include <fstream>
-#include <stdexcept>
 #include <algorithm>
+#include <numeric>
+#include <random>
 #include <sys/stat.h>
 #include "tensor.h"
 #include "layer.h"
 #include "loss.h"
 #include "optimizer.h"
-#include "dataloader.h"
+#include "mmap_tensor.h"
 #include "serialize.h"
 #include "device.h"
 #include "memory_pool.h"
@@ -41,34 +41,6 @@ static const char* class_names[] = {
     "tench", "English springer", "cassette player", "chain saw", "church",
     "French horn", "garbage truck", "gas pump", "golf ball", "parachute"
 };
-
-// ---------------------------------------------------------------------------
-// Binary tensor file loader (same format as cats_vs_dogs)
-// ---------------------------------------------------------------------------
-static TensorPtr load_tensor_bin(const std::string& path) {
-    std::ifstream f(path, std::ios::binary);
-    if (!f) throw std::runtime_error("Cannot open: " + path);
-
-    uint32_t magic, ndim;
-    f.read(reinterpret_cast<char*>(&magic), 4);
-    if (magic != 0x54454E53) throw std::runtime_error("Bad magic in: " + path);
-
-    f.read(reinterpret_cast<char*>(&ndim), 4);
-
-    std::vector<size_t> shape(ndim);
-    for (uint32_t i = 0; i < ndim; i++) {
-        uint64_t dim;
-        f.read(reinterpret_cast<char*>(&dim), 8);
-        shape[i] = static_cast<size_t>(dim);
-    }
-
-    auto tensor = Tensor::create(shape, false);
-    size_t num_floats = tensor->size();
-    f.read(reinterpret_cast<char*>(tensor->data()), num_floats * sizeof(float));
-
-    if (!f) throw std::runtime_error("Truncated data in: " + path);
-    return tensor;
-}
 
 // ---------------------------------------------------------------------------
 // Checkpoint format (binary):
@@ -434,29 +406,35 @@ static float read_loss_scalar(const TensorPtr& loss) {
 }
 
 // ---------------------------------------------------------------------------
-// Evaluation helper
+// Evaluation helper (works with mmap tensors -- iterates sequentially)
 // ---------------------------------------------------------------------------
-static float compute_accuracy(ResNet18& model, ThreadedDataLoader& loader,
-                              bool /*use_cuda*/) {
+static float compute_accuracy(ResNet18& model, const MmapTensor& images_mmap,
+                              const MmapTensor& labels_mmap, size_t batch_size) {
     NoGradGuard no_grad;
     model.eval();
 
     size_t correct = 0;
     size_t total = 0;
+    size_t n_samples = images_mmap.shape[0];
 
-    loader.reset();
-    while (loader.has_next()) {
-        auto [images, labels] = loader.next_batch_pair();
+    for (size_t start = 0; start < n_samples; start += batch_size) {
+        size_t end = std::min(start + batch_size, n_samples);
+        size_t bs = end - start;
+
+        // Copy batch from mmap (contiguous, no shuffling needed for eval)
+        auto images = images_mmap.get_batch(start, bs);
+        auto labels = Tensor::create({bs}, false);
+        std::memcpy(labels->data(), labels_mmap.data + start,
+                     bs * sizeof(float));
 
         auto output = model.forward(images);
 
         auto cpu_output = ensure_cpu(output);
         auto cpu_labels = ensure_cpu(labels);
 
-        size_t batch_size = cpu_output->shape[0];
         size_t num_classes = cpu_output->shape[1];
 
-        for (size_t i = 0; i < batch_size; i++) {
+        for (size_t i = 0; i < bs; i++) {
             size_t predicted = 0;
             float max_val = cpu_output->data()[i * num_classes];
             for (size_t j = 1; j < num_classes; j++) {
@@ -470,6 +448,9 @@ static float compute_accuracy(ResNet18& model, ThreadedDataLoader& loader,
             }
             total++;
         }
+
+        // Free intermediates between eval batches
+        MemoryPool::instance().trim();
     }
 
     model.train();
@@ -534,34 +515,25 @@ int main(int argc, char* argv[]) {
     fflush(stdout);
 
     // ------------------------------------------------------------------
-    // Load dataset from binary tensor files
+    // Load dataset via mmap (avoids loading 5.7GB+ into RAM)
     // ------------------------------------------------------------------
-    printf("Loading ImageNette dataset from '%s'...\n", data_dir.c_str());
+    printf("Loading ImageNette dataset from '%s' (memory-mapped)...\n", data_dir.c_str());
     fflush(stdout);
 
-    TensorPtr train_images, train_labels, test_images, test_labels;
-    try {
-        train_images = load_tensor_bin(data_dir + "/train_images.bin");
-        train_labels = load_tensor_bin(data_dir + "/train_labels.bin");
-        test_images  = load_tensor_bin(data_dir + "/test_images.bin");
-        test_labels  = load_tensor_bin(data_dir + "/test_labels.bin");
-    } catch (const std::exception& e) {
-        printf("Error loading data: %s\n", e.what());
-        printf("\nRun the preprocessing script first:\n");
-        printf("  python examples/preprocess_imagenette.py\n");
-        printf("\nExpected files in '%s':\n", data_dir.c_str());
-        printf("  train_images.bin  (N, 3, 224, 224) float32\n");
-        printf("  train_labels.bin  (N,) float32\n");
-        printf("  test_images.bin   (N, 3, 224, 224) float32\n");
-        printf("  test_labels.bin   (N,) float32\n");
-        return 1;
-    }
+    auto train_images_mmap = load_tensor_mmap(data_dir + "/train_images.bin");
+    auto train_labels_mmap = load_tensor_mmap(data_dir + "/train_labels.bin");
+    auto test_images_mmap  = load_tensor_mmap(data_dir + "/test_images.bin");
+    auto test_labels_mmap  = load_tensor_mmap(data_dir + "/test_labels.bin");
 
-    size_t n_train = train_images->shape[0];
-    size_t n_test  = test_images->shape[0];
+    size_t n_train = train_images_mmap.shape[0];
+    size_t n_test  = test_images_mmap.shape[0];
     printf("Train: %zu samples | Test: %zu samples\n", n_train, n_test);
-    printf("Image shape: [%zu, %zu, %zu]\n\n",
-           train_images->shape[1], train_images->shape[2], train_images->shape[3]);
+    printf("Image shape: [%zu, %zu, %zu]\n",
+           train_images_mmap.shape[1], train_images_mmap.shape[2],
+           train_images_mmap.shape[3]);
+    size_t dataset_bytes = (train_images_mmap.total_elements + test_images_mmap.total_elements) * sizeof(float);
+    printf("Dataset size: %.1f GB (memory-mapped, not loaded into RAM)\n\n",
+           dataset_bytes / (1024.0 * 1024.0 * 1024.0));
 
     // ------------------------------------------------------------------
     // Hyperparameters
@@ -613,13 +585,13 @@ int main(int argc, char* argv[]) {
     CrossEntropyLoss criterion;
 
     // ------------------------------------------------------------------
-    // Data loaders
+    // Shuffle indices for mmap batch sampling
     // ------------------------------------------------------------------
-    Dataset train_dataset{train_images, train_labels, n_train};
-    Dataset test_dataset{test_images, test_labels, n_test};
-
-    ThreadedDataLoader train_loader(train_dataset, batch_size, true, 2);
-    ThreadedDataLoader test_loader(test_dataset, batch_size, false, 0);
+    std::mt19937 rng(42);
+    std::vector<size_t> train_indices(n_train);
+    std::iota(train_indices.begin(), train_indices.end(), 0);
+    size_t img_elems = train_images_mmap.total_elements / n_train;
+    size_t total_batches = (n_train + batch_size - 1) / batch_size;
 
     // ------------------------------------------------------------------
     // Resume from checkpoint (if --resume was specified)
@@ -652,7 +624,7 @@ int main(int argc, char* argv[]) {
     mkdir("checkpoints", 0755);
 
     // ------------------------------------------------------------------
-    // Training loop
+    // Training loop (mmap batch sampling -- one batch in memory at a time)
     // ------------------------------------------------------------------
     printf("Training...\n");
     printf("--------------------------------------------------------------------------------\n");
@@ -660,7 +632,9 @@ int main(int argc, char* argv[]) {
 
     for (int epoch = start_epoch; epoch < num_epochs; epoch++) {
         model.train();
-        train_loader.reset();
+
+        // Shuffle training indices each epoch
+        std::shuffle(train_indices.begin(), train_indices.end(), rng);
 
         auto epoch_start = std::chrono::high_resolution_clock::now();
 
@@ -669,8 +643,21 @@ int main(int argc, char* argv[]) {
         size_t total      = 0;
         size_t num_batches = 0;
 
-        while (train_loader.has_next()) {
-            auto [images, labels] = train_loader.next_batch_pair();
+        for (size_t batch_start = 0; batch_start < n_train; batch_start += batch_size) {
+            size_t batch_end = std::min(batch_start + batch_size, n_train);
+            size_t bs = batch_end - batch_start;
+
+            // Assemble batch from mmap using shuffled indices
+            auto images = Tensor::create({bs, 3, 224, 224}, false);
+            auto labels = Tensor::create({bs}, false);
+
+            for (size_t i = 0; i < bs; i++) {
+                size_t idx = train_indices[batch_start + i];
+                std::memcpy(images->data() + i * img_elems,
+                             train_images_mmap.data + idx * img_elems,
+                             img_elems * sizeof(float));
+                labels->data()[i] = train_labels_mmap.data[idx];
+            }
 
             // Data augmentation: pad 16 -> random crop 224x224 -> random horizontal flip
             auto augmented = images->pad2d(16)->random_crop(224, 224)->random_flip_horizontal(0.5f);
@@ -697,7 +684,6 @@ int main(int argc, char* argv[]) {
             // Compute training accuracy for this batch
             auto cpu_output = ensure_cpu(output);
             auto cpu_labels = ensure_cpu(labels);
-            size_t bs = cpu_output->shape[0];
             size_t nc = cpu_output->shape[1];
             for (size_t i = 0; i < bs; i++) {
                 size_t pred = 0;
@@ -717,7 +703,7 @@ int main(int argc, char* argv[]) {
                 auto batch_time = std::chrono::high_resolution_clock::now();
                 double elapsed = std::chrono::duration<double>(batch_time - epoch_start).count();
                 printf("\r  Epoch %3d: batch %3zu/%zu | %.1fs elapsed",
-                       epoch + 1, num_batches, train_loader.num_batches(), elapsed);
+                       epoch + 1, num_batches, total_batches, elapsed);
                 fflush(stdout);
             }
         }
@@ -729,7 +715,7 @@ int main(int argc, char* argv[]) {
 
         float avg_loss  = total_loss / static_cast<float>(num_batches);
         float train_acc = static_cast<float>(correct) / static_cast<float>(total) * 100.0f;
-        float test_acc  = compute_accuracy(model, test_loader, use_cuda);
+        float test_acc  = compute_accuracy(model, test_images_mmap, test_labels_mmap, batch_size);
 
         bool saved_best = false;
         if (test_acc > best_test_acc) {
@@ -756,22 +742,25 @@ int main(int argc, char* argv[]) {
     printf("Training complete! Best test accuracy: %.2f%%\n\n", best_test_acc);
 
     // ------------------------------------------------------------------
-    // Sample predictions
+    // Sample predictions (first 10 test images via mmap)
     // ------------------------------------------------------------------
     printf("Sample predictions:\n");
     {
         NoGradGuard no_grad;
         model.eval();
-        test_loader.reset();
-        auto [images, labels] = test_loader.next_batch_pair();
+
+        size_t num_samples = std::min(size_t(10), n_test);
+        auto images = test_images_mmap.get_batch(0, num_samples);
+        auto labels = Tensor::create({num_samples}, false);
+        std::memcpy(labels->data(), test_labels_mmap.data,
+                     num_samples * sizeof(float));
 
         auto output = model.forward(images);
 
         auto cpu_output = ensure_cpu(output);
         auto cpu_labels = ensure_cpu(labels);
 
-        int num_samples = std::min(10, static_cast<int>(cpu_output->shape[0]));
-        for (int i = 0; i < num_samples; i++) {
+        for (size_t i = 0; i < num_samples; i++) {
             size_t predicted = 0;
             float max_val = cpu_output->data()[i * 10];
             for (size_t j = 1; j < 10; j++) {
