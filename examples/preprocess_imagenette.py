@@ -141,9 +141,9 @@ def load_and_preprocess(image_path: Path) -> np.ndarray:
 # ---------------------------------------------------------------------------
 # Process a split (train or val)
 # ---------------------------------------------------------------------------
-def process_split(split_dir: Path, split_name: str) -> tuple:
-    """Process all images in a split directory. Returns (images, labels) arrays."""
-    images = []
+def process_split(split_dir: Path, split_name: str, images_path: Path, labels_path: Path) -> int:
+    """Process all images and stream directly to binary files (low memory).
+    Returns the number of valid images."""
     labels = []
     skipped = 0
     t0 = time.time()
@@ -164,37 +164,58 @@ def process_split(split_dir: Path, split_name: str) -> tuple:
     total = len(image_entries)
     print(f"Processing {split_name} set: {total} images")
 
-    for idx, (img_path, label_idx) in enumerate(image_entries):
-        if (idx + 1) % 1000 == 0 or idx == 0:
-            elapsed = time.time() - t0
-            print(
-                f"  {idx + 1}/{total}  "
-                f"({len(images)} valid, {skipped} skipped)  "
-                f"[{elapsed:.1f}s]"
-            )
-
-        try:
-            arr = load_and_preprocess(img_path)
-            images.append(arr)
-            labels.append(label_idx)
-        except Exception as exc:
-            skipped += 1
-            if skipped <= 10:
-                print(f"    [warn] Skipping {img_path.name}: {exc}")
+    # First pass: process images and collect valid ones + labels
+    valid_count = 0
+    # Write images to a temp file, then prepend header
+    tmp_path = images_path.with_suffix(".tmp")
+    with open(tmp_path, "wb") as img_f:
+        for idx, (img_path, label_idx) in enumerate(image_entries):
+            if (idx + 1) % 1000 == 0 or idx == 0:
+                elapsed = time.time() - t0
+                print(
+                    f"  {idx + 1}/{total}  "
+                    f"({valid_count} valid, {skipped} skipped)  "
+                    f"[{elapsed:.1f}s]"
+                )
+            try:
+                arr = load_and_preprocess(img_path)
+                img_f.write(arr.tobytes())
+                labels.append(label_idx)
+                valid_count += 1
+            except Exception as exc:
+                skipped += 1
+                if skipped <= 10:
+                    print(f"    [warn] Skipping {img_path.name}: {exc}")
 
     elapsed = time.time() - t0
     print(
-        f"  Done. {len(images)} valid images, "
+        f"  Done. {valid_count} valid images, "
         f"{skipped} corrupt/skipped in {elapsed:.1f}s"
     )
 
-    if not images:
-        sys.exit(f"No valid images found in {split_dir} — cannot continue.")
+    if valid_count == 0:
+        sys.exit(f"No valid images found in {split_dir}")
 
-    all_images = np.stack(images, axis=0)  # [N, 3, 224, 224]
-    all_labels = np.array(labels, dtype=np.float32)  # [N]
+    # Write final images file with header
+    with open(images_path, "wb") as f:
+        f.write(struct.pack("<I", TENSOR_MAGIC))
+        f.write(struct.pack("<I", 4))  # ndim=4
+        for dim in [valid_count, 3, TARGET_SIZE[0], TARGET_SIZE[1]]:
+            f.write(struct.pack("<Q", dim))
+        # Append raw data from temp file
+        with open(tmp_path, "rb") as tmp:
+            while True:
+                chunk = tmp.read(64 * 1024 * 1024)  # 64MB chunks
+                if not chunk:
+                    break
+                f.write(chunk)
+    tmp_path.unlink()
 
-    return all_images, all_labels
+    # Write labels
+    all_labels = np.array(labels, dtype=np.float32)
+    save_tensor(labels_path, all_labels)
+
+    return valid_count
 
 
 # ---------------------------------------------------------------------------
@@ -216,28 +237,21 @@ def main() -> None:
         )
 
     # ------------------------------------------------------------------
-    # 2. Process train and val splits
-    # ------------------------------------------------------------------
-    train_images, train_labels = process_split(train_dir, "train")
-    test_images, test_labels = process_split(val_dir, "val")
-
-    print(f"  Train: {train_images.shape}  Test: {test_images.shape}")
-
-    # ------------------------------------------------------------------
-    # 3. Save in whitematter tensor format
+    # 2. Process and save (streaming — low memory)
     # ------------------------------------------------------------------
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    for name, tensor in [
-        ("train_images.bin", train_images),
-        ("train_labels.bin", train_labels),
-        ("test_images.bin", test_images),
-        ("test_labels.bin", test_labels),
-    ]:
+    train_count = process_split(train_dir, "train",
+                                OUTPUT_DIR / "train_images.bin",
+                                OUTPUT_DIR / "train_labels.bin")
+    test_count = process_split(val_dir, "val",
+                               OUTPUT_DIR / "test_images.bin",
+                               OUTPUT_DIR / "test_labels.bin")
+
+    for name in ["train_images.bin", "train_labels.bin", "test_images.bin", "test_labels.bin"]:
         path = OUTPUT_DIR / name
-        save_tensor(path, tensor)
         size_mb = path.stat().st_size / (1024 * 1024)
-        print(f"  Saved {path}  shape={tensor.shape}  ({size_mb:.1f} MB)")
+        print(f"  {path}  ({size_mb:.1f} MB)")
 
     # ------------------------------------------------------------------
     # 4. Write config metadata
@@ -254,8 +268,8 @@ def main() -> None:
         "num_classes": 10,
         "class_names": class_names,
         "synset_ids": sorted(SYNSET_MAP.keys(), key=lambda s: SYNSET_MAP[s][0]),
-        "train_samples": int(train_images.shape[0]),
-        "test_samples": int(test_images.shape[0]),
+        "train_samples": train_count,
+        "test_samples": test_count,
         "input_shape": [CHANNELS, TARGET_SIZE[0], TARGET_SIZE[1]],
         "normalization": "divide_by_255",
         "imagenet_mean": IMAGENET_MEAN,
@@ -270,14 +284,8 @@ def main() -> None:
     # 5. Summary
     # ------------------------------------------------------------------
     print(f"\nSaved to {OUTPUT_DIR}/")
-    print(
-        f"  train: {train_images.shape[0]} images "
-        f"{list(train_images.shape)}"
-    )
-    print(
-        f"  test:  {test_images.shape[0]} images "
-        f"{list(test_images.shape)}"
-    )
+    print(f"  train: {train_count} images [{train_count}, 3, {TARGET_SIZE[0]}, {TARGET_SIZE[1]}]")
+    print(f"  test:  {test_count} images [{test_count}, 3, {TARGET_SIZE[0]}, {TARGET_SIZE[1]}]")
     print("\nAll done. You can now train with the C++ library using:")
     print(f"  data dir: {OUTPUT_DIR}")
 
