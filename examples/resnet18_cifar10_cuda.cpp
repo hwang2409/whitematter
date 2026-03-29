@@ -48,7 +48,8 @@ static const uint32_t CHECKPOINT_MAGIC = 0x574D4350;
 
 static void save_checkpoint(const std::string& path, int epoch, float best_acc,
                             float lr, const std::vector<TensorPtr>& params,
-                            const std::vector<std::vector<float>>& momentum) {
+                            const std::vector<std::vector<float>>& momentum,
+                            const std::vector<TensorPtr>& bn_stats = {}) {
     FILE* f = fopen(path.c_str(), "wb");
     if (!f) { fprintf(stderr, "Failed to save checkpoint to %s\n", path.c_str()); return; }
 
@@ -77,6 +78,15 @@ static void save_checkpoint(const std::string& path, int epoch, float best_acc,
         uint64_t sz = buf.size();
         fwrite(&sz, 8, 1, f);
         fwrite(buf.data(), sizeof(float), buf.size(), f);
+    }
+
+    // Save BatchNorm running stats (running_mean, running_var for each BN layer)
+    uint32_t nbn = bn_stats.size();
+    fwrite(&nbn, 4, 1, f);
+    for (auto& s : bn_stats) {
+        uint64_t sz = s->size();
+        fwrite(&sz, 8, 1, f);
+        fwrite(s->data(), sizeof(float), s->size(), f);
     }
 
     fclose(f);
@@ -207,6 +217,16 @@ struct BasicBlock {
         return params;
     }
 
+    std::vector<TensorPtr> running_stats() {
+        std::vector<TensorPtr> stats;
+        stats.push_back(bn1.running_mean); stats.push_back(bn1.running_var);
+        stats.push_back(bn2.running_mean); stats.push_back(bn2.running_var);
+        if (has_downsample) {
+            stats.push_back(down_bn.running_mean); stats.push_back(down_bn.running_var);
+        }
+        return stats;
+    }
+
     void train() { bn1.train(); bn2.train(); if (has_downsample) down_bn.train(); }
     void eval()  { bn1.eval();  bn2.eval();  if (has_downsample) down_bn.eval();  }
 
@@ -297,6 +317,19 @@ struct ResNet18 {
         add(layer4_1.parameters());
         add(fc.parameters());
         return params;
+    }
+
+    std::vector<TensorPtr> running_stats() {
+        std::vector<TensorPtr> stats;
+        auto add = [&](std::vector<TensorPtr> s) {
+            stats.insert(stats.end(), s.begin(), s.end());
+        };
+        stats.push_back(bn1.running_mean); stats.push_back(bn1.running_var);
+        add(layer1_0.running_stats()); add(layer1_1.running_stats());
+        add(layer2_0.running_stats()); add(layer2_1.running_stats());
+        add(layer3_0.running_stats()); add(layer3_1.running_stats());
+        add(layer4_0.running_stats()); add(layer4_1.running_stats());
+        return stats;
     }
 
     void train() {
@@ -660,12 +693,12 @@ int main(int argc, char* argv[]) {
         if (test_acc > best_test_acc) {
             best_test_acc = test_acc;
             save_checkpoint("checkpoints/resnet18_best.ckpt", epoch + 1, best_test_acc,
-                            optimizer.lr, all_params, optimizer.velocity);
+                            optimizer.lr, all_params, optimizer.velocity, model.running_stats());
             saved_best = true;
         }
         if ((epoch + 1) % 10 == 0) {
             save_checkpoint("checkpoints/resnet18_latest.ckpt", epoch + 1, best_test_acc,
-                            optimizer.lr, all_params, optimizer.velocity);
+                            optimizer.lr, all_params, optimizer.velocity, model.running_stats());
         }
 
         printf("\r  Epoch %3d | Loss: %.4f | Train: %.2f%% | Test: %.2f%% | Best: %.2f%% | LR: %.6f | %.1fs",
@@ -677,7 +710,7 @@ int main(int argc, char* argv[]) {
 
     printf("--------------------------------------------------------------------------------\n");
     save_checkpoint("checkpoints/resnet18_final.ckpt", num_epochs, best_test_acc,
-                    optimizer.lr, all_params, optimizer.velocity);
+                    optimizer.lr, all_params, optimizer.velocity, model.running_stats());
     printf("Training complete! Best test accuracy: %.2f%%\n\n", best_test_acc);
 
     // ------------------------------------------------------------------

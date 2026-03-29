@@ -398,7 +398,52 @@ int main(int argc, char* argv[]) {
 
         printf("  Loaded %u parameters from %s\n", num_params, ckpt_path.c_str());
 
-        // Skip optimizer state (we don't need it for export)
+        // Skip momentum buffers
+        if (is_wmcp) {
+            uint32_t nm = 0;
+            in.read(reinterpret_cast<char*>(&nm), 4);
+            for (uint32_t i = 0; i < nm && in.good(); i++) {
+                uint64_t sz = 0;
+                in.read(reinterpret_cast<char*>(&sz), 8);
+                in.seekg(sz * sizeof(float), std::ios::cur);
+            }
+
+            // Load BatchNorm running stats
+            uint32_t nbn = 0;
+            if (in.read(reinterpret_cast<char*>(&nbn), 4) && nbn > 0) {
+                // Collect all BN running stats from model in same order as save
+                std::vector<TensorPtr> bn_stats;
+                bn_stats.push_back(model.bn1.running_mean);
+                bn_stats.push_back(model.bn1.running_var);
+                auto add_block = [&](BasicBlock& blk) {
+                    bn_stats.push_back(blk.bn1.running_mean);
+                    bn_stats.push_back(blk.bn1.running_var);
+                    bn_stats.push_back(blk.bn2.running_mean);
+                    bn_stats.push_back(blk.bn2.running_var);
+                    if (blk.has_downsample) {
+                        bn_stats.push_back(blk.down_bn.running_mean);
+                        bn_stats.push_back(blk.down_bn.running_var);
+                    }
+                };
+                add_block(model.layer1_0); add_block(model.layer1_1);
+                add_block(model.layer2_0); add_block(model.layer2_1);
+                add_block(model.layer3_0); add_block(model.layer3_1);
+                add_block(model.layer4_0); add_block(model.layer4_1);
+
+                uint32_t loaded = std::min(nbn, (uint32_t)bn_stats.size());
+                for (uint32_t i = 0; i < loaded; i++) {
+                    uint64_t sz = 0;
+                    in.read(reinterpret_cast<char*>(&sz), 8);
+                    if (sz == bn_stats[i]->size()) {
+                        in.read(reinterpret_cast<char*>(bn_stats[i]->data()), sz * sizeof(float));
+                    } else {
+                        in.seekg(sz * sizeof(float), std::ios::cur);
+                    }
+                }
+                printf("  Loaded %u BatchNorm running stats\n", loaded);
+            }
+        }
+
         model.eval();
     } else {
         printf("Using randomly initialized weights (no checkpoint).\n");
