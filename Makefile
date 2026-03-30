@@ -139,6 +139,8 @@ RESNET18_EXPORT_TARGET = $(BUILD_DIR)/resnet18_export
 MOBILENETV2_TARGET = $(BUILD_DIR)/mobilenetv2_cifar10
 RESNET18_IMAGENETTE_TARGET = $(BUILD_DIR)/resnet18_imagenette
 GPT_SHAKESPEARE_TARGET = $(BUILD_DIR)/gpt_shakespeare
+GPT_NINO_TRAIN_TARGET = $(BUILD_DIR)/gpt_nino_train
+GPT_NINO_CHAT_TARGET = $(BUILD_DIR)/gpt_nino_chat
 TESTS_TARGET = $(BUILD_DIR)/run_tests
 
 TEST_SRCS = $(TESTS_DIR)/test_tensor.cpp $(TESTS_DIR)/test_autograd.cpp \
@@ -313,6 +315,12 @@ $(BUILD_DIR)/mobilenetv2_cifar10.o: $(EXAMPLES_DIR)/mobilenetv2_cifar10.cpp | $(
 $(BUILD_DIR)/gpt_shakespeare.o: $(EXAMPLES_DIR)/gpt_shakespeare.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
+$(BUILD_DIR)/gpt_nino_train.o: $(EXAMPLES_DIR)/gpt_nino_train.cpp $(EXAMPLES_DIR)/nino_gpt.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/gpt_nino_chat.o: $(EXAMPLES_DIR)/gpt_nino_chat.cpp $(EXAMPLES_DIR)/nino_gpt.h | $(BUILD_DIR)
+	$(CXX) $(CXXFLAGS) -c -o $@ $<
+
 $(BUILD_DIR)/resnet18_imagenette.o: $(EXAMPLES_DIR)/resnet18_imagenette.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
@@ -389,6 +397,22 @@ gpt_shakespeare: $(GPT_SHAKESPEARE_TARGET)
 
 run-gpt: $(GPT_SHAKESPEARE_TARGET)
 	./$(GPT_SHAKESPEARE_TARGET)
+
+$(GPT_NINO_TRAIN_TARGET): $(BUILD_DIR)/gpt_nino_train.o $(STATIC_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $< -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
+
+$(GPT_NINO_CHAT_TARGET): $(BUILD_DIR)/gpt_nino_chat.o $(STATIC_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $< -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
+
+nino-train: $(GPT_NINO_TRAIN_TARGET)
+
+nino-chat: $(GPT_NINO_CHAT_TARGET)
+
+run-nino-train: $(GPT_NINO_TRAIN_TARGET)
+	./$(GPT_NINO_TRAIN_TARGET)
+
+run-nino-chat: $(GPT_NINO_CHAT_TARGET)
+	./$(GPT_NINO_CHAT_TARGET) data/nino/nino_gpt.wm
 
 $(RESNET18_IMAGENETTE_TARGET): $(BUILD_DIR)/resnet18_imagenette.o $(STATIC_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $< -L$(BUILD_DIR) -lwhitematter $(LDFLAGS)
