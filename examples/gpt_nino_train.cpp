@@ -5,7 +5,7 @@
  *   1. Create data/nino/raw_dialogue.jsonl with dialogue data
  *   2. Run: python examples/preprocess_nino.py
  *
- * Build: make nino-train
+ * Build: make CUDA=1 nino-train   (GPU) or make nino-train (CPU)
  * Run:   ./build/gpt_nino_train [--resume]
  */
 
@@ -25,6 +25,20 @@ static constexpr size_t SAMPLE_EVERY = 500;
 
 static const std::string MODEL_PATH = "data/nino/nino_gpt.wm";
 
+// Helper: temporarily move model to CPU for save, then back to GPU
+static void save_model_safe(NinoGPT& model, const std::string& path,
+                            [[maybe_unused]] bool use_gpu) {
+#if defined(WHITEMATTER_CUDA)
+    if (use_gpu) {
+        model.to(whitematter::DeviceType::CPU);
+        save_model(&model, path);
+        model.to(whitematter::DeviceType::CUDA);
+        return;
+    }
+#endif
+    save_model(&model, path);
+}
+
 int main(int argc, char* argv[]) {
     bool resume = false;
     for (int i = 1; i < argc; i++) {
@@ -33,6 +47,18 @@ int main(int argc, char* argv[]) {
 
     std::cout << "=== GPT-Nino Training ===" << std::endl;
     std::cout << "Training a Nino Nakano chatbot with WhiteMatter" << std::endl;
+    std::cout << std::endl;
+
+    // ---- Detect GPU ----
+    bool use_gpu = false;
+#if defined(WHITEMATTER_CUDA)
+    if (whitematter::cuda_backend_available()) {
+        use_gpu = true;
+        std::cout << "CUDA GPU detected — using GPU acceleration" << std::endl;
+    }
+#endif
+    if (!use_gpu)
+        std::cout << "Training on CPU" << std::endl;
     std::cout << std::endl;
 
     // ---- Load data ----
@@ -51,7 +77,6 @@ int main(int argc, char* argv[]) {
 
     // ---- Create model ----
     NinoGPT model;
-    auto params = model.parameters();
     std::cout << "Model parameters: " << model.count_params() << std::endl;
     std::cout << "Architecture: " << NUM_LAYERS << " layers, "
               << EMBED_DIM << " dim, " << NUM_HEADS << " heads, "
@@ -69,7 +94,16 @@ int main(int argc, char* argv[]) {
         std::cout << std::endl;
     }
 
+    // ---- Move model to GPU ----
+#if defined(WHITEMATTER_CUDA)
+    if (use_gpu) {
+        model.to(whitematter::DeviceType::CUDA);
+        std::cout << "Model moved to GPU" << std::endl;
+    }
+#endif
+
     // ---- Optimizer & scheduler ----
+    auto params = model.parameters();
     Adam optimizer(params, LR);
     LinearWarmupCosineDecay scheduler(&optimizer, WARMUP_STEPS, TOTAL_STEPS);
 
@@ -151,9 +185,8 @@ int main(int argc, char* argv[]) {
 
         // -- Checkpoint --
         if (step % SAVE_EVERY == 0 || step == TOTAL_STEPS) {
-            if (save_model(&model, MODEL_PATH)) {
-                std::cout << "[Checkpoint saved: " << MODEL_PATH << "]" << std::endl;
-            }
+            save_model_safe(model, MODEL_PATH, use_gpu);
+            std::cout << "[Checkpoint saved: " << MODEL_PATH << "]" << std::endl;
         }
     }
 

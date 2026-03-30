@@ -41,6 +41,14 @@ int main(int argc, char* argv[]) {
         return 1;
     }
     std::cout << "Model loaded: " << model.count_params() << " parameters" << std::endl;
+
+    // Move to GPU if available
+#if defined(WHITEMATTER_CUDA)
+    if (whitematter::cuda_backend_available()) {
+        model.to(whitematter::DeviceType::CUDA);
+        std::cout << "Using CUDA GPU acceleration" << std::endl;
+    }
+#endif
     std::cout << std::endl;
 
     // ---- Chat REPL ----
