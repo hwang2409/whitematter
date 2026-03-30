@@ -5,7 +5,7 @@
  *   1. Create data/nino/raw_dialogue.jsonl with dialogue data
  *   2. Run: python examples/preprocess_nino.py
  *
- * Build: make CUDA=1 nino-train   (GPU) or make nino-train (CPU)
+ * Build: make nino-train
  * Run:   ./build/gpt_nino_train [--resume]
  */
 
@@ -15,7 +15,7 @@
 #include <cstring>
 
 // Training hyperparameters
-static constexpr size_t BATCH_SIZE   = 16;
+static constexpr size_t BATCH_SIZE   = 32;
 static constexpr float  LR           = 3e-4f;
 static constexpr size_t TOTAL_STEPS  = 10000;
 static constexpr size_t WARMUP_STEPS = 200;
