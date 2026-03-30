@@ -25,19 +25,6 @@ static constexpr size_t SAMPLE_EVERY = 500;
 
 static const std::string MODEL_PATH = "data/nino/nino_gpt.wm";
 
-// Helper: temporarily move model to CPU for save, then back to GPU
-static void save_model_safe(NinoGPT& model, const std::string& path,
-                            [[maybe_unused]] bool use_gpu) {
-#if defined(WHITEMATTER_CUDA)
-    if (use_gpu) {
-        model.to(whitematter::DeviceType::CPU);
-        save_model(&model, path);
-        model.to(whitematter::DeviceType::CUDA);
-        return;
-    }
-#endif
-    save_model(&model, path);
-}
 
 int main(int argc, char* argv[]) {
     bool resume = false;
@@ -49,16 +36,8 @@ int main(int argc, char* argv[]) {
     std::cout << "Training a Nino Nakano chatbot with WhiteMatter" << std::endl;
     std::cout << std::endl;
 
-    // ---- Detect GPU ----
-    bool use_gpu = false;
-#if defined(WHITEMATTER_CUDA)
-    if (whitematter::cuda_backend_available()) {
-        use_gpu = true;
-        std::cout << "CUDA GPU detected — using GPU acceleration" << std::endl;
-    }
-#endif
-    if (!use_gpu)
-        std::cout << "Training on CPU" << std::endl;
+    // ---- Backend info ----
+    std::cout << "Training on CPU (matmuls accelerated via BLAS)" << std::endl;
     std::cout << std::endl;
 
     // ---- Load data ----
@@ -93,14 +72,6 @@ int main(int argc, char* argv[]) {
         }
         std::cout << std::endl;
     }
-
-    // ---- Move model to GPU ----
-#if defined(WHITEMATTER_CUDA)
-    if (use_gpu) {
-        model.to(whitematter::DeviceType::CUDA);
-        std::cout << "Model moved to GPU" << std::endl;
-    }
-#endif
 
     // ---- Optimizer & scheduler ----
     auto params = model.parameters();
@@ -185,7 +156,7 @@ int main(int argc, char* argv[]) {
 
         // -- Checkpoint --
         if (step % SAVE_EVERY == 0 || step == TOTAL_STEPS) {
-            save_model_safe(model, MODEL_PATH, use_gpu);
+            save_model(&model, MODEL_PATH);
             std::cout << "[Checkpoint saved: " << MODEL_PATH << "]" << std::endl;
         }
     }
