@@ -20,6 +20,7 @@
 #include <fstream>
 #include <sstream>
 #include <cstdint>
+#include <cstring>
 
 static constexpr uint16_t SYSTEM_TOKEN_ID = 256;
 static constexpr uint16_t USER_TOKEN_ID   = 257;
