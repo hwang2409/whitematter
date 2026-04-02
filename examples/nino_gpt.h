@@ -2,22 +2,23 @@
 #define NINO_GPT_H
 
 /**
- * NinoGPT: A decoder-only transformer for character-level dialogue generation.
+ * NinoGPT: A decoder-only transformer for BPE-level dialogue generation.
  *
- * Architecture (GPT-2 style, pre-norm):
- *   Token Embedding(256, 128) + Learned Position Embedding(256, 128)
+ * Architecture (GPT-2 style, pre-norm, weight-tied):
+ *   Token Embedding(1024, 128) + Learned Position Embedding(256, 128)
  *   4x TransformerBlock:
  *       RMSNorm -> MultiHeadAttention(128, 4) + residual
  *       RMSNorm -> MLP(128 -> 512 -> 128, SiLU) + residual
- *   RMSNorm -> Linear(128, 256)  (language model head)
+ *   RMSNorm -> tied LM head (shares tok_emb->weight, no bias)
  *
- * Conversation format:
+ * Conversation format (BPE tokens):
  *   <|system|>...<|nino|>...<|user|>...<|nino|>...
  */
 
 #include "tensor.h"
 #include "layer.h"
 #include "serialize.h"
+#include "bpe_tokenizer.h"
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -28,6 +29,7 @@
 #include <cassert>
 #include <algorithm>
 #include <limits>
+#include <numeric>
 
 // =============================================================================
 // Hyperparameters
@@ -36,28 +38,21 @@ static constexpr size_t EMBED_DIM   = 128;
 static constexpr size_t NUM_HEADS   = 4;
 static constexpr size_t NUM_LAYERS  = 4;
 static constexpr size_t MAX_SEQ_LEN = 256;
-static constexpr size_t VOCAB_SIZE  = 256;  // byte-level
+static constexpr size_t VOCAB_SIZE  = 1024;  // BPE vocab
 static constexpr size_t MLP_DIM     = 4 * EMBED_DIM;  // 512
 
 // =============================================================================
-// Conversation delimiters (byte sequences the model learns)
+// Data loading (uint16 BPE tokens, little-endian)
 // =============================================================================
-static const std::string SYSTEM_TAG = "<|system|>";
-static const std::string USER_TAG   = "<|user|>";
-static const std::string NINO_TAG   = "<|nino|>";
-
-// =============================================================================
-// Data loading
-// =============================================================================
-static std::vector<uint8_t> load_binary(const std::string& path) {
+static std::vector<uint16_t> load_binary(const std::string& path) {
     std::ifstream f(path, std::ios::binary | std::ios::ate);
     if (!f.is_open()) {
         std::cerr << "ERROR: cannot open " << path << std::endl;
         exit(1);
     }
-    auto sz = f.tellg();
+    auto sz = static_cast<size_t>(f.tellg());
     f.seekg(0);
-    std::vector<uint8_t> buf(static_cast<size_t>(sz));
+    std::vector<uint16_t> buf(sz / 2);
     f.read(reinterpret_cast<char*>(buf.data()), sz);
     return buf;
 }
@@ -105,6 +100,57 @@ static TensorPtr linear3d(const TensorPtr& input, Linear* layer) {
                         for (size_t i = 0; i < in_f; i++) {
                             w->grad()[o * in_f + i] += d * x_ptr[i];
                             dx[i] += d * w->data()[o * in_f + i];
+                        }
+                    }
+                }
+            }
+        };
+    }
+    return output;
+}
+
+// =============================================================================
+// Helper: tied linear projection using embedding weight (no bias)
+// input: [batch, seq, EMBED_DIM], weight: [VOCAB_SIZE, EMBED_DIM]
+// output: [batch, seq, VOCAB_SIZE]
+// =============================================================================
+static TensorPtr linear3d_tied(const TensorPtr& input, const TensorPtr& weight,
+                                size_t out_features, size_t in_features) {
+    size_t batch = input->shape[0];
+    size_t seq   = input->shape[1];
+
+    bool track = (input->requires_grad || weight->requires_grad) && GradMode::is_enabled();
+    auto output = Tensor::create({batch, seq, out_features}, track);
+
+    for (size_t b = 0; b < batch; b++) {
+        for (size_t s = 0; s < seq; s++) {
+            const float* x_ptr = input->data() + (b * seq + s) * in_features;
+            float* o_ptr = output->data() + (b * seq + s) * out_features;
+            for (size_t o = 0; o < out_features; o++) {
+                float acc = 0.0f;
+                for (size_t i = 0; i < in_features; i++) {
+                    acc += x_ptr[i] * weight->data()[o * in_features + i];
+                }
+                o_ptr[o] = acc;
+            }
+        }
+    }
+
+    if (track) {
+        auto inp = input;
+        auto w = weight;
+        output->parents = {inp, w};
+        output->grad_fn = [=]() {
+            for (size_t b = 0; b < batch; b++) {
+                for (size_t s = 0; s < seq; s++) {
+                    const float* x_ptr = inp->data() + (b * seq + s) * in_features;
+                    const float* dout  = output->grad() + (b * seq + s) * out_features;
+                    float* dx = inp->grad() + (b * seq + s) * in_features;
+                    for (size_t o = 0; o < out_features; o++) {
+                        float d = dout[o];
+                        for (size_t i = 0; i < in_features; i++) {
+                            w->grad()[o * in_features + i] += d * x_ptr[i];
+                            dx[i] += d * w->data()[o * in_features + i];
                         }
                     }
                 }
@@ -211,14 +257,13 @@ struct TransformerBlock {
 };
 
 // =============================================================================
-// NinoGPT Model (inherits Module for save/load compatibility)
+// NinoGPT Model (weight-tied: tok_emb->weight is the LM head)
 // =============================================================================
 struct NinoGPT : public Module {
     Embedding*    tok_emb;
     Embedding*    pos_emb;
     std::vector<TransformerBlock*> blocks;
     RMSNorm*      final_norm;
-    Linear*       lm_head;
 
     NinoGPT() {
         tok_emb    = new Embedding(VOCAB_SIZE, EMBED_DIM);
@@ -226,11 +271,10 @@ struct NinoGPT : public Module {
         for (size_t i = 0; i < NUM_LAYERS; i++)
             blocks.push_back(new TransformerBlock());
         final_norm = new RMSNorm(EMBED_DIM);
-        lm_head    = new Linear(EMBED_DIM, VOCAB_SIZE);
     }
 
     ~NinoGPT() {
-        delete tok_emb; delete pos_emb; delete final_norm; delete lm_head;
+        delete tok_emb; delete pos_emb; delete final_norm;
         for (auto* b : blocks) delete b;
     }
 
@@ -286,7 +330,8 @@ struct NinoGPT : public Module {
 
         x = final_norm->forward(x);
 
-        return linear3d(x, lm_head);
+        // Weight-tied LM head: project using tok_emb->weight (no bias)
+        return linear3d_tied(x, tok_emb->weight, VOCAB_SIZE, EMBED_DIM);
     }
 
     std::vector<TensorPtr> parameters() override {
@@ -299,7 +344,7 @@ struct NinoGPT : public Module {
         for (auto* b : blocks)
             add(b->parameters());
         add(final_norm->parameters());
-        add(lm_head->parameters());
+        // No lm_head — weight is tied with tok_emb
         return p;
     }
 
@@ -369,24 +414,38 @@ static TensorPtr lm_cross_entropy(const TensorPtr& logits, const TensorPtr& targ
 }
 
 // =============================================================================
-// Text generation with delimiter-based stopping
+// Text generation with BPE tokenizer, top-p sampling, and repetition penalty
 // =============================================================================
-static std::string generate(NinoGPT& model, const std::string& context,
-                            size_t max_tokens, float temperature = 0.8f,
-                            const std::string& stop_token = USER_TAG) {
+static std::string generate(NinoGPT& model, const BPETokenizer& tokenizer,
+                            const std::string& context, size_t max_tokens,
+                            float temperature = 0.7f, float top_p = 0.9f,
+                            float rep_penalty = 1.2f) {
     NoGradGuard no_grad;
 
     std::mt19937 rng(static_cast<unsigned>(
         std::chrono::steady_clock::now().time_since_epoch().count()));
 
-    std::string result = context;
+    // Encode context to BPE tokens
+    auto context_ids = tokenizer.encode(context);
+
+    // Track generated tokens for repetition penalty
+    std::vector<uint16_t> generated;
 
     for (size_t t = 0; t < max_tokens; t++) {
-        size_t ctx_len = std::min(result.size(), MAX_SEQ_LEN);
+        // Take last MAX_SEQ_LEN tokens as input
+        size_t total_len = context_ids.size() + generated.size();
+        size_t ctx_len = std::min(total_len, MAX_SEQ_LEN);
+
         auto tokens = Tensor::create({1, ctx_len}, false);
+
+        // Build input from context_ids + generated, taking last ctx_len tokens
+        std::vector<uint16_t> all_ids;
+        all_ids.insert(all_ids.end(), context_ids.begin(), context_ids.end());
+        all_ids.insert(all_ids.end(), generated.begin(), generated.end());
+
+        size_t start = all_ids.size() - ctx_len;
         for (size_t i = 0; i < ctx_len; i++) {
-            uint8_t byte = static_cast<uint8_t>(result[result.size() - ctx_len + i]);
-            tokens->data()[i] = static_cast<float>(byte);
+            tokens->data()[i] = static_cast<float>(all_ids[start + i]);
         }
 
         auto logits = model.forward(tokens);
@@ -394,6 +453,19 @@ static std::string generate(NinoGPT& model, const std::string& context,
         size_t last = ctx_len - 1;
         size_t offset = last * VOCAB_SIZE;
 
+        // Apply repetition penalty to recent tokens
+        size_t rep_window = std::min(generated.size(), static_cast<size_t>(32));
+        for (size_t r = 0; r < rep_window; r++) {
+            uint16_t prev_id = generated[generated.size() - 1 - r];
+            float& logit = logits->data()[offset + prev_id];
+            if (logit > 0) {
+                logit /= rep_penalty;
+            } else {
+                logit *= rep_penalty;
+            }
+        }
+
+        // Temperature-scaled softmax
         float mx = -std::numeric_limits<float>::max();
         for (size_t v = 0; v < VOCAB_SIZE; v++)
             mx = std::max(mx, logits->data()[offset + v]);
@@ -407,20 +479,45 @@ static std::string generate(NinoGPT& model, const std::string& context,
         for (size_t v = 0; v < VOCAB_SIZE; v++)
             probs[v] /= sum;
 
-        std::discrete_distribution<size_t> dist(probs.begin(), probs.end());
-        size_t sampled = dist(rng);
-        result += static_cast<char>(sampled);
+        // Top-p (nucleus) sampling
+        std::vector<size_t> indices(VOCAB_SIZE);
+        std::iota(indices.begin(), indices.end(), 0);
+        std::sort(indices.begin(), indices.end(),
+                  [&probs](size_t a, size_t b) { return probs[a] > probs[b]; });
 
-        if (result.size() >= stop_token.size()) {
-            std::string tail = result.substr(result.size() - stop_token.size());
-            if (tail == stop_token) {
-                result = result.substr(0, result.size() - stop_token.size());
+        float cumulative = 0.0f;
+        size_t cutoff = VOCAB_SIZE;
+        for (size_t i = 0; i < VOCAB_SIZE; i++) {
+            cumulative += probs[indices[i]];
+            if (cumulative > top_p) {
+                cutoff = i + 1;
                 break;
             }
         }
+
+        // Zero out tokens beyond cutoff and re-normalize
+        std::vector<float> filtered_probs(VOCAB_SIZE, 0.0f);
+        float filtered_sum = 0.0f;
+        for (size_t i = 0; i < cutoff; i++) {
+            filtered_probs[indices[i]] = probs[indices[i]];
+            filtered_sum += probs[indices[i]];
+        }
+        for (size_t v = 0; v < VOCAB_SIZE; v++)
+            filtered_probs[v] /= filtered_sum;
+
+        std::discrete_distribution<size_t> dist(filtered_probs.begin(), filtered_probs.end());
+        uint16_t sampled = static_cast<uint16_t>(dist(rng));
+
+        // Stop on special delimiter tokens
+        if (sampled == SYSTEM_TOKEN_ID || sampled == USER_TOKEN_ID || sampled == NINO_TOKEN_ID) {
+            break;
+        }
+
+        generated.push_back(sampled);
     }
 
-    return result.substr(context.size());
+    // Decode generated tokens back to text
+    return tokenizer.decode(generated);
 }
 
 #endif // NINO_GPT_H

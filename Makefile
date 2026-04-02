@@ -315,10 +315,10 @@ $(BUILD_DIR)/mobilenetv2_cifar10.o: $(EXAMPLES_DIR)/mobilenetv2_cifar10.cpp | $(
 $(BUILD_DIR)/gpt_shakespeare.o: $(EXAMPLES_DIR)/gpt_shakespeare.cpp | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/gpt_nino_train.o: $(EXAMPLES_DIR)/gpt_nino_train.cpp $(EXAMPLES_DIR)/nino_gpt.h | $(BUILD_DIR)
+$(BUILD_DIR)/gpt_nino_train.o: $(EXAMPLES_DIR)/gpt_nino_train.cpp $(EXAMPLES_DIR)/nino_gpt.h $(EXAMPLES_DIR)/bpe_tokenizer.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/gpt_nino_chat.o: $(EXAMPLES_DIR)/gpt_nino_chat.cpp $(EXAMPLES_DIR)/nino_gpt.h | $(BUILD_DIR)
+$(BUILD_DIR)/gpt_nino_chat.o: $(EXAMPLES_DIR)/gpt_nino_chat.cpp $(EXAMPLES_DIR)/nino_gpt.h $(EXAMPLES_DIR)/bpe_tokenizer.h | $(BUILD_DIR)
 	$(CXX) $(CXXFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/resnet18_imagenette.o: $(EXAMPLES_DIR)/resnet18_imagenette.cpp | $(BUILD_DIR)

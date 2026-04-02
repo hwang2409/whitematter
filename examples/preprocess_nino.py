@@ -1,29 +1,34 @@
 #!/usr/bin/env python3
 """
-Preprocess Nino Nakano dialogue data for GPT training.
+Preprocess Nino Nakano dialogue data for GPT training with BPE tokenization.
 
 Input:  data/nino/raw_dialogue.jsonl  (one JSON object per line)
-Output: data/nino/train.bin, data/nino/val.bin  (raw byte tokens)
+Output: data/nino/train.bin, data/nino/val.bin  (uint16 BPE token IDs)
+        data/nino/tokenizer.txt  (BPE merge rules for C++ loader)
 
 Each JSONL line is either:
   Single turn:  {"user": "...", "nino": "..."}
   Multi-turn:   {"turns": [{"user": "...", "nino": "..."}, ...]}
-
-The script wraps conversations with system prompts and delimiters:
-  <|system|>...<|nino|>...<|user|>...<|nino|>...<|user|>
 """
 
 import json
 import os
 import random
+import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, SCRIPT_DIR)
+from bpe_tokenizer import train_bpe, encode, save_tokenizer, save_tokens_bin, load_tokenizer
+
 DATA_DIR = os.path.join(SCRIPT_DIR, "..", "data", "nino")
 INPUT_FILE = os.path.join(DATA_DIR, "raw_dialogue.jsonl")
+TOKENIZER_PATH = os.path.join(DATA_DIR, "tokenizer.txt")
 
 SYSTEM_TAG = "<|system|>"
 USER_TAG = "<|user|>"
 NINO_TAG = "<|nino|>"
+
+BPE_VOCAB_SIZE = 1024
 
 # System prompts (varied for data augmentation)
 SYSTEM_PROMPTS = [
@@ -40,17 +45,14 @@ def build_conversations(entries):
     conversations = []
 
     for entry in entries:
-        # Pick a random system prompt for variety
         system_prompt = random.choice(SYSTEM_PROMPTS)
 
         if "turns" in entry:
-            # Multi-turn conversation
             conv = f"{SYSTEM_TAG}{system_prompt}"
             for turn in entry["turns"]:
                 conv += f"{USER_TAG}{turn['user']}{NINO_TAG}{turn['nino']}"
             conversations.append(conv)
         else:
-            # Single turn
             conv = f"{SYSTEM_TAG}{system_prompt}"
             conv += f"{USER_TAG}{entry['user']}{NINO_TAG}{entry['nino']}"
             conversations.append(conv)
@@ -95,33 +97,51 @@ def main():
     full_text = "".join(all_conversations)
     print(f"Total conversation text: {len(full_text)} characters")
 
-    # Encode to bytes
-    tokens = full_text.encode("utf-8")
-    print(f"Total tokens (bytes): {len(tokens)}")
+    # Train BPE tokenizer
+    print(f"\nTraining BPE tokenizer (vocab_size={BPE_VOCAB_SIZE})...")
+    merges, vocab = train_bpe(full_text, vocab_size=BPE_VOCAB_SIZE)
+    save_tokenizer(TOKENIZER_PATH, merges, vocab)
 
-    # Print some stats
-    unique = sorted(set(tokens))
-    print(f"Unique byte values: {len(unique)} (min={min(unique)}, max={max(unique)})")
+    # Encode all text to BPE tokens
+    print("\nEncoding text to BPE tokens...")
+    token_ids = encode(full_text, merges)
+    print(f"Total BPE tokens: {len(token_ids)}")
+    print(f"Compression ratio: {len(full_text) / len(token_ids):.2f}x (chars/token)")
+    print(f"Byte compression: {len(full_text.encode('utf-8')) / len(token_ids):.2f}x (bytes/token)")
+
+    # Verify round-trip
+    from bpe_tokenizer import decode
+    decoded = decode(token_ids, vocab)
+    if decoded == full_text:
+        print("Round-trip verification: PASSED")
+    else:
+        # Find first mismatch
+        for i, (a, b) in enumerate(zip(decoded, full_text)):
+            if a != b:
+                print(f"Round-trip verification: FAILED at position {i}")
+                print(f"  Expected: {repr(full_text[max(0,i-10):i+10])}")
+                print(f"  Got:      {repr(decoded[max(0,i-10):i+10])}")
+                break
+
+    # Stats
+    unique_tokens = sorted(set(token_ids))
+    print(f"Unique token IDs used: {len(unique_tokens)} (min={min(unique_tokens)}, max={max(unique_tokens)})")
 
     # 90/10 train/val split
-    split = int(len(tokens) * 0.9)
-    train_tokens = tokens[:split]
-    val_tokens = tokens[split:]
-    print(f"Train tokens: {len(train_tokens)}")
+    split = int(len(token_ids) * 0.9)
+    train_tokens = token_ids[:split]
+    val_tokens = token_ids[split:]
+    print(f"\nTrain tokens: {len(train_tokens)}")
     print(f"Val tokens:   {len(val_tokens)}")
 
-    # Write binary files
+    # Write binary files (uint16 little-endian)
     train_path = os.path.join(DATA_DIR, "train.bin")
     val_path = os.path.join(DATA_DIR, "val.bin")
 
-    with open(train_path, "wb") as f:
-        f.write(train_tokens)
-    with open(val_path, "wb") as f:
-        f.write(val_tokens)
+    save_tokens_bin(train_path, train_tokens)
+    save_tokens_bin(val_path, val_tokens)
 
-    print(f"Saved {train_path} ({len(train_tokens)} bytes)")
-    print(f"Saved {val_path} ({len(val_tokens)} bytes)")
-    print("Done.")
+    print("\nDone.")
 
 
 if __name__ == "__main__":
