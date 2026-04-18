@@ -1,114 +1,24 @@
-# Build artifacts
-build/
-build_cmake/
-*.o
-
-# Data (large; do not commit; .gitkeep keeps dir for scripts)
-data/*
-!data/.gitkeep
-
-# Exported ONNX and trained model binaries (purged from history; do not re-add)
-*.onnx
-mnist_cnn.onnx
-models/*.bin
-models/*.json
-!models/.gitkeep
-platform/models/*.bin
-platform/models/*.json
-!platform/models/.gitkeep
-
-# Personal / internal tooling (purged from history; keep local only)
-dongha.md
-
-# Alembic / SQLite (generated; do not commit)
-platform/alembic_default.db
-**/alembic*.db
-.beads/
-mayor/
-deacon/
-/settings/
-
-# Pretrained model weights (keep directory with .gitkeep)
-pretrained/*.bin
-
 # Python
 __pycache__/
 *.pyc
 *.egg-info/
 dist/
 *.whl
-*.so
 
-# Uploads and generated code
-uploads/
-generated/
+# Data (large; keep directory with .gitkeep)
+data/*
+!data/.gitkeep
 
-# IDE / editor / tooling
+# IDE / editor
 .vscode/
 .idea/
 .claude/
 
-# Node
-node_modules/
-
-# Gas Town HQ .gitignore
-# Track: Role context, handoff docs, beads config/data, rig configs
-# Ignore: Git worktrees (polecats) and clones (mayor/refinery rigs), runtime state
-
-# =============================================================================
-# Runtime state files (transient)
-# =============================================================================
-**/state.json
-**/*.lock
-**/registry.json
-
-# =============================================================================
-# Rig git worktrees (recreate with 'gt sling' or 'gt rig add')
-# =============================================================================
-
-# Polecats - worker worktrees
-**/polecats/
-
-# Agent/plan execution worktrees
-.worktrees/
-
-# Mayor rig clones
-**/mayor/rig/
-
-# Refinery working clones
-**/refinery/rig/
-
-# Crew workspaces (user-managed)
-**/crew/
-
-# =============================================================================
-# Runtime state directories (gitignored ephemeral data)
-# =============================================================================
-**/.runtime/
-
-# =============================================================================
-# Rig .beads symlinks (point to ignored mayor/rig/.beads, recreated on setup)
-# =============================================================================
-# Add rig-specific symlinks here, e.g.:
-# gastown/.beads
-
-# =============================================================================
-# OS and editor files
-# =============================================================================
+# OS
 .DS_Store
 *~
 *.swp
 *.swo
-.vscode/
-.idea/
 
-
-# =============================================================================
-# Environment / secrets
-# =============================================================================
+# Environment
 .env
-!.env.example
-!frontend/.env.example
-
-frontend/.next/
-presets/
